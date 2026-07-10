@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+bundles/
+
+# backups / build scratch
+.backup-*/
+**/.backup-*/
+*.bak.js
+*.BACKUP.js
+*.inlined.bak.js
+.DS_Store
