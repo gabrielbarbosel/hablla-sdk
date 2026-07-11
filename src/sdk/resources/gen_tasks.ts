@@ -37,66 +37,66 @@ export interface Task {
 /** `tasks` resource (generated from openapi.json). */
 export class Tasks extends Resource {
     /**
-     * Approve (give acceptance to) a service-team task.
-     * @method PUT /v1/workspaces/{workspace_id}/tasks/{id}/approval
-     * @remarks Any query params may be sent (none documented).
-     */
-    putApproval(id: string, body: Partial<Task>, opts: { query?: Record<string, unknown> } = {}): Promise<Task> {
-        return this.http.put('/v1/workspaces/{workspace_id}/tasks/{id}/approval', { path: { id }, body, query: opts.query });
-    }
-
-    /**
      * Delete checklist item by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}
+     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteChecklist(id: string, checklistId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}', { path: { id, checklist_id: checklistId }, query: opts.query });
+    deleteChecklist(taskId: string, checklistId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}', { path: { task_id: taskId, checklist_id: checklistId }, query: opts.query });
     }
 
     /**
      * Update checklist item on tag by id.
-     * @method PUT /v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}
+     * @method PUT /v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putChecklist(id: string, checklistId: string, body: Partial<Task>, opts: { query?: Record<string, unknown> } = {}): Promise<Task> {
-        return this.http.put('/v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}', { path: { id, checklist_id: checklistId }, body, query: opts.query });
+    putChecklist(taskId: string, checklistId: string, body: Partial<Task>, opts: { query?: Record<string, unknown> } = {}): Promise<Task> {
+        return this.http.put('/v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}', { path: { task_id: taskId, checklist_id: checklistId }, body, query: opts.query });
+    }
+
+    /**
+     * Approve (give acceptance to) a service-team task.
+     * @method PUT /v1/workspaces/{workspace_id}/tasks/{task_id}/approval
+     * @remarks Any query params may be sent (none documented).
+     */
+    putApproval(taskId: string, body: Partial<Task>, opts: { query?: Record<string, unknown> } = {}): Promise<Task> {
+        return this.http.put('/v1/workspaces/{workspace_id}/tasks/{task_id}/approval', { path: { task_id: taskId }, body, query: opts.query });
     }
 
     /**
      * Add checklist item to task by id.
-     * @method POST /v1/workspaces/{workspace_id}/tasks/{id}/checklist
+     * @method POST /v1/workspaces/{workspace_id}/tasks/{task_id}/checklist
      * @remarks Any query params may be sent (none documented).
      */
-    checklist(id: string, body: Partial<Task>, opts: { query?: Record<string, unknown> } = {}): Promise<Task> {
-        return this.http.post('/v1/workspaces/{workspace_id}/tasks/{id}/checklist', { path: { id }, body, query: opts.query });
+    checklist(taskId: string, body: Partial<Task>, opts: { query?: Record<string, unknown> } = {}): Promise<Task> {
+        return this.http.post('/v1/workspaces/{workspace_id}/tasks/{task_id}/checklist', { path: { task_id: taskId }, body, query: opts.query });
     }
 
     /**
      * Delete task by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{task_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteTask(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/tasks/{id}', { path: { id }, query: opts.query });
+    deleteTask(taskId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/tasks/{task_id}', { path: { task_id: taskId }, query: opts.query });
     }
 
     /**
      * Get task by id.
-     * @method GET /v1/workspaces/{workspace_id}/tasks/{id}
+     * @method GET /v1/workspaces/{workspace_id}/tasks/{task_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    getTask(id: string, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Task> {
-        return this.http.get('/v1/workspaces/{workspace_id}/tasks/{id}', { path: { id }, query: opts.query });
+    getTask(taskId: string, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Task> {
+        return this.http.get('/v1/workspaces/{workspace_id}/tasks/{task_id}', { path: { task_id: taskId }, query: opts.query });
     }
 
     /**
      * Update task by id.
-     * @method PUT /v1/workspaces/{workspace_id}/tasks/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/tasks/{task_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updateTask(id: string, body: Partial<Task>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Task> {
-        return this.http.put('/v1/workspaces/{workspace_id}/tasks/{id}', { path: { id }, body, query: opts.query });
+    updateTask(taskId: string, body: Partial<Task>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Task> {
+        return this.http.put('/v1/workspaces/{workspace_id}/tasks/{task_id}', { path: { task_id: taskId }, body, query: opts.query });
     }
 
     /**

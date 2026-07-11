@@ -1,4 +1,5 @@
 import type { HttpTransport, HttpResponse, Paged } from './types';
+import { isMultipart } from './types';
 import type { HabllaAuth } from './auth';
 import type { AuthStrategy } from './strategy';
 import { serializeQuery } from './query';
@@ -33,7 +34,9 @@ export interface HttpClientConfig {
 /** True for transport errors with no HTTP status (timeout, reset, socket hang up). */
 function isNetworkError(err: any): boolean {
     const msg = String(err?.message ?? '');
-    return err?.code === 'ECONNABORTED' || /timeout|ETIMEDOUT|ECONNRESET|socket hang up|network/i.test(msg);
+    return err?.code === 'ECONNABORTED'
+        || /timeout|ETIMEDOUT|ECONNRESET|socket hang up|network/i.test(msg)
+        || /dns error|address unavailable|unable to connect|connection refused|ENOTFOUND|EAI_AGAIN|ECONNREFUSED/i.test(msg);
 }
 
 /**
@@ -65,22 +68,33 @@ export class HabllaHttpClient {
         return rawPath.replace(/{([^}]+)}/g, (match, token: string) => {
             const key = token.includes('.') ? token.slice(token.lastIndexOf('.') + 1) : token;
             const val = params[key] ?? (key.includes('workspace') ? this.config.workspaceId : null);
-            return val != null ? encodeURIComponent(String(val)) : match;
+            if (val == null) throw new Error('Missing path parameter: ' + token);
+            return encodeURIComponent(String(val));
         });
     }
 
+    /**
+     * Content-Type is a per-body decision. A multipart body owns its own
+     * Content-Type (the transport generates the boundary), so none is set here. An
+     * explicit `contentType` (e.g. a form-urlencoded string) is honored as given. A
+     * plain JSON object defaults to `application/json`; a raw string with no
+     * explicit content type is sent as-is, never re-labeled as JSON.
+     */
     private async send<T>(method: string, url: string, opts: RequestOptions, strategy: AuthStrategy): Promise<HttpResponse<T>> {
-        return this.transport.send<T>({
-            method,
-            url,
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': opts.contentType ?? 'application/json',
-                Authorization: await this.auth.authorization(strategy),
-                ...opts.headers,
-            },
-            body: opts.body,
-        });
+        const headers: Record<string, string> = {
+            Accept: 'application/json',
+            Authorization: await this.auth.authorization(strategy),
+        };
+        const body = opts.body;
+        if (isMultipart(body)) {
+            // transport owns Content-Type + boundary
+        } else if (opts.contentType) {
+            headers['Content-Type'] = opts.contentType;
+        } else if (body != null && typeof body === 'object') {
+            headers['Content-Type'] = 'application/json';
+        }
+        Object.assign(headers, opts.headers);
+        return this.transport.send<T>({ method, url, headers, body });
     }
 
     /**
@@ -124,14 +138,18 @@ export class HabllaHttpClient {
         const cacheKey = `${method}:${rawPath}`;
         const primary = await this.auth.resolveStrategy(cacheKey);
 
+        const idempotent = method === 'GET' || method === 'HEAD';
         let res = await this.send<T>(method, url, opts, primary);
-        if (res.status < 400) {
+        if (res.status < 300) {
             await this.auth.recordStrategy(cacheKey, primary);
         } else if (res.status === 401 || res.status === 403) {
             const alternate: AuthStrategy = primary === 'workspace' ? 'bearer' : 'workspace';
             res = await this.send<T>(method, url, opts, alternate);
-            if (res.status < 400) await this.auth.recordStrategy(cacheKey, alternate);
-        } else if (primary === 'workspace') {
+            if (res.status < 300) await this.auth.recordStrategy(cacheKey, alternate);
+        } else if (primary === 'workspace' && idempotent) {
+            // Non-auth workspace failure: retry on Bearer only for idempotent methods.
+            // A mutating method (POST/PUT/PATCH/DELETE) may already have been applied,
+            // so it must never be re-sent on a 5xx/429/400.
             res = await this.send<T>(method, url, opts, 'bearer');
         }
 

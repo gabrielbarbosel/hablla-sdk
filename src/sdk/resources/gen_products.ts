@@ -4,29 +4,29 @@ import { Resource } from './base';
 export class Products extends Resource {
     /**
      * Delete product by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/products/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/products/{product_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteProduct(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/products/{id}', { path: { id }, query: opts.query });
+    deleteProduct(productId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/products/{product_id}', { path: { product_id: productId }, query: opts.query });
     }
 
     /**
      * Get product by id.
-     * @method GET /v1/workspaces/{workspace_id}/products/{id}
+     * @method GET /v1/workspaces/{workspace_id}/products/{product_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getProduct(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/products/{id}', { path: { id }, query: opts.query });
+    getProduct(productId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/products/{product_id}', { path: { product_id: productId }, query: opts.query });
     }
 
     /**
      * Update product by id.
-     * @method PUT /v1/workspaces/{workspace_id}/products/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/products/{product_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateProduct(id: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.put('/v1/workspaces/{workspace_id}/products/{id}', { path: { id }, body, query: opts.query });
+    updateProduct(productId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.put('/v1/workspaces/{workspace_id}/products/{product_id}', { path: { product_id: productId }, body, query: opts.query });
     }
 
     /**

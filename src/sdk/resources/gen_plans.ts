@@ -30,24 +30,6 @@ export class Plans extends Resource {
     }
 
     /**
-     * listPlans.
-     * @method GET /v1/plans
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listPlans(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/plans', { query: opts.query });
-    }
-
-    /**
-     * createPlan.
-     * @method POST /v1/plans
-     * @remarks Any query params may be sent (none documented).
-     */
-    createPlan(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.post('/v1/plans', { body, query: opts.query });
-    }
-
-    /**
      * patchActivate.
      * @method PATCH /v1/workspaces/{workspace_id}/plans/activate
      * @remarks Any query params may be sent (none documented).
@@ -66,11 +48,29 @@ export class Plans extends Resource {
     }
 
     /**
-     * deleteUnsubscribe.
+     * unsubscribe.
      * @method DELETE /v1/workspaces/{workspace_id}/plans/unsubscribe
      * @remarks Any query params may be sent (none documented).
      */
-    deleteUnsubscribe(opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+    unsubscribe(opts: { query?: Record<string, unknown> } = {}): Promise<void> {
         return this.http.delete('/v1/workspaces/{workspace_id}/plans/unsubscribe', { query: opts.query });
+    }
+
+    /**
+     * listPlans.
+     * @method GET /v1/plans
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    listPlans(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/plans', { query: opts.query });
+    }
+
+    /**
+     * createPlan.
+     * @method POST /v1/plans
+     * @remarks Any query params may be sent (none documented).
+     */
+    createPlan(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v1/plans', { body, query: opts.query });
     }
 }

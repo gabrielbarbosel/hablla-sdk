@@ -21,11 +21,11 @@ export interface Script {
 /** `scripts` resource (generated from openapi.json). */
 export class Scripts extends Resource {
     /**
-     * createExecutionByScript.
+     * scriptExecution.
      * @method POST /v1/workspaces/{workspace_id}/scripts/{script_id}/execution
      * @remarks Any query params may be sent (none documented).
      */
-    createExecutionByScript(scriptId: string, body: Partial<Script>, opts: { query?: Record<string, unknown> } = {}): Promise<Script> {
+    scriptExecution(scriptId: string, body: Partial<Script>, opts: { query?: Record<string, unknown> } = {}): Promise<Script> {
         return this.http.post('/v1/workspaces/{workspace_id}/scripts/{script_id}/execution', { path: { script_id: scriptId }, body, query: opts.query });
     }
 
@@ -57,11 +57,11 @@ export class Scripts extends Resource {
     }
 
     /**
-     * createExecution.
+     * runCode.
      * @method POST /v1/workspaces/{workspace_id}/scripts/execution
      * @remarks Any query params may be sent (none documented).
      */
-    createExecution(body: Partial<Script>, opts: { query?: Record<string, unknown> } = {}): Promise<Script> {
+    runCode(body: Partial<Script>, opts: { query?: Record<string, unknown> } = {}): Promise<Script> {
         return this.http.post('/v1/workspaces/{workspace_id}/scripts/execution', { body, query: opts.query });
     }
 

@@ -1,4 +1,5 @@
 import { Resource } from './base';
+import type { Paged } from '../core/types';
 
 /** A flow execution run. */
 export interface FlowsExecution {
@@ -26,11 +27,11 @@ export interface FlowsExecution {
 /** `flows-executions` resource (generated from openapi.json). */
 export class FlowsExecutions extends Resource {
     /**
-     * createRetryByFlowsExecution.
+     * retryExecution.
      * @method POST /v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}/retry
      * @remarks Any query params may be sent (none documented).
      */
-    createRetryByFlowsExecution(flowsExecutionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    retryExecution(flowsExecutionId: string, body: Partial<FlowsExecution>, opts: { query?: Record<string, unknown> } = {}): Promise<FlowsExecution> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}/retry', { path: { flows_execution_id: flowsExecutionId }, body, query: opts.query });
     }
 
@@ -39,7 +40,7 @@ export class FlowsExecutions extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}/stop
      * @remarks Any query params may be sent (none documented).
      */
-    stop(flowsExecutionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    stop(flowsExecutionId: string, body: Partial<FlowsExecution>, opts: { query?: Record<string, unknown> } = {}): Promise<FlowsExecution> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}/stop', { path: { flows_execution_id: flowsExecutionId }, body, query: opts.query });
     }
 
@@ -48,16 +49,16 @@ export class FlowsExecutions extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getFlowsExecution(flowsExecutionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    getFlowsExecution(flowsExecutionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<FlowsExecution> {
         return this.http.get('/v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}', { path: { flows_execution_id: flowsExecutionId }, query: opts.query });
     }
 
     /**
-     * createRetry.
+     * retryMultipleExecutions.
      * @method POST /v1/workspaces/{workspace_id}/flows-executions/retry
      * @remarks Any query params may be sent (none documented).
      */
-    createRetry(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    retryMultipleExecutions(body: Partial<FlowsExecution>, opts: { query?: Record<string, unknown> } = {}): Promise<FlowsExecution> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows-executions/retry', { body, query: opts.query });
     }
 
@@ -66,7 +67,7 @@ export class FlowsExecutions extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/flows-executions
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listFlowsExecutions(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    listFlowsExecutions(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<FlowsExecution>> {
         return this.http.get('/v1/workspaces/{workspace_id}/flows-executions', { query: opts.query });
     }
 }

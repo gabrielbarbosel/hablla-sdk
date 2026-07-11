@@ -4,28 +4,19 @@ import { Resource } from './base';
 export class ProductsPrices extends Resource {
     /**
      * deleteItem.
-     * @method DELETE /v1/workspaces/{workspace_id}/products_prices/{products_price_id}/item/{item_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteItem(productsPriceId: string, itemId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/products_prices/{products_price_id}/item/{item_id}', { path: { products_price_id: productsPriceId, item_id: itemId }, query: opts.query });
-    }
-
-    /**
-     * deleteItemById.
      * @method DELETE /v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteItemById(productsPriceId: string, itemId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+    deleteItem(productsPriceId: string, itemId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
         return this.http.delete('/v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}', { path: { products_price_id: productsPriceId, item_id: itemId }, query: opts.query });
     }
 
     /**
-     * getItem.
+     * getProductPricesItemById.
      * @method GET /v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getItem(productsPriceId: string, itemId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    getProductPricesItemById(productsPriceId: string, itemId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}', { path: { products_price_id: productsPriceId, item_id: itemId }, query: opts.query });
     }
 
@@ -39,11 +30,11 @@ export class ProductsPrices extends Resource {
     }
 
     /**
-     * listItem.
+     * getAllProductPricesItems.
      * @method GET /v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listItem(productsPriceId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getAllProductPricesItems(productsPriceId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item', { path: { products_price_id: productsPriceId }, query: opts.query });
     }
 

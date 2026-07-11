@@ -3,6 +3,141 @@ import { Resource } from './base';
 /** `reports` resource (generated from openapi.json). */
 export class Reports extends Resource {
     /**
+     * getCrmListMetrics.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCrmListMetrics(boardId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list', { path: { board_id: boardId }, query: opts.query });
+    }
+
+    /**
+     * getBoard.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getBoard(boardId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}', { path: { board_id: boardId }, query: opts.query });
+    }
+
+    /**
+     * getCard.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCard(cardId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}', { path: { card_id: cardId }, query: opts.query });
+    }
+
+    /**
+     * getChurn.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getChurn(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn', { query: opts.query });
+    }
+
+    /**
+     * getOrganizations.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getOrganizations(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations', { query: opts.query });
+    }
+
+    /**
+     * getUser.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getUser(userId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}', { path: { user_id: userId }, query: opts.query });
+    }
+
+    /**
+     * getCount.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCount(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count', { query: opts.query });
+    }
+
+    /**
+     * getCscxMetrics.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCscxMetrics(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics', { query: opts.query });
+    }
+
+    /**
+     * getUsers.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getUsers(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users', { query: opts.query });
+    }
+
+    /**
+     * getCounts.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts
+     * @remarks Any query params may be sent (none documented).
+     */
+    getCounts(npId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts', { path: { np_id: npId }, query: opts.query });
+    }
+
+    /**
+     * getNpsSummary.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary
+     * @remarks Any query params may be sent (none documented).
+     */
+    getNpsSummary(npId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary', { path: { np_id: npId }, query: opts.query });
+    }
+
+    /**
+     * getDacList.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getDacList(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list', { query: opts.query });
+    }
+
+    /**
+     * getCampaignEmailsStatsList.
+     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCampaignEmailsStatsList(body: Record<string, unknown>, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list', { body, query: opts.query });
+    }
+
+    /**
+     * getCampaignMessagesStatsList.
+     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCampaignMessagesStatsList(body: Record<string, unknown>, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list', { body, query: opts.query });
+    }
+
+    /**
+     * Get all desahboard users counters by me.
+     * @method GET /v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me
+     * @remarks Documented query: page, limit, user, sector, connection, is_available, is_available_to_call (extra keys allowed).
+     */
+    ReportsController_getAllDashBoardUsersCountersMe_v1(opts: { query?: { page?: number; limit?: number; user?: string; sector?: string; connection?: string; is_available?: boolean; is_available_to_call?: boolean } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me', { query: opts.query });
+    }
+
+    /**
      * getMonthlySessionsStates.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/admin/monthly-sessions-states
      * @remarks Documented query: filters (extra keys allowed).
@@ -147,6 +282,15 @@ export class Reports extends Resource {
     }
 
     /**
+     * getCardsCount.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCardsCount(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count', { query: opts.query });
+    }
+
+    /**
      * getCardsCountUsers.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count-users
      * @remarks Documented query: filters (extra keys allowed).
@@ -162,15 +306,6 @@ export class Reports extends Resource {
      */
     getCardsCountersByDay(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-counters-by-day', { query: opts.query });
-    }
-
-    /**
-     * getCardsCount.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCardsCount(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count', { query: opts.query });
     }
 
     /**
@@ -192,101 +327,20 @@ export class Reports extends Resource {
     }
 
     /**
-     * listBoardList.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listBoardList(boardId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list', { path: { board_id: boardId }, query: opts.query });
-    }
-
-    /**
-     * getBoard.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getBoard(boardId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}', { path: { board_id: boardId }, query: opts.query });
-    }
-
-    /**
-     * getCard.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCard(cardId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}', { path: { card_id: cardId }, query: opts.query });
-    }
-
-    /**
-     * getChurn.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChurn(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn', { query: opts.query });
-    }
-
-    /**
-     * getOrganizations.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getOrganizations(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations', { query: opts.query });
-    }
-
-    /**
-     * getCscxMetrics.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCscxMetrics(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics', { query: opts.query });
-    }
-
-    /**
-     * getUser.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getUser(userId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}', { path: { user_id: userId }, query: opts.query });
-    }
-
-    /**
-     * getCount.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCount(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count', { query: opts.query });
-    }
-
-    /**
-     * getUsers.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getUsers(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users', { query: opts.query });
-    }
-
-    /**
-     * listMonthlyHistory.
+     * getRepCardsMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepCardsMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/monthly-history', { query: opts.query });
     }
 
     /**
-     * listReasons.
+     * getRepCardsReasons.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/reasons
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listReasons(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepCardsReasons(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/reasons', { query: opts.query });
     }
 
@@ -318,11 +372,11 @@ export class Reports extends Resource {
     }
 
     /**
-     * listFlowsExecutionsMonthlyHistory.
+     * getRepFlowsExecutionsMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listFlowsExecutionsMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepFlowsExecutionsMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/monthly-history', { query: opts.query });
     }
 
@@ -336,11 +390,11 @@ export class Reports extends Resource {
     }
 
     /**
-     * listFlowsExecutionsResume.
+     * getRepFlowsExecutionsResume.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/resume
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listFlowsExecutionsResume(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepFlowsExecutionsResume(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/resume', { query: opts.query });
     }
 
@@ -372,30 +426,21 @@ export class Reports extends Resource {
     }
 
     /**
-     * getCounts.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts
-     * @remarks Any query params may be sent (none documented).
-     */
-    getCounts(npId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts', { path: { np_id: npId }, query: opts.query });
-    }
-
-    /**
-     * listNpsSummary.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary
-     * @remarks Any query params may be sent (none documented).
-     */
-    listNpsSummary(npId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary', { path: { np_id: npId }, query: opts.query });
-    }
-
-    /**
-     * listPersonsTags.
+     * getRepPersonsTags.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/persons/tags
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listPersonsTags(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepPersonsTags(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/persons/tags', { query: opts.query });
+    }
+
+    /**
+     * getCharges.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCharges(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges', { query: opts.query });
     }
 
     /**
@@ -426,24 +471,6 @@ export class Reports extends Resource {
     }
 
     /**
-     * getCharges.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCharges(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges', { query: opts.query });
-    }
-
-    /**
-     * listList.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listList(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list', { query: opts.query });
-    }
-
-    /**
      * getHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/history
      * @remarks Documented query: filters (extra keys allowed).
@@ -462,21 +489,12 @@ export class Reports extends Resource {
     }
 
     /**
-     * listResume.
+     * getPlanResume.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/resume
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listResume(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getPlanResume(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/resume', { query: opts.query });
-    }
-
-    /**
-     * getSectors.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sectors
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getSectors(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/sectors', { query: opts.query });
     }
 
     /**
@@ -489,15 +507,6 @@ export class Reports extends Resource {
     }
 
     /**
-     * createEmailStatsList.
-     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    createEmailStatsList(body: Record<string, unknown>, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.post('/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list', { body, query: opts.query });
-    }
-
-    /**
      * emailStats.
      * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats
      * @remarks Any query params may be sent (none documented).
@@ -507,21 +516,12 @@ export class Reports extends Resource {
     }
 
     /**
-     * createList.
+     * getDymamicSegmentations.
      * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/list
      * @remarks Any query params may be sent (none documented).
      */
-    createList(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    getDymamicSegmentations(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/list', { body, query: opts.query });
-    }
-
-    /**
-     * createMessageStatsList.
-     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    createMessageStatsList(body: Record<string, unknown>, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.post('/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list', { body, query: opts.query });
     }
 
     /**
@@ -552,12 +552,12 @@ export class Reports extends Resource {
     }
 
     /**
-     * getBotAverageTimeMonthSectors.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors
+     * getBotAverageTime.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getBotAverageTimeMonthSectors(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors', { query: opts.query });
+    getBotAverageTime(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time', { query: opts.query });
     }
 
     /**
@@ -570,12 +570,12 @@ export class Reports extends Resource {
     }
 
     /**
-     * getBotAverageTime.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time
+     * getBotAverageTimeMonthSectors.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getBotAverageTime(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time', { query: opts.query });
+    getBotAverageTimeMonthSectors(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors', { query: opts.query });
     }
 
     /**
@@ -588,30 +588,12 @@ export class Reports extends Resource {
     }
 
     /**
-     * listServicesMonthlyHistory.
+     * getRepServicesMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listServicesMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepServicesMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/monthly-history', { query: opts.query });
-    }
-
-    /**
-     * getQueueAverageTimeMonthSectors.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getQueueAverageTimeMonthSectors(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors', { query: opts.query });
-    }
-
-    /**
-     * getQueueAverageTimeMonth.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getQueueAverageTimeMonth(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month', { query: opts.query });
     }
 
     /**
@@ -624,11 +606,29 @@ export class Reports extends Resource {
     }
 
     /**
-     * listServicesReasons.
+     * getQueueAverageTimeMonth.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getQueueAverageTimeMonth(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month', { query: opts.query });
+    }
+
+    /**
+     * getQueueAverageTimeMonthSectors.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getQueueAverageTimeMonthSectors(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors', { query: opts.query });
+    }
+
+    /**
+     * getRepServicesReasons.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/reasons
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listServicesReasons(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepServicesReasons(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/reasons', { query: opts.query });
     }
 
@@ -669,20 +669,20 @@ export class Reports extends Resource {
     }
 
     /**
-     * listServicesTags.
+     * getRepServicesTags.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/tags
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listServicesTags(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepServicesTags(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/tags', { query: opts.query });
     }
 
     /**
-     * listSessionsMonthlyHistory.
+     * getRepSessionsMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSessionsMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getRepSessionsMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-history', { query: opts.query });
     }
 
@@ -696,11 +696,11 @@ export class Reports extends Resource {
     }
 
     /**
-     * listSessionsResume.
+     * getRepSessionsResume.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/resume
      * @remarks Any query params may be sent (none documented).
      */
-    listSessionsResume(opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    getRepSessionsResume(opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/resume', { query: opts.query });
     }
 
@@ -741,30 +741,12 @@ export class Reports extends Resource {
     }
 
     /**
-     * Get csat.
-     * @method GET /v1/workspaces/{workspace_id}/reports/services/csat
-     * @remarks Documented query: filters, page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
-     */
-    getCsat(opts: { query?: { filters?: string; page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/services/csat', { query: opts.query });
-    }
-
-    /**
      * Get all dashboard counters.
      * @method GET /v1/workspaces/{workspace_id}/reports/services/dashboard/counters
      * @remarks Documented query: filters, user, sector, connection (extra keys allowed).
      */
     getCounters(opts: { query?: { filters?: string; user?: string; sector?: string; connection?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/services/dashboard/counters', { query: opts.query });
-    }
-
-    /**
-     * Get all desahboard users counters by me.
-     * @method GET /v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me
-     * @remarks Documented query: page, limit, user, sector, connection, is_available, is_available_to_call (extra keys allowed).
-     */
-    listUsersCountersMe(opts: { query?: { page?: number; limit?: number; user?: string; sector?: string; connection?: string; is_available?: boolean; is_available_to_call?: boolean } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me', { query: opts.query });
     }
 
     /**
@@ -781,8 +763,26 @@ export class Reports extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/reports/services/summary/me
      * @remarks Documented query: page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
      */
-    listMe(opts: { query?: { page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    ReportsController_getAllMe_v1(opts: { query?: { page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/services/summary/me', { query: opts.query });
+    }
+
+    /**
+     * getSectors.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sectors
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getSectors(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/sectors', { query: opts.query });
+    }
+
+    /**
+     * Get csat.
+     * @method GET /v1/workspaces/{workspace_id}/reports/services/csat
+     * @remarks Documented query: filters, page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
+     */
+    getCsat(opts: { query?: { filters?: string; page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/services/csat', { query: opts.query });
     }
 
     /**
@@ -790,7 +790,7 @@ export class Reports extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/reports/services/summary
      * @remarks Documented query: filters, page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
      */
-    listSummary(opts: { query?: { filters?: string; page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getReports(opts: { query?: { filters?: string; page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/services/summary', { query: opts.query });
     }
 
@@ -799,7 +799,7 @@ export class Reports extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/reports/services/tags
      * @remarks Documented query: page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
      */
-    listTags(opts: { query?: { page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    ReportsController_getServicesCountersByTag_v1(opts: { query?: { page?: string; limit?: number; connection?: string; user?: string; sector?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/services/tags', { query: opts.query });
     }
 
@@ -808,7 +808,7 @@ export class Reports extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/reports/templates/{id}
      * @remarks Documented query: page, limit, order, direction_order, to, from, person, campaign, populate, created_at (extra keys allowed).
      */
-    getTemplates(id: string, opts: { query?: { page?: number; limit?: number; order?: string; direction_order?: string; to?: string; from?: string; person?: string; campaign?: string; populate?: string[]; created_at?: unknown } & Record<string, unknown> } = {}): Promise<unknown> {
+    getTemplate(id: string, opts: { query?: { page?: number; limit?: number; order?: string; direction_order?: string; to?: string; from?: string; person?: string; campaign?: string; populate?: string[]; created_at?: unknown } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/templates/{id}', { path: { id }, query: opts.query });
     }
 }

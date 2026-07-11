@@ -1,5 +1,5 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
+import type { Paged, MultipartFile, MultipartBody } from '../core/types';
 
 /** A campaign. */
 export interface Campaign {
@@ -67,11 +67,14 @@ export class Campaigns extends Resource {
     }
 
     /**
-     * sheet.
+     * sheet. Uploads an xlsx spreadsheet as multipart/form-data to create a campaign.
      * @method POST /v2/workspaces/{workspace_id}/campaigns/sheet
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    sheet(body: Partial<Campaign>, opts: { query?: Record<string, unknown> } = {}): Promise<Campaign> {
+    sheet(file: MultipartFile, fields?: Record<string, string>, opts: { query?: Record<string, unknown> } = {}): Promise<Campaign> {
+        const body: MultipartBody = { kind: 'multipart', fields, files: { file } };
         return this.http.post('/v2/workspaces/{workspace_id}/campaigns/sheet', { body, query: opts.query });
     }
 

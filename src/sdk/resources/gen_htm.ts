@@ -12,11 +12,11 @@ export class Htm extends Resource {
     }
 
     /**
-     * getContainer.
+     * getHTMById.
      * @method GET /v1/workspaces/{workspace_id}/htm/container/{container_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getContainer(containerId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    getHTMById(containerId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/htm/container/{container_id}', { path: { container_id: containerId }, query: opts.query });
     }
 
@@ -30,24 +30,6 @@ export class Htm extends Resource {
     }
 
     /**
-     * listContainer.
-     * @method GET /v1/workspaces/{workspace_id}/htm/container
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listContainer(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/htm/container', { query: opts.query });
-    }
-
-    /**
-     * container.
-     * @method POST /v1/workspaces/{workspace_id}/htm/container
-     * @remarks Any query params may be sent (none documented).
-     */
-    container(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.post('/v1/workspaces/{workspace_id}/htm/container', { body, query: opts.query });
-    }
-
-    /**
      * deleteTag.
      * @method DELETE /v1/workspaces/{workspace_id}/htm/tag/{tag_id}
      * @remarks Any query params may be sent (none documented).
@@ -57,11 +39,11 @@ export class Htm extends Resource {
     }
 
     /**
-     * getTag.
+     * getHTMTagsById.
      * @method GET /v1/workspaces/{workspace_id}/htm/tag/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getTag(tagId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    getHTMTagsById(tagId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/htm/tag/{tag_id}', { path: { tag_id: tagId }, query: opts.query });
     }
 
@@ -75,11 +57,29 @@ export class Htm extends Resource {
     }
 
     /**
-     * listTag.
+     * getAllHTM.
+     * @method GET /v1/workspaces/{workspace_id}/htm/container
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getAllHTM(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/htm/container', { query: opts.query });
+    }
+
+    /**
+     * container.
+     * @method POST /v1/workspaces/{workspace_id}/htm/container
+     * @remarks Any query params may be sent (none documented).
+     */
+    container(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v1/workspaces/{workspace_id}/htm/container', { body, query: opts.query });
+    }
+
+    /**
+     * getAllHTMTags.
      * @method GET /v1/workspaces/{workspace_id}/htm/tag
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listTag(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getAllHTMTags(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/htm/tag', { query: opts.query });
     }
 

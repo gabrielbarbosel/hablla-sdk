@@ -1,4 +1,5 @@
 import { Resource } from './base';
+import type { MultipartFile, MultipartBody } from '../core/types';
 
 /** `feed-posts` resource (generated from openapi.json). */
 export class FeedPosts extends Resource {
@@ -21,6 +22,15 @@ export class FeedPosts extends Resource {
     }
 
     /**
+     * deletePollVotes.
+     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deletePollVotes(feedPostId: string, pollVoteId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}', { path: { feed_post_id: feedPostId, poll_vote_id: pollVoteId }, query: opts.query });
+    }
+
+    /**
      * getComments.
      * @method GET /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/comments
      * @remarks Any query params may be sent (none documented).
@@ -36,15 +46,6 @@ export class FeedPosts extends Resource {
      */
     comments(feedPostId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/comments', { path: { feed_post_id: feedPostId }, body, query: opts.query });
-    }
-
-    /**
-     * deletePollVotes.
-     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deletePollVotes(feedPostId: string, pollVoteId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}', { path: { feed_post_id: feedPostId, poll_vote_id: pollVoteId }, query: opts.query });
     }
 
     /**
@@ -84,6 +85,33 @@ export class FeedPosts extends Resource {
     }
 
     /**
+     * deleteSchedule.
+     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteSchedule(scheduleId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}', { path: { schedule_id: scheduleId }, query: opts.query });
+    }
+
+    /**
+     * getScheduledPostById.
+     * @method GET /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getScheduledPostById(scheduleId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}', { path: { schedule_id: scheduleId }, query: opts.query });
+    }
+
+    /**
+     * patchSchedule.
+     * @method PATCH /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchSchedule(scheduleId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}', { path: { schedule_id: scheduleId }, body, query: opts.query });
+    }
+
+    /**
      * deleteFeedPost.
      * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}
      * @remarks Any query params may be sent (none documented).
@@ -105,8 +133,11 @@ export class FeedPosts extends Resource {
      * updateFeedPost.
      * @method PUT /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    updateFeedPost(feedPostId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    updateFeedPost(feedPostId: string, file: MultipartFile, fields?: Record<string, string>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        const body: MultipartBody = { kind: 'multipart', fields, files: { file } };
         return this.http.put('/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}', { path: { feed_post_id: feedPostId }, body, query: opts.query });
     }
 
@@ -129,38 +160,11 @@ export class FeedPosts extends Resource {
     }
 
     /**
-     * deleteSchedule.
-     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteSchedule(scheduleId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}', { path: { schedule_id: scheduleId }, query: opts.query });
-    }
-
-    /**
-     * getSchedule.
-     * @method GET /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getSchedule(scheduleId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}', { path: { schedule_id: scheduleId }, query: opts.query });
-    }
-
-    /**
-     * patchSchedule.
-     * @method PATCH /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    patchSchedule(scheduleId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.patch('/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}', { path: { schedule_id: scheduleId }, body, query: opts.query });
-    }
-
-    /**
-     * listSchedule.
+     * getAllScheduledPosts.
      * @method GET /v1/workspaces/{workspace_id}/feed-posts/schedule
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSchedule(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getAllScheduledPosts(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/feed-posts/schedule', { query: opts.query });
     }
 
@@ -186,8 +190,11 @@ export class FeedPosts extends Resource {
      * createFeedPost.
      * @method POST /v1/workspaces/{workspace_id}/feed-posts
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    createFeedPost(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    createFeedPost(file: MultipartFile, fields?: Record<string, string>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        const body: MultipartBody = { kind: 'multipart', fields, files: { file } };
         return this.http.post('/v1/workspaces/{workspace_id}/feed-posts', { body, query: opts.query });
     }
 }

@@ -1,4 +1,5 @@
 import { Resource } from './base';
+import type { Paged } from '../core/types';
 
 /** A workspace (root entity). */
 export interface Root {
@@ -44,6 +45,24 @@ export interface Root {
 /** `root` resource (generated from openapi.json). */
 export class Root extends Resource {
     /**
+     * Get all workspaces.
+     * @method GET /v1/workspaces
+     * @remarks Documented query: filters, page, limit, order, direction_order, name, search, type, plan_type, owner, partner, is_blocked, is_deleted, pending_plan, auto_invoice, created_at, updated_at (extra keys allowed).
+     */
+    getWorkspaces(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; type?: string; plan_type?: string; owner?: string; partner?: string; is_blocked?: boolean; is_deleted?: boolean; pending_plan?: boolean; auto_invoice?: boolean; created_at?: unknown; updated_at?: unknown } & Record<string, unknown> } = {}): Promise<Paged<Root>> {
+        return this.http.get('/v1/workspaces', { query: opts.query });
+    }
+
+    /**
+     * workspaces.
+     * @method POST /v1/workspaces
+     * @remarks Any query params may be sent (none documented).
+     */
+    workspaces(body: Partial<Root>, opts: { query?: Record<string, unknown> } = {}): Promise<Root> {
+        return this.http.post('/v1/workspaces', { body, query: opts.query });
+    }
+
+    /**
      * deleteRoot.
      * @method DELETE /v1/workspaces/{workspace_id}
      * @remarks Any query params may be sent (none documented).
@@ -53,20 +72,20 @@ export class Root extends Resource {
     }
 
     /**
-     * updateRoot.
-     * @method PUT /v1/workspaces/{workspace_id}
+     * Get workspace by id.
+     * @method GET /v1/workspaces/{workspace_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateRoot(body: Partial<Root>, opts: { query?: Record<string, unknown> } = {}): Promise<Root> {
-        return this.http.put('/v1/workspaces/{workspace_id}', { body, query: opts.query });
+    getRoot(opts: { query?: Record<string, unknown> } = {}): Promise<Root> {
+        return this.http.get('/v1/workspaces/{workspace_id}', { query: opts.query });
     }
 
     /**
-     * createRoot.
-     * @method POST /v1/workspaces
+     * putRoot.
+     * @method PUT /v1/workspaces/{workspace_id}
      * @remarks Any query params may be sent (none documented).
      */
-    createRoot(body: Partial<Root>, opts: { query?: Record<string, unknown> } = {}): Promise<Root> {
-        return this.http.post('/v1/workspaces', { body, query: opts.query });
+    putRoot(body: Partial<Root>, opts: { query?: Record<string, unknown> } = {}): Promise<Root> {
+        return this.http.put('/v1/workspaces/{workspace_id}', { body, query: opts.query });
     }
 }

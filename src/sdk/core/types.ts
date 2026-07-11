@@ -1,3 +1,26 @@
+/** A single file part of a {@link MultipartBody}. */
+export interface MultipartFile {
+    data: Uint8Array;
+    filename: string;
+    contentType?: string;
+}
+
+/**
+ * Runtime-agnostic multipart/form-data body. Tagged with `kind` so the SDK core
+ * and every transport can detect it without sniffing values. The transport owns
+ * the boundary and the resulting `Content-Type` header — the SDK never sets it.
+ */
+export interface MultipartBody {
+    readonly kind: 'multipart';
+    fields?: Record<string, string>;
+    files: Record<string, MultipartFile>;
+}
+
+/** Type guard for {@link MultipartBody}. */
+export function isMultipart(body: unknown): body is MultipartBody {
+    return !!body && typeof body === 'object' && (body as { kind?: unknown }).kind === 'multipart';
+}
+
 /** Runtime-agnostic HTTP request. */
 export interface HttpRequest {
     method: string;

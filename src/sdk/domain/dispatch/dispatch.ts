@@ -72,7 +72,7 @@ export class Dispatch {
         const destinationKey = this.destinationKey(person, variants, phone);
 
         try {
-            await this.client.messages.createConnectionsMessagesTemplates(spec.connectionId, {
+            await this.client.connections.messagesTemplates(spec.connectionId, {
                 examples: { body: spec.templateVarCount ? variables.slice(0, spec.templateVarCount) : [], header: [] },
                 template: spec.templateId,
                 sector: spec.sectorId,

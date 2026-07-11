@@ -30,11 +30,11 @@ export class SeoProjects extends Resource {
     }
 
     /**
-     * listSeoSites.
+     * getSeoSites.
      * @method GET /v1/workspaces/{workspace_id}/seo-projects/{seo_project_id}/seo-sites
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSeoSites(seoProjectId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getSeoSites(seoProjectId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/seo-projects/{seo_project_id}/seo-sites', { path: { seo_project_id: seoProjectId }, query: opts.query });
     }
 

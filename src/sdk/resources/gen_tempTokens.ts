@@ -1,4 +1,5 @@
 import { Resource } from './base';
+import type { Paged } from '../core/types';
 
 /** A temporary access token. */
 export interface TempToken {
@@ -33,7 +34,7 @@ export class TempTokens extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/temp-tokens
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listTempTokens(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    listTempTokens(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<TempToken>> {
         return this.http.get('/v1/workspaces/{workspace_id}/temp-tokens', { query: opts.query });
     }
 
@@ -42,7 +43,7 @@ export class TempTokens extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/temp-tokens
      * @remarks Any query params may be sent (none documented).
      */
-    createTempToken(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+    createTempToken(body: Partial<TempToken>, opts: { query?: Record<string, unknown> } = {}): Promise<TempToken> {
         return this.http.post('/v1/workspaces/{workspace_id}/temp-tokens', { body, query: opts.query });
     }
 }

@@ -19,29 +19,29 @@ export interface Tag {
 export class Tags extends Resource {
     /**
      * Delete tag by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/tags/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/tags/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteTag(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/tags/{id}', { path: { id }, query: opts.query });
+    deleteTag(tagId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/tags/{tag_id}', { path: { tag_id: tagId }, query: opts.query });
     }
 
     /**
      * Get tag by id.
-     * @method GET /v1/workspaces/{workspace_id}/tags/{id}
+     * @method GET /v1/workspaces/{workspace_id}/tags/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getTag(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Tag> {
-        return this.http.get('/v1/workspaces/{workspace_id}/tags/{id}', { path: { id }, query: opts.query });
+    getTag(tagId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Tag> {
+        return this.http.get('/v1/workspaces/{workspace_id}/tags/{tag_id}', { path: { tag_id: tagId }, query: opts.query });
     }
 
     /**
      * Update tag by id.
-     * @method PUT /v1/workspaces/{workspace_id}/tags/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/tags/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateTag(id: string, body: Partial<Tag>, opts: { query?: Record<string, unknown> } = {}): Promise<Tag> {
-        return this.http.put('/v1/workspaces/{workspace_id}/tags/{id}', { path: { id }, body, query: opts.query });
+    updateTag(tagId: string, body: Partial<Tag>, opts: { query?: Record<string, unknown> } = {}): Promise<Tag> {
+        return this.http.put('/v1/workspaces/{workspace_id}/tags/{tag_id}', { path: { tag_id: tagId }, body, query: opts.query });
     }
 
     /**

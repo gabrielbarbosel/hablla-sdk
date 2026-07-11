@@ -1,5 +1,5 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
+import type { Paged, MultipartFile, MultipartBody } from '../core/types';
 
 /** A service (support/attendance ticket). */
 export interface Service {
@@ -30,39 +30,66 @@ export interface Service {
 /** `services` resource (generated from openapi.json). */
 export class Services extends Resource {
     /**
-     * Do action on service by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/services/{id}/action
+     * Get all messages by service and connection.
+     * @method GET /v1/workspaces/{workspace_id}/services/{service_id}/connection/{connection_id}/messages
+     * @remarks Documented query: filters, page, limit, order, direction_order, user, body, type, key, populate, message, media_only (extra keys allowed).
+     */
+    getAllMediaMessagesByConnection(serviceId: string, connectionId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; type?: string; key?: string; populate?: string[]; message?: string; media_only?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/services/{service_id}/connection/{connection_id}/messages', { path: { service_id: serviceId, connection_id: connectionId }, query: opts.query });
+    }
+
+    /**
+     * Delete a message (of type comment) by id.
+     * @method DELETE /v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}
      * @remarks Any query params may be sent (none documented).
      */
-    patchAction(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.patch('/v1/workspaces/{workspace_id}/services/{id}/action', { path: { id }, body, query: opts.query });
+    deleteMessages(serviceId: string, messageId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}', { path: { service_id: serviceId, message_id: messageId }, query: opts.query });
+    }
+
+    /**
+     * Update a message (of type comment) by id.
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    putMessages(serviceId: string, messageId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}', { path: { service_id: serviceId, message_id: messageId }, body, query: opts.query });
+    }
+
+    /**
+     * Do action on service by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/services/{service_id}/action
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchAction(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/services/{service_id}/action', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
      * Add cards on service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/add-cards
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/add-cards
      * @remarks Any query params may be sent (none documented).
      */
-    addCards(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}/add-cards', { path: { id }, body, query: opts.query });
+    addCards(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/add-cards', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
      * Add followers to service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/add-followers
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/add-followers
      * @remarks Any query params may be sent (none documented).
      */
-    addFollowers(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}/add-followers', { path: { id }, body, query: opts.query });
+    addFollowers(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/add-followers', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
      * Add tags on service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/add-tags
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/add-tags
      * @remarks Any query params may be sent (none documented).
      */
-    addTags(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}/add-tags', { path: { id }, body, query: opts.query });
+    addTags(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/add-tags', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
@@ -75,21 +102,12 @@ export class Services extends Resource {
     }
 
     /**
-     * Get all messages by service and connection.
-     * @method GET /v1/workspaces/{workspace_id}/services/{id}/connection/{connection_id}/messages
-     * @remarks Documented query: filters, page, limit, order, direction_order, user, body, type, key, populate, message, media_only (extra keys allowed).
-     */
-    listConnectionMessages(id: string, connectionId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; type?: string; key?: string; populate?: string[]; message?: string; media_only?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/services/{id}/connection/{connection_id}/messages', { path: { id, connection_id: connectionId }, query: opts.query });
-    }
-
-    /**
      * Update custom-fields on service by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/services/{id}/custom-fields
+     * @method PATCH /v1/workspaces/{workspace_id}/services/{service_id}/custom-fields
      * @remarks Any query params may be sent (none documented).
      */
-    patchCustomFields(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.patch('/v1/workspaces/{workspace_id}/services/{id}/custom-fields', { path: { id }, body, query: opts.query });
+    patchCustomFields(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/services/{service_id}/custom-fields', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
@@ -102,15 +120,6 @@ export class Services extends Resource {
     }
 
     /**
-     * Get all services by permission.
-     * @method GET /v1/workspaces/{workspace_id}/services/{id}/history-by-permission
-     * @remarks Documented query: page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
-     */
-    getHistoryByPermission(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: string; status?: string; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/services/{id}/history-by-permission', { path: { id }, query: opts.query });
-    }
-
-    /**
      * Get history (countless).
      * @method GET /v1/workspaces/{workspace_id}/services/{id}/history
      * @remarks Documented query: page, limit, order, retrieve_mode, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key (extra keys allowed).
@@ -120,39 +129,66 @@ export class Services extends Resource {
     }
 
     /**
+     * Get all services by permission.
+     * @method GET /v1/workspaces/{workspace_id}/services/{id}/history-by-permission
+     * @remarks Documented query: page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
+     */
+    getHistoryByPermission(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: string; status?: string; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/services/{id}/history-by-permission', { path: { id }, query: opts.query });
+    }
+
+    /**
      * Get services messages by id.
      * @method GET /v1/workspaces/{workspace_id}/services/{id}/messages
      * @remarks Documented query: page, limit, order, direction_order, user, body, populate, message (extra keys allowed).
      */
-    listMessages(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; populate?: string[]; message?: string } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+    ServicesController_getServicesMessages_v1(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; populate?: string[]; message?: string } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
         return this.http.get('/v1/workspaces/{workspace_id}/services/{id}/messages', { path: { id }, query: opts.query });
     }
 
     /**
-     * Remove cards by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/remove-cards
+     * Create a message.
+     * @method POST /v1/workspaces/{workspace_id}/services/{service_id}/messages
      * @remarks Any query params may be sent (none documented).
      */
-    removeCards(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}/remove-cards', { path: { id }, body, query: opts.query });
+    messagesV1(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.post('/v1/workspaces/{workspace_id}/services/{service_id}/messages', { path: { service_id: serviceId }, body, query: opts.query });
+    }
+
+    /**
+     * Create a message template.
+     * @method POST /v1/workspaces/{workspace_id}/services/{service_id}/messages-templates
+     * @remarks Any query params may be sent (none documented).
+     */
+    messagesTemplates(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.post('/v1/workspaces/{workspace_id}/services/{service_id}/messages-templates', { path: { service_id: serviceId }, body, query: opts.query });
+    }
+
+    /**
+     * Remove cards by id.
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/remove-cards
+     * @remarks Any query params may be sent (none documented).
+     */
+    removeCards(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/remove-cards', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
      * Remove followers by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/remove-followers
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/remove-followers
      * @remarks Any query params may be sent (none documented).
      */
-    removeFollowers(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}/remove-followers', { path: { id }, body, query: opts.query });
+    removeFollowers(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/remove-followers', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
      * Remove tags by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/remove-tags
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/remove-tags
      * @remarks Any query params may be sent (none documented).
      */
-    removeTags(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}/remove-tags', { path: { id }, body, query: opts.query });
+    removeTags(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/remove-tags', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
@@ -175,29 +211,29 @@ export class Services extends Resource {
 
     /**
      * Transfer service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/transfer
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/transfer
      * @remarks Documented query: populate (extra keys allowed).
      */
-    putTransfer(id: string, body: Partial<Service>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}/transfer', { path: { id }, body, query: opts.query });
+    putTransfer(serviceId: string, body: Partial<Service>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}/transfer', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
      * Get service by id.
-     * @method GET /v1/workspaces/{workspace_id}/services/{id}
+     * @method GET /v1/workspaces/{workspace_id}/services/{service_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getServiceV1(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.get('/v1/workspaces/{workspace_id}/services/{id}', { path: { id }, query: opts.query });
+    getServiceV1(serviceId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.get('/v1/workspaces/{workspace_id}/services/{service_id}', { path: { service_id: serviceId }, query: opts.query });
     }
 
     /**
      * Update service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateService(id: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.put('/v1/workspaces/{workspace_id}/services/{id}', { path: { id }, body, query: opts.query });
+    updateService(serviceId: string, body: Partial<Service>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.put('/v1/workspaces/{workspace_id}/services/{service_id}', { path: { service_id: serviceId }, body, query: opts.query });
     }
 
     /**
@@ -228,12 +264,24 @@ export class Services extends Resource {
     }
 
     /**
+     * messages. Create a message v2.
+     * @method POST /v2/workspaces/{workspace_id}/services/{service_id}/messages
+     * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
+     */
+    messages(serviceId: string, file: MultipartFile, fields?: Record<string, string>, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        const body: MultipartBody = { kind: 'multipart', fields, files: { file } };
+        return this.http.post('/v2/workspaces/{workspace_id}/services/{service_id}/messages', { path: { service_id: serviceId }, body, query: opts.query });
+    }
+
+    /**
      * Get service by id (V2).
-     * @method GET /v2/workspaces/{workspace_id}/services/{id}
+     * @method GET /v2/workspaces/{workspace_id}/services/{service_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getService(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
-        return this.http.get('/v2/workspaces/{workspace_id}/services/{id}', { path: { id }, query: opts.query });
+    getService(serviceId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Service> {
+        return this.http.get('/v2/workspaces/{workspace_id}/services/{service_id}', { path: { service_id: serviceId }, query: opts.query });
     }
 
     /**

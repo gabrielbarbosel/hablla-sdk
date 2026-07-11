@@ -11,11 +11,11 @@ export interface Holiday {
 export class Holidays extends Resource {
     /**
      * Delete holiday by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/holidays/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/holidays/{holiday_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteHoliday(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/holidays/{id}', { path: { id }, query: opts.query });
+    deleteHoliday(holidayId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/holidays/{holiday_id}', { path: { holiday_id: holidayId }, query: opts.query });
     }
 
     /**
@@ -29,11 +29,11 @@ export class Holidays extends Resource {
 
     /**
      * Update holiday by id.
-     * @method PUT /v1/workspaces/{workspace_id}/holidays/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/holidays/{holiday_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateHoliday(id: string, body: Partial<Holiday>, opts: { query?: Record<string, unknown> } = {}): Promise<Holiday> {
-        return this.http.put('/v1/workspaces/{workspace_id}/holidays/{id}', { path: { id }, body, query: opts.query });
+    updateHoliday(holidayId: string, body: Partial<Holiday>, opts: { query?: Record<string, unknown> } = {}): Promise<Holiday> {
+        return this.http.put('/v1/workspaces/{workspace_id}/holidays/{holiday_id}', { path: { holiday_id: holidayId }, body, query: opts.query });
     }
 
     /**

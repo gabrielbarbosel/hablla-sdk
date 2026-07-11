@@ -27,29 +27,29 @@ export interface Organization {
 export class Organizations extends Resource {
     /**
      * Add person to organization by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{id}/add-persons
+     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/add-persons
      * @remarks Documented query: persons (extra keys allowed).
      */
-    addPersons(id: string, body: Partial<Organization>, opts: { query?: { persons?: string } & Record<string, unknown> } = {}): Promise<Organization> {
-        return this.http.patch('/v1/workspaces/{workspace_id}/organizations/{id}/add-persons', { path: { id }, body, query: opts.query });
+    addPersons(organizationId: string, body: Partial<Organization>, opts: { query?: { persons?: string } & Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/organizations/{organization_id}/add-persons', { path: { organization_id: organizationId }, body, query: opts.query });
     }
 
     /**
      * Add tags to org by id.
-     * @method PUT /v1/workspaces/{workspace_id}/organizations/{id}/add-tags
+     * @method PUT /v1/workspaces/{workspace_id}/organizations/{organization_id}/add-tags
      * @remarks Documented query: tags (extra keys allowed).
      */
-    addTags(id: string, body: Partial<Organization>, opts: { query?: { tags?: string } & Record<string, unknown> } = {}): Promise<Organization> {
-        return this.http.put('/v1/workspaces/{workspace_id}/organizations/{id}/add-tags', { path: { id }, body, query: opts.query });
+    addTags(organizationId: string, body: Partial<Organization>, opts: { query?: { tags?: string } & Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.put('/v1/workspaces/{workspace_id}/organizations/{organization_id}/add-tags', { path: { organization_id: organizationId }, body, query: opts.query });
     }
 
     /**
      * Get all organization costs.
-     * @method GET /v1/workspaces/{workspace_id}/organizations/{id}/costs
+     * @method GET /v1/workspaces/{workspace_id}/organizations/{organization_id}/costs
      * @remarks Documented query: filters, page, limit, order, direction_order, entity_type, start_date, end_date, populate (extra keys allowed).
      */
-    getCosts(id: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; entity_type?: string; start_date?: string; end_date?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/organizations/{id}/costs', { path: { id }, query: opts.query });
+    getCosts(organizationId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; entity_type?: string; start_date?: string; end_date?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/organizations/{organization_id}/costs', { path: { organization_id: organizationId }, query: opts.query });
     }
 
     /**
@@ -63,29 +63,29 @@ export class Organizations extends Resource {
 
     /**
      * Remove person from organization by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{id}/remove-persons
+     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-persons
      * @remarks Documented query: persons (extra keys allowed).
      */
-    removePersons(id: string, body: Partial<Organization>, opts: { query?: { persons?: string } & Record<string, unknown> } = {}): Promise<Organization> {
-        return this.http.patch('/v1/workspaces/{workspace_id}/organizations/{id}/remove-persons', { path: { id }, body, query: opts.query });
+    removePersons(organizationId: string, body: Partial<Organization>, opts: { query?: { persons?: string } & Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-persons', { path: { organization_id: organizationId }, body, query: opts.query });
     }
 
     /**
      * Remove tags on organization by id.
-     * @method PUT /v1/workspaces/{workspace_id}/organizations/{id}/remove-tags
+     * @method PUT /v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-tags
      * @remarks Documented query: tags (extra keys allowed).
      */
-    removeTags(id: string, body: Partial<Organization>, opts: { query?: { tags?: string } & Record<string, unknown> } = {}): Promise<Organization> {
-        return this.http.put('/v1/workspaces/{workspace_id}/organizations/{id}/remove-tags', { path: { id }, body, query: opts.query });
+    removeTags(organizationId: string, body: Partial<Organization>, opts: { query?: { tags?: string } & Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.put('/v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-tags', { path: { organization_id: organizationId }, body, query: opts.query });
     }
 
     /**
      * Get all organizations segmentations.
-     * @method GET /v1/workspaces/{workspace_id}/organizations/{id}/segmentations
+     * @method GET /v1/workspaces/{workspace_id}/organizations/{organization_id}/segmentations
      * @remarks Documented query: filters, page, limit, order, direction_order, populate, search (extra keys allowed).
      */
-    getSegmentations(id: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; populate?: string[]; search?: string } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/organizations/{id}/segmentations', { path: { id }, query: opts.query });
+    getSegmentations(organizationId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; populate?: string[]; search?: string } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/organizations/{organization_id}/segmentations', { path: { organization_id: organizationId }, query: opts.query });
     }
 
     /**
@@ -99,20 +99,20 @@ export class Organizations extends Resource {
 
     /**
      * Get organization by id.
-     * @method GET /v1/workspaces/{workspace_id}/organizations/{id}
+     * @method GET /v1/workspaces/{workspace_id}/organizations/{organization_id}
      * @remarks Documented query: filters, populate (extra keys allowed).
      */
-    getOrganization(id: string, opts: { query?: { filters?: string; populate?: boolean } & Record<string, unknown> } = {}): Promise<Organization> {
-        return this.http.get('/v1/workspaces/{workspace_id}/organizations/{id}', { path: { id }, query: opts.query });
+    getOrganization(organizationId: string, opts: { query?: { filters?: string; populate?: boolean } & Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.get('/v1/workspaces/{workspace_id}/organizations/{organization_id}', { path: { organization_id: organizationId }, query: opts.query });
     }
 
     /**
      * Update organization by id.
-     * @method PUT /v1/workspaces/{workspace_id}/organizations/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/organizations/{organization_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updateOrganization(id: string, body: Partial<Organization>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Organization> {
-        return this.http.put('/v1/workspaces/{workspace_id}/organizations/{id}', { path: { id }, body, query: opts.query });
+    updateOrganization(organizationId: string, body: Partial<Organization>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.put('/v1/workspaces/{workspace_id}/organizations/{organization_id}', { path: { organization_id: organizationId }, body, query: opts.query });
     }
 
     /**

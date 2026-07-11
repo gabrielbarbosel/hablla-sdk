@@ -19,20 +19,20 @@ export interface Reason {
 export class Reasons extends Resource {
     /**
      * Get reason by id.
-     * @method GET /v1/workspaces/{workspace_id}/reasons/{id}
+     * @method GET /v1/workspaces/{workspace_id}/reasons/{reason_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getReason(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Reason> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reasons/{id}', { path: { id }, query: opts.query });
+    getReason(reasonId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Reason> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reasons/{reason_id}', { path: { reason_id: reasonId }, query: opts.query });
     }
 
     /**
      * Update reason by id.
-     * @method PUT /v1/workspaces/{workspace_id}/reasons/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/reasons/{reason_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateReason(id: string, body: Partial<Reason>, opts: { query?: Record<string, unknown> } = {}): Promise<Reason> {
-        return this.http.put('/v1/workspaces/{workspace_id}/reasons/{id}', { path: { id }, body, query: opts.query });
+    updateReason(reasonId: string, body: Partial<Reason>, opts: { query?: Record<string, unknown> } = {}): Promise<Reason> {
+        return this.http.put('/v1/workspaces/{workspace_id}/reasons/{reason_id}', { path: { reason_id: reasonId }, body, query: opts.query });
     }
 
     /**

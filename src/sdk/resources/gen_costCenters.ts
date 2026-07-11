@@ -30,11 +30,11 @@ export class CostCenters extends Resource {
     }
 
     /**
-     * listCostAllocations.
+     * getCostAllocations.
      * @method GET /v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries/{cost_entry_id}/cost-allocations
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listCostAllocations(costCenterId: string, costEntryId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getCostAllocations(costCenterId: string, costEntryId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries/{cost_entry_id}/cost-allocations', { path: { cost_center_id: costCenterId, cost_entry_id: costEntryId }, query: opts.query });
     }
 
@@ -75,11 +75,11 @@ export class CostCenters extends Resource {
     }
 
     /**
-     * listCostEntries.
+     * getCostEntries.
      * @method GET /v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listCostEntries(costCenterId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    getCostEntries(costCenterId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries', { path: { cost_center_id: costCenterId }, query: opts.query });
     }
 

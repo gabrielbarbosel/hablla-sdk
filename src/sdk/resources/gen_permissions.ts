@@ -72,11 +72,11 @@ export class Permissions extends Resource {
     }
 
     /**
-     * updatePermissions.
+     * updateWorkspacePermissions.
      * @method PUT /v1/workspaces/{workspace_id}/permissions
      * @remarks Any query params may be sent (none documented).
      */
-    updatePermissions(body: Partial<Permission>, opts: { query?: Record<string, unknown> } = {}): Promise<Permission> {
+    updateWorkspacePermissions(body: Partial<Permission>, opts: { query?: Record<string, unknown> } = {}): Promise<Permission> {
         return this.http.put('/v1/workspaces/{workspace_id}/permissions', { body, query: opts.query });
     }
 }

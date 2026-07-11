@@ -25,6 +25,15 @@ export interface Connection {
 /** `connections` resource (generated from openapi.json). */
 export class Connections extends Resource {
     /**
+     * createDuplicate.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    createDuplicate(connectionId: string, duplicateId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}', { path: { connection_id: connectionId, duplicate_id: duplicateId }, body, query: opts.query });
+    }
+
+    /**
      * deleteTemplates.
      * @method DELETE /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}
      * @remarks Any query params may be sent (none documented).
@@ -61,20 +70,83 @@ export class Connections extends Resource {
     }
 
     /**
-     * duplicate.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}
-     * @remarks Any query params may be sent (none documented).
+     * Get all messages by connection id and to.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/messages
+     * @remarks Documented query: page, limit, order, direction_order, user, body, populate, start_date, end_date, to (extra keys allowed).
      */
-    duplicate(connectionId: string, duplicateId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
-        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}', { path: { connection_id: connectionId, duplicate_id: duplicateId }, body, query: opts.query });
+    getMessages(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; populate?: string[]; start_date?: string; end_date?: string; to?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/connections/{id}/messages', { path: { id }, query: opts.query });
     }
 
     /**
-     * listTemplates.
+     * Create a message connection.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages
+     * @remarks Any query params may be sent (none documented).
+     */
+    messages(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/messages', { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+
+    /**
+     * Create a message templates connections.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates
+     * @remarks Any query params may be sent (none documented).
+     */
+    messagesTemplates(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates', { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+
+    /**
+     * Get all meta waba logs for a connection.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/meta-waba-logs
+     * @remarks Documented query: filters, page, limit, order, direction_order, type, start_date, end_date, populate (extra keys allowed).
+     */
+    getMetaWabaLogs(connectionId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; type?: string; start_date?: string; end_date?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/meta-waba-logs', { path: { connection_id: connectionId }, query: opts.query });
+    }
+
+    /**
+     * Register a whatsapp connection on Meta.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/register
+     * @remarks Any query params may be sent (none documented).
+     */
+    register(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/register', { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+
+    /**
+     * Subscribe apps on Meta for a connection.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/subscribe-app
+     * @remarks Any query params may be sent (none documented).
+     */
+    subscribeApp(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/subscribe-app', { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+
+    /**
+     * Get Meta subscribed apps for a connection.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/subscribed-apps
+     * @remarks Any query params may be sent (none documented).
+     */
+    getSubscribedApps(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/subscribed-apps', { path: { connection_id: connectionId }, query: opts.query });
+    }
+
+    /**
+     * Sync connection by id.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/sync
+     * @remarks Any query params may be sent (none documented).
+     */
+    sync(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/sync', { path: { connection_id: connectionId }, query: opts.query });
+    }
+
+    /**
+     * getTemplates.
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/templates
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listTemplates(connectionId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getTemplates(connectionId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates', { path: { connection_id: connectionId }, query: opts.query });
     }
 
@@ -88,84 +160,30 @@ export class Connections extends Resource {
     }
 
     /**
-     * Get all messages by connection id and to.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/messages
-     * @remarks Documented query: page, limit, order, direction_order, user, body, populate, start_date, end_date, to (extra keys allowed).
-     */
-    getMessages(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; populate?: string[]; start_date?: string; end_date?: string; to?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/connections/{id}/messages', { path: { id }, query: opts.query });
-    }
-
-    /**
-     * Get all meta waba logs for a connection.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/meta-waba-logs
-     * @remarks Documented query: filters, page, limit, order, direction_order, type, start_date, end_date, populate (extra keys allowed).
-     */
-    getMetaWabaLogs(id: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; type?: string; start_date?: string; end_date?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/connections/{id}/meta-waba-logs', { path: { id }, query: opts.query });
-    }
-
-    /**
-     * Register a whatsapp connection on Meta.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{id}/register
-     * @remarks Any query params may be sent (none documented).
-     */
-    register(id: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
-        return this.http.post('/v1/workspaces/{workspace_id}/connections/{id}/register', { path: { id }, body, query: opts.query });
-    }
-
-    /**
-     * Subscribe apps on Meta for a connection.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{id}/subscribe-app
-     * @remarks Any query params may be sent (none documented).
-     */
-    subscribeApp(id: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
-        return this.http.post('/v1/workspaces/{workspace_id}/connections/{id}/subscribe-app', { path: { id }, body, query: opts.query });
-    }
-
-    /**
-     * Get Meta subscribed apps for a connection.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/subscribed-apps
-     * @remarks Any query params may be sent (none documented).
-     */
-    getSubscribedApps(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/connections/{id}/subscribed-apps', { path: { id }, query: opts.query });
-    }
-
-    /**
-     * Sync connection by id.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/sync
-     * @remarks Any query params may be sent (none documented).
-     */
-    sync(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/connections/{id}/sync', { path: { id }, query: opts.query });
-    }
-
-    /**
      * Delete connection by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/connections/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteConnection(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/connections/{id}', { path: { id }, query: opts.query });
+    deleteConnection(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/connections/{connection_id}', { path: { connection_id: connectionId }, query: opts.query });
     }
 
     /**
      * Get connection by id.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getConnection(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
-        return this.http.get('/v1/workspaces/{workspace_id}/connections/{id}', { path: { id }, query: opts.query });
+    getConnection(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}', { path: { connection_id: connectionId }, query: opts.query });
     }
 
     /**
      * Update connection by id.
-     * @method PUT /v1/workspaces/{workspace_id}/connections/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updateConnection(id: string, body: Partial<Connection>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Connection> {
-        return this.http.put('/v1/workspaces/{workspace_id}/connections/{id}', { path: { id }, body, query: opts.query });
+    updateConnection(connectionId: string, body: Partial<Connection>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.put('/v1/workspaces/{workspace_id}/connections/{connection_id}', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
     /**

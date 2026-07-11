@@ -55,7 +55,6 @@ import { Invoices } from './resources/gen_invoices';
 import { KnowledgeBases } from './resources/gen_knowledgeBases';
 import { LegalEntities } from './resources/gen_legalEntities';
 import { LinkInBio } from './resources/gen_linkInBio';
-import { Lists } from './resources/gen_lists';
 import { Messages } from './resources/gen_messages';
 import { NewPrefix } from './resources/gen_newPrefix';
 import { Nps } from './resources/gen_nps';
@@ -85,7 +84,6 @@ import { Scripts } from './resources/gen_scripts';
 import { Search } from './resources/gen_search';
 import { Sectors } from './resources/gen_sectors';
 import { Segmentations } from './resources/gen_segmentations';
-import { SegmentationsItems } from './resources/gen_segmentationsItems';
 import { SeoProjects } from './resources/gen_seoProjects';
 import { Services } from './resources/gen_services';
 import { Sessions } from './resources/gen_sessions';
@@ -172,7 +170,6 @@ export class HabllaClient {
     readonly knowledgeBases: KnowledgeBases;
     readonly legalEntities: LegalEntities;
     readonly linkInBio: LinkInBio;
-    readonly lists: Lists;
     readonly messages: Messages;
     readonly newPrefix: NewPrefix;
     readonly nps: Nps;
@@ -202,7 +199,6 @@ export class HabllaClient {
     readonly search: Search;
     readonly sectors: Sectors;
     readonly segmentations: Segmentations;
-    readonly segmentationsItems: SegmentationsItems;
     readonly seoProjects: SeoProjects;
     readonly services: Services;
     readonly sessions: Sessions;
@@ -287,7 +283,6 @@ export class HabllaClient {
         this.knowledgeBases = new KnowledgeBases(this.http);
         this.legalEntities = new LegalEntities(this.http);
         this.linkInBio = new LinkInBio(this.http);
-        this.lists = new Lists(this.http);
         this.messages = new Messages(this.http);
         this.newPrefix = new NewPrefix(this.http);
         this.nps = new Nps(this.http);
@@ -317,7 +312,6 @@ export class HabllaClient {
         this.search = new Search(this.http);
         this.sectors = new Sectors(this.http);
         this.segmentations = new Segmentations(this.http);
-        this.segmentationsItems = new SegmentationsItems(this.http);
         this.seoProjects = new SeoProjects(this.http);
         this.services = new Services(this.http);
         this.sessions = new Sessions(this.http);

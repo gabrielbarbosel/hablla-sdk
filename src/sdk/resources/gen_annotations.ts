@@ -1,5 +1,5 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
+import type { Paged, MultipartFile, MultipartBody } from '../core/types';
 
 /** An annotation attached to a person, card, service or organization. */
 export interface Annotation {
@@ -16,29 +16,29 @@ export interface Annotation {
 export class Annotations extends Resource {
     /**
      * Delete annotation by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/annotations/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/annotations/{annotation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteAnnotation(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/annotations/{id}', { path: { id }, query: opts.query });
+    deleteAnnotation(annotationId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/annotations/{annotation_id}', { path: { annotation_id: annotationId }, query: opts.query });
     }
 
     /**
      * Get annotation by id.
-     * @method GET /v1/workspaces/{workspace_id}/annotations/{id}
+     * @method GET /v1/workspaces/{workspace_id}/annotations/{annotation_id}
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getAnnotation(id: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Annotation> {
-        return this.http.get('/v1/workspaces/{workspace_id}/annotations/{id}', { path: { id }, query: opts.query });
+    getAnnotation(annotationId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Annotation> {
+        return this.http.get('/v1/workspaces/{workspace_id}/annotations/{annotation_id}', { path: { annotation_id: annotationId }, query: opts.query });
     }
 
     /**
      * Update annotation by id.
-     * @method PUT /v1/workspaces/{workspace_id}/annotations/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/annotations/{annotation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateAnnotation(id: string, body: Partial<Annotation>, opts: { query?: Record<string, unknown> } = {}): Promise<Annotation> {
-        return this.http.put('/v1/workspaces/{workspace_id}/annotations/{id}', { path: { id }, body, query: opts.query });
+    updateAnnotation(annotationId: string, body: Partial<Annotation>, opts: { query?: Record<string, unknown> } = {}): Promise<Annotation> {
+        return this.http.put('/v1/workspaces/{workspace_id}/annotations/{annotation_id}', { path: { annotation_id: annotationId }, body, query: opts.query });
     }
 
     /**
@@ -51,11 +51,14 @@ export class Annotations extends Resource {
     }
 
     /**
-     * Create a new annotation.
+     * createAnnotation. Create a new annotation.
      * @method POST /v1/workspaces/{workspace_id}/annotations
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    createAnnotation(body: Partial<Annotation>, opts: { query?: Record<string, unknown> } = {}): Promise<Annotation> {
+    createAnnotation(file: MultipartFile, fields?: Record<string, string>, opts: { query?: Record<string, unknown> } = {}): Promise<Annotation> {
+        const body: MultipartBody = { kind: 'multipart', fields, files: { file } };
         return this.http.post('/v1/workspaces/{workspace_id}/annotations', { body, query: opts.query });
     }
 }

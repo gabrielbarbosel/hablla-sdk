@@ -6,9 +6,18 @@
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "assets"],
+  "files": [
+    "dist",
+    "assets",
+    "!assets/**/*.bak.js",
+    "!assets/**/*.BACKUP.js"
+  ],
   "scripts": {
     "build": "tsc",
+    "build:gas": "node tooling/build-gas.js",
+    "build:rpo": "node tooling/build-rpo.js",
+    "deploy:rpo": "npm run build:rpo && npm run build && node tooling/deploy-rpo.js",
+    "deploy:gas": "npm run build:gas && npm run build && node tooling/deploy-gas.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run"

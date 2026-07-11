@@ -1,0 +1,238 @@
+# ---------------------------------------------------------------------------
+# Auto-propositive codegen CI/CD for the hablla SDK.
+#
+# Every day (and on demand) it re-runs the generator against the live studio
+# bundle + swagger, classifies the resulting diff, and then ACTS on its own:
+#
+#   - additive (only new endpoints)  -> commit + semver tag + push   (autonomous)
+#   - breaking (endpoint removed /
+#     signature changed)             -> open a PR for human approval (never auto-merge)
+#   - failure / anomaly (parse
+#     failed, endpoints collapsed,
+#     nothing emitted)              -> open an Issue, touch nothing
+#   - noop (no diff)                 -> do nothing
+#
+# The LLM step (GitHub Models) writes the human-facing analysis / CHANGELOG and
+# the PR body. It authenticates with the NATIVE GITHUB_TOKEN via the
+# `models: read` permission below — there is NO external API key anywhere here.
+# ---------------------------------------------------------------------------
+name: codegen
+
+on:
+  # Daily drift check. 03:17 UTC = off-peak, avoids the top-of-hour cron stampede.
+  schedule:
+    - cron: "17 3 * * *"
+  # Manual trigger for on-demand regen (e.g. right after an upstream API change).
+  workflow_dispatch: {}
+
+# Least-privilege token scopes for the whole workflow:
+#   contents:write       -> commit generated code + push tags (additive release)
+#   pull-requests:write  -> open the breaking-change PR
+#   issues:write         -> open the failure/anomaly issue
+#   models:read          -> call GitHub Models (the LLM) with the native token
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  models: read
+
+# Never let two codegen runs race on tags/branches; a newer run wins.
+concurrency:
+  group: codegen
+  cancel-in-progress: false
+
+jobs:
+  codegen:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 so the full tag history is present — release.mjs needs it
+      # to detect existing tags and to push new ones with --follow-tags.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The generator entrypoint runs from compiled output (dist/), so build first.
+      - name: Build
+        run: npm run build
+
+      # Run the generator pipeline. It fetches the studio HTML -> hashed bundle +
+      # swagger, webcrack-deobfuscates, extracts the AST, merges + applies
+      # overrides, emits gen_*.ts, diffs against the committed SDK, and writes
+      # generation-report.json at the repo root.
+      #
+      # continue-on-error: a crash here is itself a signal — the classify step
+      # below turns "pipeline failed / no report" into outcome=failure so we open
+      # an issue instead of aborting the run silently.
+      - name: Run codegen pipeline
+        id: pipeline
+        continue-on-error: true
+        run: node dist/generator/pipeline.js
+
+      # Deterministic classification of what happened, entirely from the report
+      # (plus the pipeline's own exit status). Emits step outputs consumed by the
+      # `if:` guards on every downstream step. This is plain JS, no LLM.
+      - name: Classify outcome
+        id: classify
+        env:
+          PIPELINE_RESULT: ${{ steps.pipeline.outcome }}
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const fs = require('node:fs');
+          const REPORT = 'generation-report.json';
+          const pipelineOk = process.env.PIPELINE_RESULT === 'success';
+
+          let outcome = 'failure';
+          let added = 0, removed = 0, changed = 0;
+          let reasons = 'Pipeline crashed before writing a report.';
+
+          if (pipelineOk && fs.existsSync(REPORT)) {
+              const report = JSON.parse(fs.readFileSync(REPORT, 'utf8'));
+              const diff = report.diff ?? {};
+              added = (diff.addedEndpoints ?? []).length;
+              removed = (diff.removedEndpoints ?? []).length;
+              changed = (diff.changedSignatures ?? []).length;
+              // Trust the pipeline's own classification; default to failure if absent.
+              outcome = report.classification ?? 'failure';
+              reasons = (report.guards?.reasons ?? []).join('; ') || '(none reported)';
+          }
+
+          const out = {
+              outcome,
+              added: String(added),
+              removed: String(removed),
+              changed: String(changed),
+              reasons,
+          };
+          for (const [k, v] of Object.entries(out)) {
+              // Multi-line safe output via a random heredoc delimiter.
+              const delim = 'EOF_' + Math.random().toString(36).slice(2);
+              console.log(`${k}<<${delim}\n${v}\n${delim}`);
+          }
+          NODE
+
+      # -------- LLM analysis (GitHub Models, native token) --------
+      # Build ONE prompt that carries the whole report, so we make a SINGLE model
+      # call per run (GitHub Models is rate-limited). additive and breaking are
+      # mutually exclusive per run, so one call always suffices.
+      - name: Compose LLM prompt
+        id: prompt
+        if: steps.classify.outputs.outcome == 'additive' || steps.classify.outputs.outcome == 'breaking'
+        env:
+          OUTCOME: ${{ steps.classify.outputs.outcome }}
+        run: |
+          {
+            echo "You are the release scribe for the hablla TypeScript SDK, which is"
+            echo "generated from the Hablla studio bundle + swagger."
+            echo ""
+            echo "The codegen run classified this diff as: ${OUTCOME}."
+            echo ""
+            if [ "$OUTCOME" = "breaking" ]; then
+              echo "Write a PULL REQUEST body for human review. Explain, in plain"
+              echo "language, exactly which endpoints were removed or whose signature"
+              echo "changed, the blast radius for SDK consumers, and a recommended"
+              echo "migration note. Be precise and do not invent endpoints."
+            else
+              echo "Write a CHANGELOG entry (markdown, imperative mood) summarizing the"
+              echo "newly added endpoints for SDK consumers. Group related endpoints."
+            fi
+            echo ""
+            echo "Base your answer ONLY on this generation report:"
+            echo ""
+            echo '```json'
+            cat generation-report.json
+            echo '```'
+          } > codegen-prompt.md
+
+      - name: LLM analysis
+        id: ai
+        if: steps.classify.outputs.outcome == 'additive' || steps.classify.outputs.outcome == 'breaking'
+        uses: actions/ai-inference@v1
+        with:
+          # GitHub Models model id. Auth is the native GITHUB_TOKEN (models:read).
+          model: openai/gpt-4.1
+          system-prompt: "You are a precise release engineer. Output only the requested document, no preamble."
+          prompt-file: ${{ github.workspace }}/codegen-prompt.md
+          max-tokens: 2000
+
+      # -------- additive: autonomous commit + tag + push --------
+      - name: Additive release
+        if: steps.classify.outputs.outcome == 'additive'
+        env:
+          AI_CHANGELOG: ${{ steps.ai.outputs.response }}
+        run: |
+          # Prepend the LLM CHANGELOG entry so it rides along in the release commit.
+          HEADER="## $(date -u +%Y-%m-%d) - codegen additive release"
+          {
+            echo "$HEADER"
+            echo ""
+            echo "$AI_CHANGELOG"
+            echo ""
+            if [ -f CHANGELOG.md ]; then cat CHANGELOG.md; fi
+          } > CHANGELOG.new.md
+          mv CHANGELOG.new.md CHANGELOG.md
+          # release.mjs is deterministic: it re-reads the report, bumps semver,
+          # commits the generated surface + CHANGELOG, tags, and pushes --follow-tags.
+          node scripts/release.mjs
+
+      # -------- breaking: open a PR, never auto-merge --------
+      # The generated files are already in the working tree (uncommitted); the
+      # action commits them onto a fresh branch and opens the PR. Body = LLM
+      # analysis; a human (gabrielbarbosel) must approve.
+      - name: Open breaking-change PR
+        if: steps.classify.outputs.outcome == 'breaking'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: codegen/breaking-${{ github.run_id }}
+          commit-message: "feat(codegen)!: breaking regen (endpoint removed / signature changed)"
+          title: "Codegen: BREAKING API changes need review"
+          body: ${{ steps.ai.outputs.response }}
+          reviewers: gabrielbarbosel
+          labels: |
+            codegen
+            breaking
+          delete-branch: true
+
+      # -------- failure / anomaly: open an issue, change nothing --------
+      # Anti-quebra guard tripped (parse failed, endpoints dropped past threshold,
+      # zero uploads) or the pipeline crashed. We do NOT commit; we file a diagnostic
+      # issue assigned to the owner.
+      - name: Open failure issue
+        if: steps.classify.outputs.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REASONS: ${{ steps.classify.outputs.reasons }}
+          ADDED: ${{ steps.classify.outputs.added }}
+          REMOVED: ${{ steps.classify.outputs.removed }}
+          CHANGED: ${{ steps.classify.outputs.changed }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          BODY=$(cat <<EOF
+          The codegen pipeline tripped the anti-quebra guard (or crashed) and made **no changes**.
+
+          **Diagnosis:** ${REASONS}
+
+          **Endpoint diff (if any):** +${ADDED} / -${REMOVED} / ~${CHANGED}
+
+          **Run:** ${RUN_URL}
+
+          The generated \`generation-report.json\` is attached to the run logs. Nothing was committed, tagged, or PR'd.
+          EOF
+          )
+          gh issue create \
+            --title "Codegen FAILURE $(date -u +%Y-%m-%d): pipeline guard tripped" \
+            --body "$BODY" \
+            --assignee gabrielbarbosel \
+            --label codegen \
+            --label failure
+
+      # noop (no diff) falls through: every step above was skipped, run is green.

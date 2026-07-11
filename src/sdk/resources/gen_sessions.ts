@@ -26,11 +26,11 @@ export interface Session {
 export class Sessions extends Resource {
     /**
      * Get session by id.
-     * @method GET /v1/workspaces/{workspace_id}/sessions/{id}
+     * @method GET /v1/workspaces/{workspace_id}/sessions/{session_id}
      * @remarks Documented query: connection, key (extra keys allowed).
      */
-    getSession(id: string, opts: { query?: { connection?: string; key?: string } & Record<string, unknown> } = {}): Promise<Session> {
-        return this.http.get('/v1/workspaces/{workspace_id}/sessions/{id}', { path: { id }, query: opts.query });
+    getSession(sessionId: string, opts: { query?: { connection?: string; key?: string } & Record<string, unknown> } = {}): Promise<Session> {
+        return this.http.get('/v1/workspaces/{workspace_id}/sessions/{session_id}', { path: { session_id: sessionId }, query: opts.query });
     }
 
     /**

@@ -128,6 +128,11 @@ class W_HabllaClient {
     }
   };
 
+  // src/sdk/core/types.ts
+  function isMultipart(body) {
+    return !!body && typeof body === "object" && body.kind === "multipart";
+  }
+
   // src/sdk/core/query.ts
   function serializeQuery(obj) {
     if (!obj || typeof obj !== "object") return "";
@@ -262,7 +267,7 @@ class W_HabllaClient {
   var TRACE_LIMIT = 25;
   function isNetworkError(err) {
     const msg = String(err?.message ?? "");
-    return err?.code === "ECONNABORTED" || /timeout|ETIMEDOUT|ECONNRESET|socket hang up|network/i.test(msg);
+    return err?.code === "ECONNABORTED" || /timeout|ETIMEDOUT|ECONNRESET|socket hang up|network/i.test(msg) || /dns error|address unavailable|unable to connect|connection refused|ENOTFOUND|EAI_AGAIN|ECONNREFUSED/i.test(msg);
   }
   var HabllaHttpClient = class {
     constructor(transport, auth, config) {
@@ -287,21 +292,31 @@ class W_HabllaClient {
       return rawPath.replace(/{([^}]+)}/g, (match, token) => {
         const key = token.includes(".") ? token.slice(token.lastIndexOf(".") + 1) : token;
         const val = params[key] ?? (key.includes("workspace") ? this.config.workspaceId : null);
-        return val != null ? encodeURIComponent(String(val)) : match;
+        if (val == null) throw new Error("Missing path parameter: " + token);
+        return encodeURIComponent(String(val));
       });
     }
+    /**
+     * Content-Type is a per-body decision. A multipart body owns its own
+     * Content-Type (the transport generates the boundary), so none is set here. An
+     * explicit `contentType` (e.g. a form-urlencoded string) is honored as given. A
+     * plain JSON object defaults to `application/json`; a raw string with no
+     * explicit content type is sent as-is, never re-labeled as JSON.
+     */
     async send(method, url, opts, strategy) {
-      return this.transport.send({
-        method,
-        url,
-        headers: {
-          Accept: "application/json",
-          "Content-Type": opts.contentType ?? "application/json",
-          Authorization: await this.auth.authorization(strategy),
-          ...opts.headers
-        },
-        body: opts.body
-      });
+      const headers = {
+        Accept: "application/json",
+        Authorization: await this.auth.authorization(strategy)
+      };
+      const body = opts.body;
+      if (isMultipart(body)) {
+      } else if (opts.contentType) {
+        headers["Content-Type"] = opts.contentType;
+      } else if (body != null && typeof body === "object") {
+        headers["Content-Type"] = "application/json";
+      }
+      Object.assign(headers, opts.headers);
+      return this.transport.send({ method, url, headers, body });
     }
     /**
      * Retries transient failures with exponential backoff and jitter. A 429 (rate
@@ -342,14 +357,15 @@ class W_HabllaClient {
       const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serializeQuery(opts.query);
       const cacheKey = `${method}:${rawPath}`;
       const primary = await this.auth.resolveStrategy(cacheKey);
+      const idempotent = method === "GET" || method === "HEAD";
       let res = await this.send(method, url, opts, primary);
-      if (res.status < 400) {
+      if (res.status < 300) {
         await this.auth.recordStrategy(cacheKey, primary);
       } else if (res.status === 401 || res.status === 403) {
         const alternate = primary === "workspace" ? "bearer" : "workspace";
         res = await this.send(method, url, opts, alternate);
-        if (res.status < 400) await this.auth.recordStrategy(cacheKey, alternate);
-      } else if (primary === "workspace") {
+        if (res.status < 300) await this.auth.recordStrategy(cacheKey, alternate);
+      } else if (primary === "workspace" && idempotent) {
         res = await this.send(method, url, opts, "bearer");
       }
       let trace;
@@ -407,27 +423,27 @@ class W_HabllaClient {
   var Annotations = class extends Resource {
     /**
      * Delete annotation by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/annotations/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/annotations/{annotation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteAnnotation(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/annotations/{id}", { path: { id }, query: opts.query });
+    deleteAnnotation(annotationId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/annotations/{annotation_id}", { path: { annotation_id: annotationId }, query: opts.query });
     }
     /**
      * Get annotation by id.
-     * @method GET /v1/workspaces/{workspace_id}/annotations/{id}
+     * @method GET /v1/workspaces/{workspace_id}/annotations/{annotation_id}
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getAnnotation(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/annotations/{id}", { path: { id }, query: opts.query });
+    getAnnotation(annotationId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/annotations/{annotation_id}", { path: { annotation_id: annotationId }, query: opts.query });
     }
     /**
      * Update annotation by id.
-     * @method PUT /v1/workspaces/{workspace_id}/annotations/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/annotations/{annotation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateAnnotation(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/annotations/{id}", { path: { id }, body, query: opts.query });
+    updateAnnotation(annotationId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/annotations/{annotation_id}", { path: { annotation_id: annotationId }, body, query: opts.query });
     }
     /**
      * Get all annotations.
@@ -438,11 +454,14 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/annotations", { query: opts.query });
     }
     /**
-     * Create a new annotation.
+     * createAnnotation. Create a new annotation.
      * @method POST /v1/workspaces/{workspace_id}/annotations
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    createAnnotation(body, opts = {}) {
+    createAnnotation(file, fields, opts = {}) {
+      const body = { kind: "multipart", fields, files: { file } };
       return this.http.post("/v1/workspaces/{workspace_id}/annotations", { body, query: opts.query });
     }
   };
@@ -538,20 +557,20 @@ class W_HabllaClient {
       return this.http.patch("/v1/workspaces/{workspace_id}/automation-rules/{automation_rule_id}/remove-flow", { path: { automation_rule_id: automationRuleId }, body, query: opts.query });
     }
     /**
+     * getBoard.
+     * @method GET /v1/workspaces/{workspace_id}/automation-rules/boards/{board_id}
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getBoard(boardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/automation-rules/boards/{board_id}", { path: { board_id: boardId }, query: opts.query });
+    }
+    /**
      * updateAutomationRule.
      * @method PUT /v1/workspaces/{workspace_id}/automation-rules/{automation_rule_id}
      * @remarks Any query params may be sent (none documented).
      */
     updateAutomationRule(automationRuleId, body, opts = {}) {
       return this.http.put("/v1/workspaces/{workspace_id}/automation-rules/{automation_rule_id}", { path: { automation_rule_id: automationRuleId }, body, query: opts.query });
-    }
-    /**
-     * getBoards.
-     * @method GET /v1/workspaces/{workspace_id}/automation-rules/boards/{board_id}
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getBoards(boardId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/automation-rules/boards/{board_id}", { path: { board_id: boardId }, query: opts.query });
     }
     /**
      * createAutomationRule.
@@ -578,11 +597,11 @@ class W_HabllaClient {
   // src/sdk/resources/gen_block.ts
   var Block = class extends Resource {
     /**
-     * updateBlock.
+     * patchBlock.
      * @method PATCH /v1/workspaces/{workspace_id}/block
      * @remarks Documented query: is_blocked (extra keys allowed).
      */
-    updateBlock(body, opts = {}) {
+    patchBlock(body, opts = {}) {
       return this.http.patch("/v1/workspaces/{workspace_id}/block", { body, query: opts.query });
     }
   };
@@ -618,6 +637,30 @@ class W_HabllaClient {
   // src/sdk/resources/gen_boards.ts
   var Boards = class extends Resource {
     /**
+     * Delete list.
+     * @method DELETE /v1/workspaces/{workspace_id}/boards/{board_id}/lists/{list_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteLists(boardId, listId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/boards/{board_id}/lists/{list_id}", { path: { board_id: boardId, list_id: listId }, query: opts.query });
+    }
+    /**
+     * Get list by id.
+     * @method GET /v1/workspaces/{workspace_id}/boards/{board_id}/lists/{list_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getList(boardId, listId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/boards/{board_id}/lists/{list_id}", { path: { board_id: boardId, list_id: listId }, query: opts.query });
+    }
+    /**
+     * Update list by id.
+     * @method PUT /v1/workspaces/{workspace_id}/boards/{board_id}/lists/{list_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    putLists(boardId, listId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/boards/{board_id}/lists/{list_id}", { path: { board_id: boardId, list_id: listId }, body, query: opts.query });
+    }
+    /**
      * Get cards from a board by id.
      * @method GET /v1/workspaces/{workspace_id}/boards/{id}/cards
      * @remarks Documented query: limit, order, direction_order, name, search, campaign, source, person, organization, user, sector, status, product, reason, rating, tags, populate, board_populate, start_date, end_date, field_date, created_at, updated_at, has_next_task, next_task_start_date, prediction_date, entry_date, finished_at, next_task_type, custom_fields, list, highlight_old_cards, custom_id (extra keys allowed).
@@ -626,12 +669,28 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/boards/{id}/cards", { path: { id }, query: opts.query });
     }
     /**
-     * Reorder lists inside a board by id.
-     * @method PUT /v1/workspaces/{workspace_id}/boards/{id}/reorder-lists
+     * Get all lists.
+     * @method GET /v1/workspaces/{workspace_id}/boards/{board_id}/lists
+     * @remarks Documented query: filters, page, limit, order, direction_order, name, populate (extra keys allowed).
+     */
+    getLists(boardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/boards/{board_id}/lists", { path: { board_id: boardId }, query: opts.query });
+    }
+    /**
+     * Create a list.
+     * @method POST /v1/workspaces/{workspace_id}/boards/{board_id}/lists
      * @remarks Any query params may be sent (none documented).
      */
-    reorderLists(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/boards/{id}/reorder-lists", { path: { id }, body, query: opts.query });
+    lists(boardId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/boards/{board_id}/lists", { path: { board_id: boardId }, body, query: opts.query });
+    }
+    /**
+     * Reorder lists inside a board by id.
+     * @method PUT /v1/workspaces/{workspace_id}/boards/{board_id}/reorder-lists
+     * @remarks Any query params may be sent (none documented).
+     */
+    reorderLists(boardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/boards/{board_id}/reorder-lists", { path: { board_id: boardId }, body, query: opts.query });
     }
     /**
      * Get reports from a board by id.
@@ -643,27 +702,27 @@ class W_HabllaClient {
     }
     /**
      * Delete board by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/boards/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/boards/{board_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteBoard(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/boards/{id}", { path: { id }, query: opts.query });
+    deleteBoard(boardId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/boards/{board_id}", { path: { board_id: boardId }, query: opts.query });
     }
     /**
      * Get board by id.
-     * @method GET /v1/workspaces/{workspace_id}/boards/{id}
+     * @method GET /v1/workspaces/{workspace_id}/boards/{board_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    getBoard(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/boards/{id}", { path: { id }, query: opts.query });
+    getBoard(boardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/boards/{board_id}", { path: { board_id: boardId }, query: opts.query });
     }
     /**
      * Update a board by id.
-     * @method PUT /v1/workspaces/{workspace_id}/boards/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/boards/{board_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateBoard(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/boards/{id}", { path: { id }, body, query: opts.query });
+    updateBoard(boardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/boards/{board_id}", { path: { board_id: boardId }, body, query: opts.query });
     }
     /**
      * Get all boards.
@@ -683,23 +742,31 @@ class W_HabllaClient {
     }
     /**
      * Get cards from a board by id (V2).
-     * @method GET /v2/workspaces/{workspace_id}/boards/{id}/cards
+     * @method GET /v2/workspaces/{workspace_id}/boards/{board_id}/cards
      * @remarks Documented query: filters, limit, order, direction_order, name, search, campaign, source, person, organization, user, sector, status, product, reason, rating, tags, populate, board_populate, start_date, end_date, field_date, created_at, updated_at, has_next_task, next_task_start_date, prediction_date, entry_date, finished_at, next_task_type, custom_fields, list, highlight_old_cards, custom_id (extra keys allowed).
      */
-    getCards(id, opts = {}) {
-      return this.http.get("/v2/workspaces/{workspace_id}/boards/{id}/cards", { path: { id }, query: opts.query });
+    getCards(boardId, opts = {}) {
+      return this.http.get("/v2/workspaces/{workspace_id}/boards/{board_id}/cards", { path: { board_id: boardId }, query: opts.query });
     }
   };
 
   // src/sdk/resources/gen_calendars.ts
   var Calendars = class extends Resource {
     /**
-     * listAvailabilityByCalendar.
-     * @method GET /v1/workspaces/{workspace_id}/calendars/{calendar_id}/availability
+     * refreshCalendarGroupToken.
+     * @method PUT /v1/workspaces/{workspace_id}/calendars/groups/{group_id}/jwt/refresh
      * @remarks Any query params may be sent (none documented).
      */
-    listAvailabilityByCalendar(calendarId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/calendars/{calendar_id}/availability", { path: { calendar_id: calendarId }, query: opts.query });
+    refreshCalendarGroupToken(groupId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/calendars/groups/{group_id}/jwt/refresh", { path: { group_id: groupId }, body, query: opts.query });
+    }
+    /**
+     * getDuplicated.
+     * @method GET /v1/workspaces/{workspace_id}/calendars/groups/slug/duplicated/{duplicated_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getDuplicated(duplicatedId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/calendars/groups/slug/duplicated/{duplicated_id}", { path: { duplicated_id: duplicatedId }, query: opts.query });
     }
     /**
      * deleteBlockedDays.
@@ -710,44 +777,12 @@ class W_HabllaClient {
       return this.http.delete("/v1/workspaces/{workspace_id}/calendars/{calendar_id}/blocked-days/{blocked_day_id}", { path: { calendar_id: calendarId, blocked_day_id: blockedDayId }, query: opts.query });
     }
     /**
-     * blockedDays.
-     * @method POST /v1/workspaces/{workspace_id}/calendars/{calendar_id}/blocked-days
-     * @remarks Any query params may be sent (none documented).
-     */
-    blockedDays(calendarId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/calendars/{calendar_id}/blocked-days", { path: { calendar_id: calendarId }, body, query: opts.query });
-    }
-    /**
-     * updateRefresh.
+     * refreshCalendarToken.
      * @method PUT /v1/workspaces/{workspace_id}/calendars/{calendar_id}/jwt/refresh
      * @remarks Any query params may be sent (none documented).
      */
-    updateRefresh(calendarId, body, opts = {}) {
+    refreshCalendarToken(calendarId, body, opts = {}) {
       return this.http.put("/v1/workspaces/{workspace_id}/calendars/{calendar_id}/jwt/refresh", { path: { calendar_id: calendarId }, body, query: opts.query });
-    }
-    /**
-     * deleteCalendar.
-     * @method DELETE /v1/workspaces/{workspace_id}/calendars/{calendar_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteCalendar(calendarId, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/calendars/{calendar_id}", { path: { calendar_id: calendarId }, query: opts.query });
-    }
-    /**
-     * getCalendar.
-     * @method GET /v1/workspaces/{workspace_id}/calendars/{calendar_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getCalendar(calendarId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/calendars/{calendar_id}", { path: { calendar_id: calendarId }, query: opts.query });
-    }
-    /**
-     * updateCalendar.
-     * @method PUT /v1/workspaces/{workspace_id}/calendars/{calendar_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateCalendar(calendarId, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/calendars/{calendar_id}", { path: { calendar_id: calendarId }, body, query: opts.query });
     }
     /**
      * addCalendar.
@@ -766,14 +801,6 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/calendars/groups/{group_id}/blocked-days", { path: { group_id: groupId }, query: opts.query });
     }
     /**
-     * updateJwtRefresh.
-     * @method PUT /v1/workspaces/{workspace_id}/calendars/groups/{group_id}/jwt/refresh
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateJwtRefresh(groupId, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/calendars/groups/{group_id}/jwt/refresh", { path: { group_id: groupId }, body, query: opts.query });
-    }
-    /**
      * removeCalendar.
      * @method PATCH /v1/workspaces/{workspace_id}/calendars/groups/{group_id}/remove-calendar
      * @remarks Any query params may be sent (none documented).
@@ -788,6 +815,22 @@ class W_HabllaClient {
      */
     getUsersTasks(groupId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/calendars/groups/{group_id}/users-tasks", { path: { group_id: groupId }, query: opts.query });
+    }
+    /**
+     * getAvailabilityCalendarById.
+     * @method GET /v1/workspaces/{workspace_id}/calendars/{calendar_id}/availability
+     * @remarks Any query params may be sent (none documented).
+     */
+    getAvailabilityCalendarById(calendarId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/calendars/{calendar_id}/availability", { path: { calendar_id: calendarId }, query: opts.query });
+    }
+    /**
+     * blockedDays.
+     * @method POST /v1/workspaces/{workspace_id}/calendars/{calendar_id}/blocked-days
+     * @remarks Any query params may be sent (none documented).
+     */
+    blockedDays(calendarId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/calendars/{calendar_id}/blocked-days", { path: { calendar_id: calendarId }, body, query: opts.query });
     }
     /**
      * deleteGroups.
@@ -814,19 +857,43 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/calendars/groups/{group_id}", { path: { group_id: groupId }, body, query: opts.query });
     }
     /**
-     * duplicated.
-     * @method GET /v1/workspaces/{workspace_id}/calendars/groups/slug/duplicated/{duplicated_id}
+     * getCalendarMeAvailability.
+     * @method GET /v1/workspaces/{workspace_id}/calendars/me/availability
      * @remarks Any query params may be sent (none documented).
      */
-    duplicated(duplicatedId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/calendars/groups/slug/duplicated/{duplicated_id}", { path: { duplicated_id: duplicatedId }, query: opts.query });
+    getCalendarMeAvailability(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/calendars/me/availability", { query: opts.query });
     }
     /**
-     * listGroups.
+     * deleteCalendar.
+     * @method DELETE /v1/workspaces/{workspace_id}/calendars/{calendar_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteCalendar(calendarId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/calendars/{calendar_id}", { path: { calendar_id: calendarId }, query: opts.query });
+    }
+    /**
+     * getCalendar.
+     * @method GET /v1/workspaces/{workspace_id}/calendars/{calendar_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getCalendar(calendarId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/calendars/{calendar_id}", { path: { calendar_id: calendarId }, query: opts.query });
+    }
+    /**
+     * updateCalendar.
+     * @method PUT /v1/workspaces/{workspace_id}/calendars/{calendar_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    updateCalendar(calendarId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/calendars/{calendar_id}", { path: { calendar_id: calendarId }, body, query: opts.query });
+    }
+    /**
+     * getGroups.
      * @method GET /v1/workspaces/{workspace_id}/calendars/groups
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listGroups(opts = {}) {
+    getGroups(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/calendars/groups", { query: opts.query });
     }
     /**
@@ -838,28 +905,12 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/calendars/groups", { body, query: opts.query });
     }
     /**
-     * listAvailability.
-     * @method GET /v1/workspaces/{workspace_id}/calendars/me/availability
-     * @remarks Any query params may be sent (none documented).
-     */
-    listAvailability(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/calendars/me/availability", { query: opts.query });
-    }
-    /**
      * getMe.
      * @method GET /v1/workspaces/{workspace_id}/calendars/me
      * @remarks Any query params may be sent (none documented).
      */
     getMe(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/calendars/me", { query: opts.query });
-    }
-    /**
-     * getUser.
-     * @method GET /v1/workspaces/{workspace_id}/calendars/user/{user_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getUser(userId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/calendars/user/{user_id}", { path: { user_id: userId }, query: opts.query });
     }
     /**
      * listCalendars.
@@ -934,11 +985,14 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/campaigns", { query: opts.query });
     }
     /**
-     * sheet.
+     * sheet. Uploads an xlsx spreadsheet as multipart/form-data to create a campaign.
      * @method POST /v2/workspaces/{workspace_id}/campaigns/sheet
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    sheet(body, opts = {}) {
+    sheet(file, fields, opts = {}) {
+      const body = { kind: "multipart", fields, files: { file } };
       return this.http.post("/v2/workspaces/{workspace_id}/campaigns/sheet", { body, query: opts.query });
     }
     /**
@@ -954,84 +1008,20 @@ class W_HabllaClient {
   // src/sdk/resources/gen_cards.ts
   var Cards = class extends Resource {
     /**
-     * Add followers to a card by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/cards/{id}/add-followers
-     * @remarks Documented query: followers, flow_execution, user (extra keys allowed).
-     */
-    addFollowers(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{id}/add-followers", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Add persons on a card by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/cards/{id}/add-persons
-     * @remarks Documented query: persons, flow_execution, user (extra keys allowed).
-     */
-    addPersons(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{id}/add-persons", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Add tags to a card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}/add-tags
-     * @remarks Documented query: tags, flow_execution, user (extra keys allowed).
-     */
-    addTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}/add-tags", { path: { id }, body, query: opts.query });
-    }
-    /**
      * Remove checklist item from a card by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/cards/{id}/checklist/{checklist_id}
+     * @method DELETE /v1/workspaces/{workspace_id}/cards/{card_id}/checklist/{checklist_id}
      * @remarks Documented query: flow_execution, user (extra keys allowed).
      */
-    deleteChecklist(id, checklistId, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/cards/{id}/checklist/{checklist_id}", { path: { id, checklist_id: checklistId }, query: opts.query });
+    deleteChecklist(cardId, checklistId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/cards/{card_id}/checklist/{checklist_id}", { path: { card_id: cardId, checklist_id: checklistId }, query: opts.query });
     }
     /**
      * Update checklist from a card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}/checklist/{checklist_id}
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}/checklist/{checklist_id}
      * @remarks Documented query: flow_execution, user (extra keys allowed).
      */
-    putChecklist(id, checklistId, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}/checklist/{checklist_id}", { path: { id, checklist_id: checklistId }, body, query: opts.query });
-    }
-    /**
-     * Add checklist to a card by id.
-     * @method POST /v1/workspaces/{workspace_id}/cards/{id}/checklist
-     * @remarks Documented query: flow_execution, user (extra keys allowed).
-     */
-    checklist(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/cards/{id}/checklist", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Get all costs allocations by card.
-     * @method GET /v1/workspaces/{workspace_id}/cards/{id}/costs
-     * @remarks Documented query: filters, page, limit, order, direction_order, entity_type, start_date, end_date, populate (extra keys allowed).
-     */
-    getCosts(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/cards/{id}/costs", { path: { id }, query: opts.query });
-    }
-    /**
-     * Move card to a new list by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/cards/{id}/move
-     * @remarks Documented query: list, flow_execution, user (extra keys allowed).
-     */
-    move(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{id}/move", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Add payment intervals to a card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}/payment-interval
-     * @remarks Documented query: flow_execution, user (extra keys allowed).
-     */
-    putPaymentInterval(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}/payment-interval", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Add products prices to a card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}/products-prices
-     * @remarks Documented query: flow_execution, user (extra keys allowed).
-     */
-    putProductsPrices(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}/products-prices", { path: { id }, body, query: opts.query });
+    putChecklist(cardId, checklistId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}/checklist/{checklist_id}", { path: { card_id: cardId, checklist_id: checklistId }, body, query: opts.query });
     }
     /**
      * Remove a product from a card card by id.
@@ -1051,11 +1041,67 @@ class W_HabllaClient {
     }
     /**
      * Batch update products on card by id.
-     * @method POST /v1/workspaces/{workspace_id}/cards/{id}/products/batch
+     * @method POST /v1/workspaces/{workspace_id}/cards/{card_id}/products/batch
      * @remarks Any query params may be sent (none documented).
      */
-    createProductsBatch(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/cards/{id}/products/batch", { path: { id }, body, query: opts.query });
+    batchAddProductsCard(cardId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/cards/{card_id}/products/batch", { path: { card_id: cardId }, body, query: opts.query });
+    }
+    /**
+     * Add followers to a card by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/cards/{card_id}/add-followers
+     * @remarks Documented query: followers, flow_execution, user (extra keys allowed).
+     */
+    addFollowers(cardId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{card_id}/add-followers", { path: { card_id: cardId }, body, query: opts.query });
+    }
+    /**
+     * Add persons on a card by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/cards/{card_id}/add-persons
+     * @remarks Documented query: persons, flow_execution, user (extra keys allowed).
+     */
+    addPersons(cardId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{card_id}/add-persons", { path: { card_id: cardId }, body, query: opts.query });
+    }
+    /**
+     * Add tags to a card by id.
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}/add-tags
+     * @remarks Documented query: tags, flow_execution, user (extra keys allowed).
+     */
+    addTags(cardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}/add-tags", { path: { card_id: cardId }, body, query: opts.query });
+    }
+    /**
+     * Add checklist to a card by id.
+     * @method POST /v1/workspaces/{workspace_id}/cards/{card_id}/checklist
+     * @remarks Documented query: flow_execution, user (extra keys allowed).
+     */
+    checklist(cardId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/cards/{card_id}/checklist", { path: { card_id: cardId }, body, query: opts.query });
+    }
+    /**
+     * Get all costs allocations by card.
+     * @method GET /v1/workspaces/{workspace_id}/cards/{card_id}/costs
+     * @remarks Documented query: filters, page, limit, order, direction_order, entity_type, start_date, end_date, populate (extra keys allowed).
+     */
+    getCosts(cardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/cards/{card_id}/costs", { path: { card_id: cardId }, query: opts.query });
+    }
+    /**
+     * Move card to a new list by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/cards/{card_id}/move
+     * @remarks Documented query: list, flow_execution, user (extra keys allowed).
+     */
+    move(cardId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{card_id}/move", { path: { card_id: cardId }, body, query: opts.query });
+    }
+    /**
+     * Add payment intervals to a card by id.
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}/payment-interval
+     * @remarks Documented query: flow_execution, user (extra keys allowed).
+     */
+    putPaymentInterval(cardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}/payment-interval", { path: { card_id: cardId }, body, query: opts.query });
     }
     /**
      * Add product to a card card by id.
@@ -1066,83 +1112,91 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/cards/{id}/products", { path: { id }, body, query: opts.query });
     }
     /**
+     * Add products prices to a card by id.
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}/products-prices
+     * @remarks Documented query: flow_execution, user (extra keys allowed).
+     */
+    putProductsPrices(cardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}/products-prices", { path: { card_id: cardId }, body, query: opts.query });
+    }
+    /**
      * Purge card by id.
-     * @method GET /v1/workspaces/{workspace_id}/cards/{id}/purge
+     * @method GET /v1/workspaces/{workspace_id}/cards/{card_id}/purge
      * @remarks Any query params may be sent (none documented).
      */
-    getPurge(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/cards/{id}/purge", { path: { id }, query: opts.query });
+    getPurge(cardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/cards/{card_id}/purge", { path: { card_id: cardId }, query: opts.query });
     }
     /**
      * Remove followers from a card by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/cards/{id}/remove-followers
+     * @method PATCH /v1/workspaces/{workspace_id}/cards/{card_id}/remove-followers
      * @remarks Documented query: followers (extra keys allowed).
      */
-    removeFollowers(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{id}/remove-followers", { path: { id }, body, query: opts.query });
+    removeFollowers(cardId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{card_id}/remove-followers", { path: { card_id: cardId }, body, query: opts.query });
     }
     /**
      * Remove payment intervals from a card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}/remove-payment-interval
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}/remove-payment-interval
      * @remarks Documented query: flow_execution, user (extra keys allowed).
      */
-    removePaymentInterval(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}/remove-payment-interval", { path: { id }, body, query: opts.query });
+    removePaymentInterval(cardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}/remove-payment-interval", { path: { card_id: cardId }, body, query: opts.query });
     }
     /**
      * Remove persons from a card by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/cards/{id}/remove-persons
+     * @method PATCH /v1/workspaces/{workspace_id}/cards/{card_id}/remove-persons
      * @remarks Documented query: persons, flow_execution, user (extra keys allowed).
      */
-    removePersons(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{id}/remove-persons", { path: { id }, body, query: opts.query });
+    removePersons(cardId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/cards/{card_id}/remove-persons", { path: { card_id: cardId }, body, query: opts.query });
     }
     /**
      * Remove products prices from a card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}/remove-products-prices
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}/remove-products-prices
      * @remarks Documented query: flow_execution, user (extra keys allowed).
      */
-    removeProductsPrices(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}/remove-products-prices", { path: { id }, body, query: opts.query });
+    removeProductsPrices(cardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}/remove-products-prices", { path: { card_id: cardId }, body, query: opts.query });
     }
     /**
      * Remove tags from a card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}/remove-tags
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}/remove-tags
      * @remarks Documented query: tags (extra keys allowed).
      */
-    removeTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}/remove-tags", { path: { id }, body, query: opts.query });
+    removeTags(cardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}/remove-tags", { path: { card_id: cardId }, body, query: opts.query });
     }
     /**
      * Delete card by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/cards/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/cards/{card_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteCard(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/cards/{id}", { path: { id }, query: opts.query });
+    deleteCard(cardId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/cards/{card_id}", { path: { card_id: cardId }, query: opts.query });
     }
     /**
      * Get card by id.
-     * @method GET /v1/workspaces/{workspace_id}/cards/{id}
+     * @method GET /v1/workspaces/{workspace_id}/cards/{card_id}
      * @remarks Documented query: params, flow_execution, user (extra keys allowed).
      */
-    getCard(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/cards/{id}", { path: { id }, query: opts.query });
+    getCard(cardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/cards/{card_id}", { path: { card_id: cardId }, query: opts.query });
     }
     /**
      * Update card by id.
-     * @method PUT /v1/workspaces/{workspace_id}/cards/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/cards/{card_id}
      * @remarks Documented query: flow_execution, user (extra keys allowed).
      */
-    updateCard(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/cards/{id}", { path: { id }, body, query: opts.query });
+    updateCard(cardId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/cards/{card_id}", { path: { card_id: cardId }, body, query: opts.query });
     }
     /**
      * Create a new batch action.
      * @method POST /v1/workspaces/{workspace_id}/cards/batch
      * @remarks Any query params may be sent (none documented).
      */
-    createBatch(body, opts = {}) {
+    batchCards(body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/cards/batch", { body, query: opts.query });
     }
     /**
@@ -1221,8 +1275,11 @@ class W_HabllaClient {
      * createCdn.
      * @method POST /v1/workspaces/{workspace_id}/cdn
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    createCdn(body, opts = {}) {
+    createCdn(file, fields, opts = {}) {
+      const body = { kind: "multipart", fields, files: { file } };
       return this.http.post("/v1/workspaces/{workspace_id}/cdn", { body, query: opts.query });
     }
   };
@@ -1230,11 +1287,11 @@ class W_HabllaClient {
   // src/sdk/resources/gen_changeOwner.ts
   var ChangeOwner = class extends Resource {
     /**
-     * updateChangeOwner.
+     * patchChangeOwner.
      * @method PATCH /v1/workspaces/{workspace_id}/change-owner
      * @remarks Any query params may be sent (none documented).
      */
-    updateChangeOwner(body, opts = {}) {
+    patchChangeOwner(body, opts = {}) {
       return this.http.patch("/v1/workspaces/{workspace_id}/change-owner", { body, query: opts.query });
     }
   };
@@ -1243,19 +1300,19 @@ class W_HabllaClient {
   var Classes = class extends Resource {
     /**
      * makePublic.
-     * @method POST /v1/workspaces/{workspace_id}/classes/{classe_id}/make-public
+     * @method POST /v1/workspaces/{workspace_id}/classes/{class_id}/make-public
      * @remarks Any query params may be sent (none documented).
      */
-    makePublic(classeId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/classes/{classe_id}/make-public", { path: { classe_id: classeId }, body, query: opts.query });
+    makePublic(classId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/classes/{class_id}/make-public", { path: { class_id: classId }, body, query: opts.query });
     }
     /**
      * updateClass.
-     * @method PUT /v1/workspaces/{workspace_id}/classes/{classe_id}
+     * @method PUT /v1/workspaces/{workspace_id}/classes/{class_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateClass(classeId, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/classes/{classe_id}", { path: { classe_id: classeId }, body, query: opts.query });
+    updateClass(classId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/classes/{class_id}", { path: { class_id: classId }, body, query: opts.query });
     }
     /**
      * publish.
@@ -1314,6 +1371,14 @@ class W_HabllaClient {
   // src/sdk/resources/gen_connections.ts
   var Connections = class extends Resource {
     /**
+     * createDuplicate.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    createDuplicate(connectionId, duplicateId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}", { path: { connection_id: connectionId, duplicate_id: duplicateId }, body, query: opts.query });
+    }
+    /**
      * deleteTemplates.
      * @method DELETE /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}
      * @remarks Any query params may be sent (none documented).
@@ -1346,19 +1411,75 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/chat", { path: { connection_id: connectionId }, query: opts.query });
     }
     /**
-     * duplicate.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}
-     * @remarks Any query params may be sent (none documented).
+     * Get all messages by connection id and to.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/messages
+     * @remarks Documented query: page, limit, order, direction_order, user, body, populate, start_date, end_date, to (extra keys allowed).
      */
-    duplicate(connectionId, duplicateId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}", { path: { connection_id: connectionId, duplicate_id: duplicateId }, body, query: opts.query });
+    getMessages(id, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/connections/{id}/messages", { path: { id }, query: opts.query });
     }
     /**
-     * listTemplates.
+     * Create a message connection.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages
+     * @remarks Any query params may be sent (none documented).
+     */
+    messages(connectionId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages", { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+    /**
+     * Create a message templates connections.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates
+     * @remarks Any query params may be sent (none documented).
+     */
+    messagesTemplates(connectionId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates", { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+    /**
+     * Get all meta waba logs for a connection.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/meta-waba-logs
+     * @remarks Documented query: filters, page, limit, order, direction_order, type, start_date, end_date, populate (extra keys allowed).
+     */
+    getMetaWabaLogs(connectionId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/connections/{connection_id}/meta-waba-logs", { path: { connection_id: connectionId }, query: opts.query });
+    }
+    /**
+     * Register a whatsapp connection on Meta.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/register
+     * @remarks Any query params may be sent (none documented).
+     */
+    register(connectionId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/register", { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+    /**
+     * Subscribe apps on Meta for a connection.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/subscribe-app
+     * @remarks Any query params may be sent (none documented).
+     */
+    subscribeApp(connectionId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/subscribe-app", { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+    /**
+     * Get Meta subscribed apps for a connection.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/subscribed-apps
+     * @remarks Any query params may be sent (none documented).
+     */
+    getSubscribedApps(connectionId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/connections/{connection_id}/subscribed-apps", { path: { connection_id: connectionId }, query: opts.query });
+    }
+    /**
+     * Sync connection by id.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/sync
+     * @remarks Any query params may be sent (none documented).
+     */
+    sync(connectionId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/connections/{connection_id}/sync", { path: { connection_id: connectionId }, query: opts.query });
+    }
+    /**
+     * getTemplates.
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/templates
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listTemplates(connectionId, opts = {}) {
+    getTemplates(connectionId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/connections/{connection_id}/templates", { path: { connection_id: connectionId }, query: opts.query });
     }
     /**
@@ -1370,76 +1491,28 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/templates", { path: { connection_id: connectionId }, body, query: opts.query });
     }
     /**
-     * Get all messages by connection id and to.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/messages
-     * @remarks Documented query: page, limit, order, direction_order, user, body, populate, start_date, end_date, to (extra keys allowed).
-     */
-    getMessages(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/connections/{id}/messages", { path: { id }, query: opts.query });
-    }
-    /**
-     * Get all meta waba logs for a connection.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/meta-waba-logs
-     * @remarks Documented query: filters, page, limit, order, direction_order, type, start_date, end_date, populate (extra keys allowed).
-     */
-    getMetaWabaLogs(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/connections/{id}/meta-waba-logs", { path: { id }, query: opts.query });
-    }
-    /**
-     * Register a whatsapp connection on Meta.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{id}/register
-     * @remarks Any query params may be sent (none documented).
-     */
-    register(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/connections/{id}/register", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Subscribe apps on Meta for a connection.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{id}/subscribe-app
-     * @remarks Any query params may be sent (none documented).
-     */
-    subscribeApp(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/connections/{id}/subscribe-app", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Get Meta subscribed apps for a connection.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/subscribed-apps
-     * @remarks Any query params may be sent (none documented).
-     */
-    getSubscribedApps(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/connections/{id}/subscribed-apps", { path: { id }, query: opts.query });
-    }
-    /**
-     * Sync connection by id.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}/sync
-     * @remarks Any query params may be sent (none documented).
-     */
-    sync(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/connections/{id}/sync", { path: { id }, query: opts.query });
-    }
-    /**
      * Delete connection by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/connections/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteConnection(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/connections/{id}", { path: { id }, query: opts.query });
+    deleteConnection(connectionId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/connections/{connection_id}", { path: { connection_id: connectionId }, query: opts.query });
     }
     /**
      * Get connection by id.
-     * @method GET /v1/workspaces/{workspace_id}/connections/{id}
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getConnection(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/connections/{id}", { path: { id }, query: opts.query });
+    getConnection(connectionId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/connections/{connection_id}", { path: { connection_id: connectionId }, query: opts.query });
     }
     /**
      * Update connection by id.
-     * @method PUT /v1/workspaces/{workspace_id}/connections/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updateConnection(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/connections/{id}", { path: { id }, body, query: opts.query });
+    updateConnection(connectionId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/connections/{connection_id}", { path: { connection_id: connectionId }, body, query: opts.query });
     }
     /**
      * Get available connections.
@@ -1546,11 +1619,11 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries/{cost_entry_id}/cost-allocations/{cost_allocation_id}", { path: { cost_center_id: costCenterId, cost_entry_id: costEntryId, cost_allocation_id: costAllocationId }, body, query: opts.query });
     }
     /**
-     * listCostAllocations.
+     * getCostAllocations.
      * @method GET /v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries/{cost_entry_id}/cost-allocations
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listCostAllocations(costCenterId, costEntryId, opts = {}) {
+    getCostAllocations(costCenterId, costEntryId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries/{cost_entry_id}/cost-allocations", { path: { cost_center_id: costCenterId, cost_entry_id: costEntryId }, query: opts.query });
     }
     /**
@@ -1586,11 +1659,11 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries/{cost_entry_id}", { path: { cost_center_id: costCenterId, cost_entry_id: costEntryId }, body, query: opts.query });
     }
     /**
-     * listCostEntries.
+     * getCostEntries.
      * @method GET /v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listCostEntries(costCenterId, opts = {}) {
+    getCostEntries(costCenterId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/cost-centers/{cost_center_id}/cost-entries", { path: { cost_center_id: costCenterId }, query: opts.query });
     }
     /**
@@ -1731,27 +1804,27 @@ class W_HabllaClient {
   var CustomFields = class extends Resource {
     /**
      * Delete custom field by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/custom-fields/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/custom-fields/{custom_field_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteCustomField(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/custom-fields/{id}", { path: { id }, query: opts.query });
+    deleteCustomField(customFieldId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/custom-fields/{custom_field_id}", { path: { custom_field_id: customFieldId }, query: opts.query });
     }
     /**
      * Get custom field by id.
-     * @method GET /v1/workspaces/{workspace_id}/custom-fields/{id}
+     * @method GET /v1/workspaces/{workspace_id}/custom-fields/{custom_field_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getCustomField(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/custom-fields/{id}", { path: { id }, query: opts.query });
+    getCustomField(customFieldId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/custom-fields/{custom_field_id}", { path: { custom_field_id: customFieldId }, query: opts.query });
     }
     /**
      * Update custom field by id.
-     * @method PUT /v1/workspaces/{workspace_id}/custom-fields/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/custom-fields/{custom_field_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateCustomField(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/custom-fields/{id}", { path: { id }, body, query: opts.query });
+    updateCustomField(customFieldId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/custom-fields/{custom_field_id}", { path: { custom_field_id: customFieldId }, body, query: opts.query });
     }
     /**
      * Get all custom fields.
@@ -1824,14 +1897,6 @@ class W_HabllaClient {
      */
     deleteData(dataId, data2Id, opts = {}) {
       return this.http.delete("/v2/workspaces/{workspace_id}/data/{data_id}/{data2_id}", { path: { data_id: dataId, data2_id: data2Id }, query: opts.query });
-    }
-    /**
-     * getDataById.
-     * @method GET /v2/workspaces/{workspace_id}/data/{data_id}/{data2_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getDataById(dataId, data2Id, opts = {}) {
-      return this.http.get("/v2/workspaces/{workspace_id}/data/{data_id}/{data2_id}", { path: { data_id: dataId, data2_id: data2Id }, query: opts.query });
     }
     /**
      * updateData.
@@ -2158,6 +2223,14 @@ class W_HabllaClient {
       return this.http.patch("/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/comments/{comment_id}", { path: { feed_post_id: feedPostId, comment_id: commentId }, body, query: opts.query });
     }
     /**
+     * deletePollVotes.
+     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deletePollVotes(feedPostId, pollVoteId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}", { path: { feed_post_id: feedPostId, poll_vote_id: pollVoteId }, query: opts.query });
+    }
+    /**
      * getComments.
      * @method GET /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/comments
      * @remarks Any query params may be sent (none documented).
@@ -2172,14 +2245,6 @@ class W_HabllaClient {
      */
     comments(feedPostId, body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/comments", { path: { feed_post_id: feedPostId }, body, query: opts.query });
-    }
-    /**
-     * deletePollVotes.
-     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deletePollVotes(feedPostId, pollVoteId, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/poll-votes/{poll_vote_id}", { path: { feed_post_id: feedPostId, poll_vote_id: pollVoteId }, query: opts.query });
     }
     /**
      * getPollVotes.
@@ -2214,6 +2279,30 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}/reaction", { path: { feed_post_id: feedPostId }, body, query: opts.query });
     }
     /**
+     * deleteSchedule.
+     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteSchedule(scheduleId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}", { path: { schedule_id: scheduleId }, query: opts.query });
+    }
+    /**
+     * getScheduledPostById.
+     * @method GET /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getScheduledPostById(scheduleId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}", { path: { schedule_id: scheduleId }, query: opts.query });
+    }
+    /**
+     * patchSchedule.
+     * @method PATCH /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchSchedule(scheduleId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}", { path: { schedule_id: scheduleId }, body, query: opts.query });
+    }
+    /**
      * deleteFeedPost.
      * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}
      * @remarks Any query params may be sent (none documented).
@@ -2233,8 +2322,11 @@ class W_HabllaClient {
      * updateFeedPost.
      * @method PUT /v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    updateFeedPost(feedPostId, body, opts = {}) {
+    updateFeedPost(feedPostId, file, fields, opts = {}) {
+      const body = { kind: "multipart", fields, files: { file } };
       return this.http.put("/v1/workspaces/{workspace_id}/feed-posts/{feed_post_id}", { path: { feed_post_id: feedPostId }, body, query: opts.query });
     }
     /**
@@ -2254,35 +2346,11 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/feed-posts/reactions", { query: opts.query });
     }
     /**
-     * deleteSchedule.
-     * @method DELETE /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteSchedule(scheduleId, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}", { path: { schedule_id: scheduleId }, query: opts.query });
-    }
-    /**
-     * getSchedule.
-     * @method GET /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getSchedule(scheduleId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}", { path: { schedule_id: scheduleId }, query: opts.query });
-    }
-    /**
-     * patchSchedule.
-     * @method PATCH /v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    patchSchedule(scheduleId, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/feed-posts/schedule/{schedule_id}", { path: { schedule_id: scheduleId }, body, query: opts.query });
-    }
-    /**
-     * listSchedule.
+     * getAllScheduledPosts.
      * @method GET /v1/workspaces/{workspace_id}/feed-posts/schedule
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSchedule(opts = {}) {
+    getAllScheduledPosts(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/feed-posts/schedule", { query: opts.query });
     }
     /**
@@ -2305,8 +2373,11 @@ class W_HabllaClient {
      * createFeedPost.
      * @method POST /v1/workspaces/{workspace_id}/feed-posts
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    createFeedPost(body, opts = {}) {
+    createFeedPost(file, fields, opts = {}) {
+      const body = { kind: "multipart", fields, files: { file } };
       return this.http.post("/v1/workspaces/{workspace_id}/feed-posts", { body, query: opts.query });
     }
   };
@@ -2406,11 +2477,11 @@ class W_HabllaClient {
   // src/sdk/resources/gen_flowsExecutions.ts
   var FlowsExecutions = class extends Resource {
     /**
-     * createRetryByFlowsExecution.
+     * retryExecution.
      * @method POST /v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}/retry
      * @remarks Any query params may be sent (none documented).
      */
-    createRetryByFlowsExecution(flowsExecutionId, body, opts = {}) {
+    retryExecution(flowsExecutionId, body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}/retry", { path: { flows_execution_id: flowsExecutionId }, body, query: opts.query });
     }
     /**
@@ -2430,11 +2501,11 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/flows-executions/{flows_execution_id}", { path: { flows_execution_id: flowsExecutionId }, query: opts.query });
     }
     /**
-     * createRetry.
+     * retryMultipleExecutions.
      * @method POST /v1/workspaces/{workspace_id}/flows-executions/retry
      * @remarks Any query params may be sent (none documented).
      */
-    createRetry(body, opts = {}) {
+    retryMultipleExecutions(body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/flows-executions/retry", { body, query: opts.query });
     }
     /**
@@ -2530,12 +2601,20 @@ class W_HabllaClient {
   // src/sdk/resources/gen_habllaAgent.ts
   var HabllaAgent = class extends Resource {
     /**
-     * listHistory.
-     * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history
+     * putHistory.
+     * @method PUT /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history/{history_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    putHistory(habllaAgentId, skillId, historyId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history/{history_id}", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId, history_id: historyId }, body, query: opts.query });
+    }
+    /**
+     * getAgentHistoryBySkill.
+     * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listHistory(habllaAgentId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history", { path: { hablla_agent_id: habllaAgentId }, query: opts.query });
+    getAgentHistoryBySkill(habllaAgentId, skillId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
     }
     /**
      * putRestore.
@@ -2546,22 +2625,6 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/restore/{restore_id}", { path: { hablla_agent_id: habllaAgentId, restore_id: restoreId }, body, query: opts.query });
     }
     /**
-     * putHistory.
-     * @method PUT /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history/{history_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    putHistory(habllaAgentId, skillId, historyId, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history/{history_id}", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId, history_id: historyId }, body, query: opts.query });
-    }
-    /**
-     * listSkillHistory.
-     * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listSkillHistory(habllaAgentId, skillId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
-    }
-    /**
      * deleteSkill.
      * @method DELETE /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}
      * @remarks Any query params may be sent (none documented).
@@ -2570,11 +2633,11 @@ class W_HabllaClient {
       return this.http.delete("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
     }
     /**
-     * getSkill.
+     * getAgentSkillById.
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getSkill(habllaAgentId, skillId, opts = {}) {
+    getAgentSkillById(habllaAgentId, skillId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
     }
     /**
@@ -2586,11 +2649,19 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, body, query: opts.query });
     }
     /**
-     * listSkill.
+     * getAllAgentHistory.
+     * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getAllAgentHistory(habllaAgentId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history", { path: { hablla_agent_id: habllaAgentId }, query: opts.query });
+    }
+    /**
+     * getAllSkillsAgent.
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSkill(habllaAgentId, opts = {}) {
+    getAllSkillsAgent(habllaAgentId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill", { path: { hablla_agent_id: habllaAgentId }, query: opts.query });
     }
     /**
@@ -2687,11 +2758,11 @@ class W_HabllaClient {
   var Holidays = class extends Resource {
     /**
      * Delete holiday by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/holidays/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/holidays/{holiday_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteHoliday(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/holidays/{id}", { path: { id }, query: opts.query });
+    deleteHoliday(holidayId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/holidays/{holiday_id}", { path: { holiday_id: holidayId }, query: opts.query });
     }
     /**
      * Get holiday by id.
@@ -2703,11 +2774,11 @@ class W_HabllaClient {
     }
     /**
      * Update holiday by id.
-     * @method PUT /v1/workspaces/{workspace_id}/holidays/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/holidays/{holiday_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateHoliday(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/holidays/{id}", { path: { id }, body, query: opts.query });
+    updateHoliday(holidayId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/holidays/{holiday_id}", { path: { holiday_id: holidayId }, body, query: opts.query });
     }
     /**
      * Get holiday by filter.
@@ -2746,11 +2817,11 @@ class W_HabllaClient {
       return this.http.delete("/v1/workspaces/{workspace_id}/htm/container/{container_id}", { path: { container_id: containerId }, query: opts.query });
     }
     /**
-     * getContainer.
+     * getHTMById.
      * @method GET /v1/workspaces/{workspace_id}/htm/container/{container_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getContainer(containerId, opts = {}) {
+    getHTMById(containerId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/htm/container/{container_id}", { path: { container_id: containerId }, query: opts.query });
     }
     /**
@@ -2762,22 +2833,6 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/htm/container/{container_id}", { path: { container_id: containerId }, body, query: opts.query });
     }
     /**
-     * listContainer.
-     * @method GET /v1/workspaces/{workspace_id}/htm/container
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listContainer(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/htm/container", { query: opts.query });
-    }
-    /**
-     * container.
-     * @method POST /v1/workspaces/{workspace_id}/htm/container
-     * @remarks Any query params may be sent (none documented).
-     */
-    container(body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/htm/container", { body, query: opts.query });
-    }
-    /**
      * deleteTag.
      * @method DELETE /v1/workspaces/{workspace_id}/htm/tag/{tag_id}
      * @remarks Any query params may be sent (none documented).
@@ -2786,11 +2841,11 @@ class W_HabllaClient {
       return this.http.delete("/v1/workspaces/{workspace_id}/htm/tag/{tag_id}", { path: { tag_id: tagId }, query: opts.query });
     }
     /**
-     * getTag.
+     * getHTMTagsById.
      * @method GET /v1/workspaces/{workspace_id}/htm/tag/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getTag(tagId, opts = {}) {
+    getHTMTagsById(tagId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/htm/tag/{tag_id}", { path: { tag_id: tagId }, query: opts.query });
     }
     /**
@@ -2802,11 +2857,27 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/htm/tag/{tag_id}", { path: { tag_id: tagId }, body, query: opts.query });
     }
     /**
-     * listTag.
+     * getAllHTM.
+     * @method GET /v1/workspaces/{workspace_id}/htm/container
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getAllHTM(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/htm/container", { query: opts.query });
+    }
+    /**
+     * container.
+     * @method POST /v1/workspaces/{workspace_id}/htm/container
+     * @remarks Any query params may be sent (none documented).
+     */
+    container(body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/htm/container", { body, query: opts.query });
+    }
+    /**
+     * getAllHTMTags.
      * @method GET /v1/workspaces/{workspace_id}/htm/tag
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listTag(opts = {}) {
+    getAllHTMTags(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/htm/tag", { query: opts.query });
     }
     /**
@@ -2825,8 +2896,11 @@ class W_HabllaClient {
      * createImport.
      * @method POST /v1/workspaces/{workspace_id}/import
      * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
      */
-    createImport(body, opts = {}) {
+    createImport(file, fields, opts = {}) {
+      const body = { kind: "multipart", fields, files: { file } };
       return this.http.post("/v1/workspaces/{workspace_id}/import", { body, query: opts.query });
     }
   };
@@ -2902,11 +2976,11 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources/{source_id}", { path: { knowledge_base_id: knowledgeBaseId, source_id: sourceId }, body, query: opts.query });
     }
     /**
-     * listSources.
+     * getSources.
      * @method GET /v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSources(knowledgeBaseId, opts = {}) {
+    getSources(knowledgeBaseId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources", { path: { knowledge_base_id: knowledgeBaseId }, query: opts.query });
     }
     /**
@@ -2962,20 +3036,20 @@ class W_HabllaClient {
   // src/sdk/resources/gen_legalEntities.ts
   var LegalEntities = class extends Resource {
     /**
-     * updateLegalEntity.
-     * @method PUT /v1/legal-entities/{legal_entity_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateLegalEntity(legalEntityId, body, opts = {}) {
-      return this.http.put("/v1/legal-entities/{legal_entity_id}", { path: { legal_entity_id: legalEntityId }, body, query: opts.query });
-    }
-    /**
      * getUser.
      * @method GET /v1/legal-entities/user/{user_id}
      * @remarks Any query params may be sent (none documented).
      */
     getUser(userId, opts = {}) {
       return this.http.get("/v1/legal-entities/user/{user_id}", { path: { user_id: userId }, query: opts.query });
+    }
+    /**
+     * updateLegalEntity.
+     * @method PUT /v1/legal-entities/{legal_entity_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    updateLegalEntity(legalEntityId, body, opts = {}) {
+      return this.http.put("/v1/legal-entities/{legal_entity_id}", { path: { legal_entity_id: legalEntityId }, body, query: opts.query });
     }
     /**
      * listLegalEntities.
@@ -3039,58 +3113,22 @@ class W_HabllaClient {
     }
   };
 
-  // src/sdk/resources/gen_lists.ts
-  var Lists = class extends Resource {
-    /**
-     * Delete list.
-     * @method DELETE /v1/workspaces/{workspace_id}/boards/{board_id}/lists/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteList(boardId, id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/boards/{board_id}/lists/{id}", { path: { board_id: boardId, id }, query: opts.query });
-    }
-    /**
-     * Get list by id.
-     * @method GET /v1/workspaces/{workspace_id}/boards/{board_id}/lists/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getList(boardId, id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/boards/{board_id}/lists/{id}", { path: { board_id: boardId, id }, query: opts.query });
-    }
-    /**
-     * Update list by id.
-     * @method PUT /v1/workspaces/{workspace_id}/boards/{board_id}/lists/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateList(boardId, id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/boards/{board_id}/lists/{id}", { path: { board_id: boardId, id }, body, query: opts.query });
-    }
-    /**
-     * Get all lists.
-     * @method GET /v1/workspaces/{workspace_id}/boards/{board_id}/lists
-     * @remarks Documented query: filters, page, limit, order, direction_order, name, populate (extra keys allowed).
-     */
-    listLists(boardId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/boards/{board_id}/lists", { path: { board_id: boardId }, query: opts.query });
-    }
-    /**
-     * Create a list.
-     * @method POST /v1/workspaces/{workspace_id}/boards/{board_id}/lists
-     * @remarks Any query params may be sent (none documented).
-     */
-    createList(boardId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/boards/{board_id}/lists", { path: { board_id: boardId }, body, query: opts.query });
-    }
-  };
-
   // src/sdk/resources/gen_messages.ts
   var Messages = class extends Resource {
+    /**
+     * Mark message as read.
+     * @method PATCH /v1/workspaces/{workspace_id}/connections/{connection_id}/messages/read
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchRead(connectionId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages/read", { path: { connection_id: connectionId }, body, query: opts.query });
+    }
     /**
      * Send email messages by bot.
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages-bot
      * @remarks Any query params may be sent (none documented).
      */
-    createConnectionsMessagesBot(connectionId, body, opts = {}) {
+    MessagesController_createMessagesConnByBot_v1(connectionId, body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages-bot", { path: { connection_id: connectionId }, body, query: opts.query });
     }
     /**
@@ -3110,43 +3148,11 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates-bot", { path: { connection_id: connectionId }, body, query: opts.query });
     }
     /**
-     * Create a message templates connections.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates
-     * @remarks Any query params may be sent (none documented).
-     */
-    createConnectionsMessagesTemplates(connectionId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates", { path: { connection_id: connectionId }, body, query: opts.query });
-    }
-    /**
-     * Mark message as read.
-     * @method PATCH /v1/workspaces/{workspace_id}/connections/{connection_id}/messages/read
-     * @remarks Any query params may be sent (none documented).
-     */
-    patchRead(connectionId, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages/read", { path: { connection_id: connectionId }, body, query: opts.query });
-    }
-    /**
-     * Create a message connection.
-     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages
-     * @remarks Any query params may be sent (none documented).
-     */
-    createMessage(connectionId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/connections/{connection_id}/messages", { path: { connection_id: connectionId }, body, query: opts.query });
-    }
-    /**
-     * Send message to a group.
-     * @method POST /v1/workspaces/{workspace_id}/room/{room_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    room(roomId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/room/{room_id}", { path: { room_id: roomId }, body, query: opts.query });
-    }
-    /**
      * Create a message using bot.
      * @method POST /v1/workspaces/{workspace_id}/services/{service_id}/messages-bot
      * @remarks Any query params may be sent (none documented).
      */
-    createMessagesBot(serviceId, body, opts = {}) {
+    MessagesController_createByBot_v1(serviceId, body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/services/{service_id}/messages-bot", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
@@ -3158,44 +3164,12 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/services/{service_id}/messages-comment", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
-     * Create a message template.
-     * @method POST /v1/workspaces/{workspace_id}/services/{service_id}/messages-templates
+     * Send message to a group.
+     * @method POST /v1/workspaces/{workspace_id}/room/{room_id}
      * @remarks Any query params may be sent (none documented).
      */
-    createMessagesTemplates(serviceId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/services/{service_id}/messages-templates", { path: { service_id: serviceId }, body, query: opts.query });
-    }
-    /**
-     * Delete a message (of type comment) by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/services/{service_id}/messages/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteMessage(serviceId, id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/services/{service_id}/messages/{id}", { path: { service_id: serviceId, id }, query: opts.query });
-    }
-    /**
-     * Update a message (of type comment) by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/messages/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateMessage(serviceId, id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/messages/{id}", { path: { service_id: serviceId, id }, body, query: opts.query });
-    }
-    /**
-     * Create a message.
-     * @method POST /v1/workspaces/{workspace_id}/services/{service_id}/messages
-     * @remarks Any query params may be sent (none documented).
-     */
-    createMessageV1(serviceId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/services/{service_id}/messages", { path: { service_id: serviceId }, body, query: opts.query });
-    }
-    /**
-     * Create a message v2.
-     * @method POST /v2/workspaces/{workspace_id}/services/{service_id}/messages
-     * @remarks Any query params may be sent (none documented).
-     */
-    createMessageV2(serviceId, body, opts = {}) {
-      return this.http.post("/v2/workspaces/{workspace_id}/services/{service_id}/messages", { path: { service_id: serviceId }, body, query: opts.query });
+    createRoom(roomId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/room/{room_id}", { path: { room_id: roomId }, body, query: opts.query });
     }
   };
 
@@ -3343,27 +3317,27 @@ class W_HabllaClient {
   var Organizations = class extends Resource {
     /**
      * Add person to organization by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{id}/add-persons
+     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/add-persons
      * @remarks Documented query: persons (extra keys allowed).
      */
-    addPersons(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/organizations/{id}/add-persons", { path: { id }, body, query: opts.query });
+    addPersons(organizationId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/organizations/{organization_id}/add-persons", { path: { organization_id: organizationId }, body, query: opts.query });
     }
     /**
      * Add tags to org by id.
-     * @method PUT /v1/workspaces/{workspace_id}/organizations/{id}/add-tags
+     * @method PUT /v1/workspaces/{workspace_id}/organizations/{organization_id}/add-tags
      * @remarks Documented query: tags (extra keys allowed).
      */
-    addTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/organizations/{id}/add-tags", { path: { id }, body, query: opts.query });
+    addTags(organizationId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/organizations/{organization_id}/add-tags", { path: { organization_id: organizationId }, body, query: opts.query });
     }
     /**
      * Get all organization costs.
-     * @method GET /v1/workspaces/{workspace_id}/organizations/{id}/costs
+     * @method GET /v1/workspaces/{workspace_id}/organizations/{organization_id}/costs
      * @remarks Documented query: filters, page, limit, order, direction_order, entity_type, start_date, end_date, populate (extra keys allowed).
      */
-    getCosts(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/organizations/{id}/costs", { path: { id }, query: opts.query });
+    getCosts(organizationId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/organizations/{organization_id}/costs", { path: { organization_id: organizationId }, query: opts.query });
     }
     /**
      * Get all persons by organization id.
@@ -3375,27 +3349,27 @@ class W_HabllaClient {
     }
     /**
      * Remove person from organization by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{id}/remove-persons
+     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-persons
      * @remarks Documented query: persons (extra keys allowed).
      */
-    removePersons(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/organizations/{id}/remove-persons", { path: { id }, body, query: opts.query });
+    removePersons(organizationId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-persons", { path: { organization_id: organizationId }, body, query: opts.query });
     }
     /**
      * Remove tags on organization by id.
-     * @method PUT /v1/workspaces/{workspace_id}/organizations/{id}/remove-tags
+     * @method PUT /v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-tags
      * @remarks Documented query: tags (extra keys allowed).
      */
-    removeTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/organizations/{id}/remove-tags", { path: { id }, body, query: opts.query });
+    removeTags(organizationId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/organizations/{organization_id}/remove-tags", { path: { organization_id: organizationId }, body, query: opts.query });
     }
     /**
      * Get all organizations segmentations.
-     * @method GET /v1/workspaces/{workspace_id}/organizations/{id}/segmentations
+     * @method GET /v1/workspaces/{workspace_id}/organizations/{organization_id}/segmentations
      * @remarks Documented query: filters, page, limit, order, direction_order, populate, search (extra keys allowed).
      */
-    getSegmentations(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/organizations/{id}/segmentations", { path: { id }, query: opts.query });
+    getSegmentations(organizationId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/organizations/{organization_id}/segmentations", { path: { organization_id: organizationId }, query: opts.query });
     }
     /**
      * Delete organization by id.
@@ -3407,19 +3381,19 @@ class W_HabllaClient {
     }
     /**
      * Get organization by id.
-     * @method GET /v1/workspaces/{workspace_id}/organizations/{id}
+     * @method GET /v1/workspaces/{workspace_id}/organizations/{organization_id}
      * @remarks Documented query: filters, populate (extra keys allowed).
      */
-    getOrganization(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/organizations/{id}", { path: { id }, query: opts.query });
+    getOrganization(organizationId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/organizations/{organization_id}", { path: { organization_id: organizationId }, query: opts.query });
     }
     /**
      * Update organization by id.
-     * @method PUT /v1/workspaces/{workspace_id}/organizations/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/organizations/{organization_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updateOrganization(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/organizations/{id}", { path: { id }, body, query: opts.query });
+    updateOrganization(organizationId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/organizations/{organization_id}", { path: { organization_id: organizationId }, body, query: opts.query });
     }
     /**
      * Create a new batch action.
@@ -3482,22 +3456,6 @@ class W_HabllaClient {
   // src/sdk/resources/gen_pages.ts
   var Pages = class extends Resource {
     /**
-     * Add custom domain from page project by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{id}/add-domain
-     * @remarks Any query params may be sent (none documented).
-     */
-    addDomain(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{id}/add-domain", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Use AI.
-     * @method POST /v1/workspaces/{workspace_id}/pages-projects/{id}/ai
-     * @remarks Any query params may be sent (none documented).
-     */
-    ai(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/pages-projects/{id}/ai", { path: { id }, body, query: opts.query });
-    }
-    /**
      * Set page project editor.
      * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{id}/editor-version
      * @remarks Any query params may be sent (none documented).
@@ -3505,181 +3463,105 @@ class W_HabllaClient {
     patchEditorVersion(id, body, opts = {}) {
       return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{id}/editor-version", { path: { id }, body, query: opts.query });
     }
+  };
+
+  // src/sdk/resources/gen_pagesProjects.ts
+  var PagesProjects = class extends Resource {
     /**
-     * Get all pages.
-     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{id}/pages
-     * @remarks Documented query: filters, page, limit, order, project, slug, name, direction_order, is_template, category, populate, uploaded_on_github (extra keys allowed).
-     */
-    listPages(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{id}/pages", { path: { id }, query: opts.query });
-    }
-    /**
-     * Create a new page.
-     * @method POST /v1/workspaces/{workspace_id}/pages-projects/{id}/pages
+     * Restore a page from a page history by id.
+     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/page-history/{page_history_id}
      * @remarks Any query params may be sent (none documented).
      */
-    createPage(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/pages-projects/{id}/pages", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Publish page by id.
-     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{id}/publish
-     * @remarks Any query params may be sent (none documented).
-     */
-    publish(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{id}/publish", { path: { id }, query: opts.query });
-    }
-    /**
-     * Remove custom domain from page project by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{id}/remove-domain
-     * @remarks Any query params may be sent (none documented).
-     */
-    removeDomain(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{id}/remove-domain", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Republish a page project by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{id}/republish
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateRepublish(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{id}/republish", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Get a page shared components by id.
-     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{id}/shared-components
-     * @remarks Any query params may be sent (none documented).
-     */
-    listSharedComponents(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{id}/shared-components", { path: { id }, query: opts.query });
-    }
-    /**
-     * Add a page project shared components.
-     * @method POST /v1/workspaces/{workspace_id}/pages-projects/{id}/shared-components
-     * @remarks Any query params may be sent (none documented).
-     */
-    sharedComponents(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/pages-projects/{id}/shared-components", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Unpublish a page project by id.
-     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{id}/unpublish
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateUnpublish(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{id}/unpublish", { path: { id }, body, query: opts.query });
-    }
-    /**
-     * Delete page project by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/pages-projects/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deletePagesProjects(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/pages-projects/{id}", { path: { id }, query: opts.query });
-    }
-    /**
-     * Get pages project by id.
-     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getPagesProject(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{id}", { path: { id }, query: opts.query });
-    }
-    /**
-     * Update page project by id.
-     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    putPagesProjects(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{id}", { path: { id }, body, query: opts.query });
+    putPageHistory(pagesProjectId, pageId, pageHistoryId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/page-history/{page_history_id}", { path: { pages_project_id: pagesProjectId, page_id: pageId, page_history_id: pageHistoryId }, body, query: opts.query });
     }
     /**
      * Set a page to be used with manual editor.
-     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/enable-manual-editor
+     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/enable-manual-editor
      * @remarks Any query params may be sent (none documented).
      */
-    enableManualEditor(pagesProjectId, id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/enable-manual-editor", { path: { pages_project_id: pagesProjectId, id }, body, query: opts.query });
+    enableManualEditor(pagesProjectId, pageId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/enable-manual-editor", { path: { pages_project_id: pagesProjectId, page_id: pageId }, body, query: opts.query });
     }
     /**
      * Get all page version history from a page by id.
-     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/page-history
+     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/page-history
      * @remarks Documented query: filters, page, limit, order, user, direction_order, populate (extra keys allowed).
      */
-    getPageHistory(pagesProjectId, id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/page-history", { path: { pages_project_id: pagesProjectId, id }, query: opts.query });
+    getPageHistory(pagesProjectId, pageId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/page-history", { path: { pages_project_id: pagesProjectId, page_id: pageId }, query: opts.query });
+    }
+    /**
+     * putPublic.
+     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/public
+     * @remarks Any query params may be sent (none documented).
+     */
+    putPublic(pagesProjectId, pageId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/public", { path: { pages_project_id: pagesProjectId, page_id: pageId }, body, query: opts.query });
     }
     /**
      * Republish page by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/republish
+     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/republish
      * @remarks Any query params may be sent (none documented).
      */
-    updatePagesRepublish(pagesProjectId, id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/republish", { path: { pages_project_id: pagesProjectId, id }, body, query: opts.query });
+    republishPageById(pagesProjectId, pageId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/republish", { path: { pages_project_id: pagesProjectId, page_id: pageId }, body, query: opts.query });
     }
     /**
      * Unpublish page by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/unpublish
+     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/unpublish
      * @remarks Any query params may be sent (none documented).
      */
-    updatePagesUnpublish(pagesProjectId, id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}/unpublish", { path: { pages_project_id: pagesProjectId, id }, body, query: opts.query });
+    patchUnpublish(pagesProjectId, pageId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/unpublish", { path: { pages_project_id: pagesProjectId, page_id: pageId }, body, query: opts.query });
     }
     /**
      * Delete page by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deletePage(pagesProjectId, id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}", { path: { pages_project_id: pagesProjectId, id }, query: opts.query });
+    deletePages(pagesProjectId, pageId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}", { path: { pages_project_id: pagesProjectId, page_id: pageId }, query: opts.query });
     }
     /**
      * Get a page by id.
-     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}
+     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getPage(pagesProjectId, id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}", { path: { pages_project_id: pagesProjectId, id }, query: opts.query });
+    getPage(pagesProjectId, pageId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}", { path: { pages_project_id: pagesProjectId, page_id: pageId }, query: opts.query });
     }
     /**
      * Update page by id.
-     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updatePage(pagesProjectId, id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{id}", { path: { pages_project_id: pagesProjectId, id }, body, query: opts.query });
-    }
-    /**
-     * Restore a page from a page history by id.
-     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/page-history/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    putPageHistory(pagesProjectId, pageId, id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/page-history/{id}", { path: { pages_project_id: pagesProjectId, page_id: pageId, id }, body, query: opts.query });
+    putPages(pagesProjectId, pageId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}", { path: { pages_project_id: pagesProjectId, page_id: pageId }, body, query: opts.query });
     }
     /**
      * Remove a page project shared components by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{shared_component_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteSharedComponents(pagesProjectId, id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{id}", { path: { pages_project_id: pagesProjectId, id }, query: opts.query });
+    deleteSharedComponents(pagesProjectId, sharedComponentId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{shared_component_id}", { path: { pages_project_id: pagesProjectId, shared_component_id: sharedComponentId }, query: opts.query });
     }
     /**
      * Get a page project shared component by id.
-     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{id}
+     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{shared_component_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getSharedComponent(pagesProjectId, id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{id}", { path: { pages_project_id: pagesProjectId, id }, query: opts.query });
+    getSharedComponent(pagesProjectId, sharedComponentId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{shared_component_id}", { path: { pages_project_id: pagesProjectId, shared_component_id: sharedComponentId }, query: opts.query });
     }
     /**
      * Update a page project shared components by id.
-     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{shared_component_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putSharedComponents(pagesProjectId, id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{id}", { path: { pages_project_id: pagesProjectId, id }, body, query: opts.query });
+    putSharedComponents(pagesProjectId, sharedComponentId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components/{shared_component_id}", { path: { pages_project_id: pagesProjectId, shared_component_id: sharedComponentId }, body, query: opts.query });
     }
     /**
      * Get all public pages templates.
@@ -3698,6 +3580,118 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/pages/templates/workspace", { query: opts.query });
     }
     /**
+     * Add custom domain from page project by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/add-domain
+     * @remarks Any query params may be sent (none documented).
+     */
+    addDomain(pagesProjectId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/add-domain", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Use AI.
+     * @method POST /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/ai
+     * @remarks Any query params may be sent (none documented).
+     */
+    ai(pagesProjectId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/ai", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Get all pages.
+     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages
+     * @remarks Documented query: filters, page, limit, order, project, slug, name, direction_order, is_template, category, populate, uploaded_on_github (extra keys allowed).
+     */
+    getPages(pagesProjectId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages", { path: { pages_project_id: pagesProjectId }, query: opts.query });
+    }
+    /**
+     * Create a new page.
+     * @method POST /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages
+     * @remarks Any query params may be sent (none documented).
+     */
+    pages(pagesProjectId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Publish page by id.
+     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/publish
+     * @remarks Any query params may be sent (none documented).
+     */
+    publish(pagesProjectId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/publish", { path: { pages_project_id: pagesProjectId }, query: opts.query });
+    }
+    /**
+     * Remove custom domain from page project by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/remove-domain
+     * @remarks Any query params may be sent (none documented).
+     */
+    removeDomain(pagesProjectId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/remove-domain", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Republish a page project by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/republish
+     * @remarks Any query params may be sent (none documented).
+     */
+    republishPagesProjectById(pagesProjectId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/republish", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Get a page shared components by id.
+     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components
+     * @remarks Any query params may be sent (none documented).
+     */
+    getSharedComponents(pagesProjectId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components", { path: { pages_project_id: pagesProjectId }, query: opts.query });
+    }
+    /**
+     * Add a page project shared components.
+     * @method POST /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components
+     * @remarks Any query params may be sent (none documented).
+     */
+    sharedComponents(pagesProjectId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/shared-components", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Unpublish a page project by id.
+     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/unpublish
+     * @remarks Any query params may be sent (none documented).
+     */
+    putUnpublish(pagesProjectId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/unpublish", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Delete page project by id.
+     * @method DELETE /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deletePagesProject(pagesProjectId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}", { path: { pages_project_id: pagesProjectId }, query: opts.query });
+    }
+    /**
+     * Get pages project by id.
+     * @method GET /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getPagesProject(pagesProjectId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}", { path: { pages_project_id: pagesProjectId }, query: opts.query });
+    }
+    /**
+     * patchPagesProject.
+     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchPagesProject(pagesProjectId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
+     * Update page project by id.
+     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    updatePagesProject(pagesProjectId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
+    }
+    /**
      * Get all pages projects.
      * @method GET /v1/workspaces/{workspace_id}/pages-projects
      * @remarks Documented query: filters, page, limit, order, name, direction_order, populate (extra keys allowed).
@@ -3710,28 +3704,8 @@ class W_HabllaClient {
      * @method POST /v1/workspaces/{workspace_id}/pages-projects
      * @remarks Any query params may be sent (none documented).
      */
-    pagesProjects(body, opts = {}) {
+    createPagesProject(body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/pages-projects", { body, query: opts.query });
-    }
-  };
-
-  // src/sdk/resources/gen_pagesProjects.ts
-  var PagesProjects = class extends Resource {
-    /**
-     * putPublic.
-     * @method PUT /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/public
-     * @remarks Any query params may be sent (none documented).
-     */
-    putPublic(pagesProjectId, pageId, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages/{page_id}/public", { path: { pages_project_id: pagesProjectId, page_id: pageId }, body, query: opts.query });
-    }
-    /**
-     * updatePagesProject.
-     * @method PATCH /v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    updatePagesProject(pagesProjectId, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}", { path: { pages_project_id: pagesProjectId }, body, query: opts.query });
     }
   };
 
@@ -3882,11 +3856,11 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/permissions", { body, query: opts.query });
     }
     /**
-     * updatePermissions.
+     * updateWorkspacePermissions.
      * @method PUT /v1/workspaces/{workspace_id}/permissions
      * @remarks Any query params may be sent (none documented).
      */
-    updatePermissions(body, opts = {}) {
+    updateWorkspacePermissions(body, opts = {}) {
       return this.http.put("/v1/workspaces/{workspace_id}/permissions", { body, query: opts.query });
     }
   };
@@ -3903,11 +3877,11 @@ class W_HabllaClient {
     }
     /**
      * Add followers to person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/add-followers
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-followers
      * @remarks Any query params may be sent (none documented).
      */
-    addFollowers(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/add-followers", { path: { id }, body, query: opts.query });
+    addFollowers(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/add-followers", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Add organization to person by id.
@@ -3927,27 +3901,27 @@ class W_HabllaClient {
     }
     /**
      * Add sector to person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/add-sectors
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-sectors
      * @remarks Any query params may be sent (none documented).
      */
-    addSectors(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/add-sectors", { path: { id }, body, query: opts.query });
+    addSectors(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/add-sectors", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Add tags on person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/add-tags
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-tags
      * @remarks Any query params may be sent (none documented).
      */
-    addTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/add-tags", { path: { id }, body, query: opts.query });
+    addTags(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/add-tags", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Add user on person.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/add-users
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-users
      * @remarks Any query params may be sent (none documented).
      */
-    addUsers(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/add-users", { path: { id }, body, query: opts.query });
+    addUsers(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/add-users", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Add a new webchat_id on person by id.
@@ -3959,27 +3933,27 @@ class W_HabllaClient {
     }
     /**
      * Block person by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/persons/{id}/block
+     * @method PATCH /v1/workspaces/{workspace_id}/persons/{person_id}/block
      * @remarks Any query params may be sent (none documented).
      */
-    patchBlock(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/persons/{id}/block", { path: { id }, body, query: opts.query });
+    patchBlock(personId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/persons/{person_id}/block", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Get all persons.
-     * @method GET /v1/workspaces/{workspace_id}/persons/{id}/costs
+     * @method GET /v1/workspaces/{workspace_id}/persons/{person_id}/costs
      * @remarks Documented query: filters, page, limit, order, direction_order, entity_type, start_date, end_date, populate (extra keys allowed).
      */
-    getCosts(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/persons/{id}/costs", { path: { id }, query: opts.query });
+    getCosts(personId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/persons/{person_id}/costs", { path: { person_id: personId }, query: opts.query });
     }
     /**
      * Get duplicated persons by id.
-     * @method GET /v1/workspaces/{workspace_id}/persons/{id}/duplicates
+     * @method GET /v1/workspaces/{workspace_id}/persons/{person_id}/duplicates
      * @remarks Documented query: page, limit, order, direction_order (extra keys allowed).
      */
-    duplicates(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/persons/{id}/duplicates", { path: { id }, query: opts.query });
+    getDuplicates(personId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/persons/{person_id}/duplicates", { path: { person_id: personId }, query: opts.query });
     }
     /**
      * Get email from person by id.
@@ -3991,11 +3965,11 @@ class W_HabllaClient {
     }
     /**
      * Get person opened-services by id.
-     * @method GET /v1/workspaces/{workspace_id}/persons/{id}/opened-services
+     * @method GET /v1/workspaces/{workspace_id}/persons/{person_id}/opened-services
      * @remarks Documented query: connection (extra keys allowed).
      */
-    getOpenedServices(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/persons/{id}/opened-services", { path: { id }, query: opts.query });
+    getOpenedServices(personId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/persons/{person_id}/opened-services", { path: { person_id: personId }, query: opts.query });
     }
     /**
      * Remove email from person by id.
@@ -4007,43 +3981,43 @@ class W_HabllaClient {
     }
     /**
      * Remove followers from person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/remove-followers
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/remove-followers
      * @remarks Any query params may be sent (none documented).
      */
-    removeFollowers(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/remove-followers", { path: { id }, body, query: opts.query });
+    removeFollowers(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/remove-followers", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Remove organization on person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/remove-organizations
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/remove-organizations
      * @remarks Any query params may be sent (none documented).
      */
-    removeOrganizations(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/remove-organizations", { path: { id }, body, query: opts.query });
+    removeOrganizations(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/remove-organizations", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Remove sectors from person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/remove-sectors
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/remove-sectors
      * @remarks Any query params may be sent (none documented).
      */
-    removeSectors(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/remove-sectors", { path: { id }, body, query: opts.query });
+    removeSectors(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/remove-sectors", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Remove tags from person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/remove-tags
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/remove-tags
      * @remarks Any query params may be sent (none documented).
      */
-    removeTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/remove-tags", { path: { id }, body, query: opts.query });
+    removeTags(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/remove-tags", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Remove user on person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/remove-users
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/remove-users
      * @remarks Any query params may be sent (none documented).
      */
-    removeUsers(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}/remove-users", { path: { id }, body, query: opts.query });
+    removeUsers(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}/remove-users", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Remove a webchat from person by webchat_id.
@@ -4055,19 +4029,19 @@ class W_HabllaClient {
     }
     /**
      * Get all persons segmentations.
-     * @method GET /v1/workspaces/{workspace_id}/persons/{id}/segmentations
+     * @method GET /v1/workspaces/{workspace_id}/persons/{person_id}/segmentations
      * @remarks Documented query: filters, page, limit, order, direction_order, populate, search (extra keys allowed).
      */
-    getSegmentations(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/persons/{id}/segmentations", { path: { id }, query: opts.query });
+    getSegmentations(personId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/persons/{person_id}/segmentations", { path: { person_id: personId }, query: opts.query });
     }
     /**
      * Get person services-counters by id.
-     * @method GET /v1/workspaces/{workspace_id}/persons/{id}/services-counters
+     * @method GET /v1/workspaces/{workspace_id}/persons/{person_id}/services-counters
      * @remarks Documented query: status (extra keys allowed).
      */
-    getServicesCounters(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/persons/{id}/services-counters", { path: { id }, query: opts.query });
+    getServicesCounters(personId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/persons/{person_id}/services-counters", { path: { person_id: personId }, query: opts.query });
     }
     /**
      * Add user (by phone) to person by id.
@@ -4086,20 +4060,28 @@ class W_HabllaClient {
       return this.http.patch("/v1/workspaces/{workspace_id}/persons/{id}/update-webchat", { path: { id }, body, query: opts.query });
     }
     /**
-     * Get person by id.
-     * @method GET /v1/workspaces/{workspace_id}/persons/{id}
+     * Get person by webchat id.
+     * @method GET /v1/workspaces/{workspace_id}/persons/webchat/{webchat_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    getPerson(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/persons/{id}", { path: { id }, query: opts.query });
+    getWebchat(webchatId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/persons/webchat/{webchat_id}", { path: { webchat_id: webchatId }, query: opts.query });
+    }
+    /**
+     * Get person by id.
+     * @method GET /v1/workspaces/{workspace_id}/persons/{person_id}
+     * @remarks Documented query: populate (extra keys allowed).
+     */
+    getPerson(personId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/persons/{person_id}", { path: { person_id: personId }, query: opts.query });
     }
     /**
      * Update person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updatePerson(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/persons/{id}", { path: { id }, body, query: opts.query });
+    updatePerson(personId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/persons/{person_id}", { path: { person_id: personId }, body, query: opts.query });
     }
     /**
      * Associate a UUID with a person.
@@ -4150,92 +4132,12 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/persons/merge", { body, query: opts.query });
     }
     /**
-     * Finishes all open attendances (services) of a person, across every
-     * connection. An open service holds a per-connection lock on the phone
-     * (key = `{connection}_{phone}`); while it exists, creating a person or
-     * sending to that phone throws 409 (errorCode 136). Deleting/merging a person
-     * does NOT finish their services — it transfers them (still open), so the lock
-     * lingers on the anchor. {@link deletePerson} calls this first so a delete
-     * never leaves a locked phone or an orphaned attendance behind.
-     * @returns ids of the services that were finished.
-     */
-    async finishServices(id, opts = {}) {
-      const res = await this.http.get(
-        "/v2/workspaces/{workspace_id}/services",
-        { query: { person: id, limit: 50, ...opts.query } }
-      );
-      const open = (res.results ?? []).filter((s) => s.status !== "finished");
-      for (const s of open) {
-        await this.http.patch("/v1/workspaces/{workspace_id}/services/{service_id}/action", {
-          path: { service_id: s.id },
-          body: { status: "finished" }
-        });
-      }
-      return open.map((s) => s.id);
-    }
-    /**
-     * Deletes a person. The Hablla API has no direct DELETE for persons, so this
-     * uses {@link merge} as the documented workaround: the target becomes
-     * `replaced_person` and is removed, while the anchor person is kept with its
-     * own data (merge_data). Ported from the legacy generator's custom
-     * deletePersonApi so the capability lives in the new SDK.
-     *
-     * Before merging it calls {@link finishServices} so no open attendance (and
-     * its phone lock) is carried onto the anchor. Compose further cleanup here if
-     * more things ever need to be released before a delete.
-     * @param id person to delete (becomes `replaced_person`).
-     * @param opts.anchorId person to keep. Defaults to the first other person —
-     *   pass an explicit, disposable anchor (ideally a dedicated trash person) in
-     *   production to avoid polluting a real record with the merged owners.
-     */
-    async deletePerson(id, opts = {}) {
-      const target = await this.getPerson(id);
-      if (!target) throw new Error(`Person '${id}' not found`);
-      await this.finishServices(id);
-      let anchor;
-      if (opts.anchorId) {
-        anchor = await this.getPerson(opts.anchorId);
-      } else {
-        const { results } = await this.listPersons({ query: { search: "Lixeira do Sistema", limit: 5 } });
-        anchor = (results ?? []).find((p) => p.id !== id && typeof p.name === "string" && p.name.includes("Lixeira do Sistema"));
-        if (!anchor) {
-          const fallback = await this.listPersons({ query: { limit: 5 } });
-          anchor = (fallback.results ?? []).find((p) => p.id !== id);
-        }
-      }
-      const anchorId = anchor?.id;
-      if (!anchor || !anchorId || anchorId === id) {
-        throw new Error("No anchor person available for merge-delete");
-      }
-      return this.merge(
-        {
-          person: anchorId,
-          replaced_person: id,
-          merge_data: {
-            name: anchor.name,
-            emails: anchor.emails ?? [],
-            phones: anchor.phones ?? [],
-            custom_fields: anchor.custom_fields ?? []
-          }
-        },
-        { query: opts.query }
-      );
-    }
-    /**
      * Unsubscribe a key.
      * @method POST /v1/workspaces/{workspace_id}/persons/unsubscribe
      * @remarks Any query params may be sent (none documented).
      */
     unsubscribe(body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/persons/unsubscribe", { body, query: opts.query });
-    }
-    /**
-     * Get person by webchat id.
-     * @method GET /v1/workspaces/{workspace_id}/persons/webchat/{webchat_id}
-     * @remarks Documented query: populate (extra keys allowed).
-     */
-    getWebchat(webchatId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/persons/webchat/{webchat_id}", { path: { webchat_id: webchatId }, query: opts.query });
     }
     /**
      * Get all persons.
@@ -4290,22 +4192,6 @@ class W_HabllaClient {
       return this.http.put("/v1/plans/{plan_id}", { path: { plan_id: planId }, body, query: opts.query });
     }
     /**
-     * listPlans.
-     * @method GET /v1/plans
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listPlans(opts = {}) {
-      return this.http.get("/v1/plans", { query: opts.query });
-    }
-    /**
-     * createPlan.
-     * @method POST /v1/plans
-     * @remarks Any query params may be sent (none documented).
-     */
-    createPlan(body, opts = {}) {
-      return this.http.post("/v1/plans", { body, query: opts.query });
-    }
-    /**
      * patchActivate.
      * @method PATCH /v1/workspaces/{workspace_id}/plans/activate
      * @remarks Any query params may be sent (none documented).
@@ -4322,12 +4208,28 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/plans/subscribe", { query: opts.query });
     }
     /**
-     * deleteUnsubscribe.
+     * unsubscribe.
      * @method DELETE /v1/workspaces/{workspace_id}/plans/unsubscribe
      * @remarks Any query params may be sent (none documented).
      */
-    deleteUnsubscribe(opts = {}) {
+    unsubscribe(opts = {}) {
       return this.http.delete("/v1/workspaces/{workspace_id}/plans/unsubscribe", { query: opts.query });
+    }
+    /**
+     * listPlans.
+     * @method GET /v1/plans
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    listPlans(opts = {}) {
+      return this.http.get("/v1/plans", { query: opts.query });
+    }
+    /**
+     * createPlan.
+     * @method POST /v1/plans
+     * @remarks Any query params may be sent (none documented).
+     */
+    createPlan(body, opts = {}) {
+      return this.http.post("/v1/plans", { body, query: opts.query });
     }
   };
 
@@ -4335,27 +4237,27 @@ class W_HabllaClient {
   var Products = class extends Resource {
     /**
      * Delete product by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/products/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/products/{product_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteProduct(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/products/{id}", { path: { id }, query: opts.query });
+    deleteProduct(productId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/products/{product_id}", { path: { product_id: productId }, query: opts.query });
     }
     /**
      * Get product by id.
-     * @method GET /v1/workspaces/{workspace_id}/products/{id}
+     * @method GET /v1/workspaces/{workspace_id}/products/{product_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getProduct(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/products/{id}", { path: { id }, query: opts.query });
+    getProduct(productId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/products/{product_id}", { path: { product_id: productId }, query: opts.query });
     }
     /**
      * Update product by id.
-     * @method PUT /v1/workspaces/{workspace_id}/products/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/products/{product_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateProduct(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/products/{id}", { path: { id }, body, query: opts.query });
+    updateProduct(productId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/products/{product_id}", { path: { product_id: productId }, body, query: opts.query });
     }
     /**
      * Get all products.
@@ -4377,6 +4279,22 @@ class W_HabllaClient {
 
   // src/sdk/resources/gen_productsGroups.ts
   var ProductsGroups = class extends Resource {
+    /**
+     * getParent.
+     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}
+     * @remarks Documented query: product_group (extra keys allowed).
+     */
+    getParent(codeId, parentId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}", { path: { code_id: codeId, parent_id: parentId }, query: opts.query });
+    }
+    /**
+     * getCode.
+     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}
+     * @remarks Documented query: product_group (extra keys allowed).
+     */
+    getCode(codeId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}", { path: { code_id: codeId }, query: opts.query });
+    }
     /**
      * deleteProductsGroup.
      * @method DELETE /v1/workspaces/{workspace_id}/products-groups/{products_group_id}
@@ -4402,22 +4320,6 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/products-groups/{products_group_id}", { path: { products_group_id: productsGroupId }, body, query: opts.query });
     }
     /**
-     * getParent.
-     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}
-     * @remarks Documented query: product_group (extra keys allowed).
-     */
-    getParent(codeId, parentId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}", { path: { code_id: codeId, parent_id: parentId }, query: opts.query });
-    }
-    /**
-     * getCode.
-     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}
-     * @remarks Documented query: product_group (extra keys allowed).
-     */
-    getCode(codeId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}", { path: { code_id: codeId }, query: opts.query });
-    }
-    /**
      * listProductsGroups.
      * @method GET /v1/workspaces/{workspace_id}/products-groups
      * @remarks Documented query: filters (extra keys allowed).
@@ -4439,26 +4341,18 @@ class W_HabllaClient {
   var ProductsPrices = class extends Resource {
     /**
      * deleteItem.
-     * @method DELETE /v1/workspaces/{workspace_id}/products_prices/{products_price_id}/item/{item_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteItem(productsPriceId, itemId, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/products_prices/{products_price_id}/item/{item_id}", { path: { products_price_id: productsPriceId, item_id: itemId }, query: opts.query });
-    }
-    /**
-     * deleteItemById.
      * @method DELETE /v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteItemById(productsPriceId, itemId, opts = {}) {
+    deleteItem(productsPriceId, itemId, opts = {}) {
       return this.http.delete("/v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}", { path: { products_price_id: productsPriceId, item_id: itemId }, query: opts.query });
     }
     /**
-     * getItem.
+     * getProductPricesItemById.
      * @method GET /v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getItem(productsPriceId, itemId, opts = {}) {
+    getProductPricesItemById(productsPriceId, itemId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}", { path: { products_price_id: productsPriceId, item_id: itemId }, query: opts.query });
     }
     /**
@@ -4470,11 +4364,11 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item/{item_id}", { path: { products_price_id: productsPriceId, item_id: itemId }, body, query: opts.query });
     }
     /**
-     * listItem.
+     * getAllProductPricesItems.
      * @method GET /v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listItem(productsPriceId, opts = {}) {
+    getAllProductPricesItems(productsPriceId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/products-prices/{products_price_id}/item", { path: { products_price_id: productsPriceId }, query: opts.query });
     }
     /**
@@ -4530,12 +4424,12 @@ class W_HabllaClient {
   // src/sdk/resources/gen_queueItems.ts
   var QueueItems = class extends Resource {
     /**
-     * Delete queue item.
-     * @method DELETE /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{id}
+     * Delete queue item by key.
+     * @method DELETE /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/key/{key}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteQueueItem(queueId, id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{id}", { path: { queue_id: queueId, id }, query: opts.query });
+    deleteKey(queueId, key, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/key/{key}", { path: { queue_id: queueId, key }, query: opts.query });
     }
     /**
      * Get queue item by id.
@@ -4545,42 +4439,26 @@ class W_HabllaClient {
     getQueueItem(queueId, id, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{id}", { path: { queue_id: queueId, id }, query: opts.query });
     }
-    /**
-     * Update queue item by id.
-     * @method PUT /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateQueueItem(queueId, id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{id}", { path: { queue_id: queueId, id }, body, query: opts.query });
-    }
-    /**
-     * Delete queue item by key.
-     * @method DELETE /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/key/{key}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteKey(queueId, key, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/key/{key}", { path: { queue_id: queueId, key }, query: opts.query });
-    }
-    /**
-     * Get all queue items.
-     * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
-     * @remarks Documented query: filters, page, limit, order, direction_order, key, populate (extra keys allowed).
-     */
-    listQueueItems(queueId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items", { path: { queue_id: queueId }, query: opts.query });
-    }
-    /**
-     * Create a queue item.
-     * @method POST /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
-     * @remarks Any query params may be sent (none documented).
-     */
-    createQueueItem(queueId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items", { path: { queue_id: queueId }, body, query: opts.query });
-    }
   };
 
   // src/sdk/resources/gen_queues.ts
   var Queues = class extends Resource {
+    /**
+     * Delete queue item.
+     * @method DELETE /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteQueueItems(queueId, queueItemId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}", { path: { queue_id: queueId, queue_item_id: queueItemId }, query: opts.query });
+    }
+    /**
+     * Update queue item by id.
+     * @method PUT /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    putQueueItems(queueId, queueItemId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}", { path: { queue_id: queueId, queue_item_id: queueItemId }, body, query: opts.query });
+    }
     /**
      * Clear queue by id.
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/clear
@@ -4606,6 +4484,22 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/queues/{id}/next", { path: { id }, query: opts.query });
     }
     /**
+     * Get all queue items.
+     * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
+     * @remarks Documented query: filters, page, limit, order, direction_order, key, populate (extra keys allowed).
+     */
+    getQueueItems(queueId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items", { path: { queue_id: queueId }, query: opts.query });
+    }
+    /**
+     * Create a queue item.
+     * @method POST /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
+     * @remarks Any query params may be sent (none documented).
+     */
+    queueItems(queueId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items", { path: { queue_id: queueId }, body, query: opts.query });
+    }
+    /**
      * Reset queue by id.
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/reset
      * @remarks Any query params may be sent (none documented).
@@ -4615,35 +4509,35 @@ class W_HabllaClient {
     }
     /**
      * Sync queue by id.
-     * @method GET /v1/workspaces/{workspace_id}/queues/{id}/sync
+     * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/sync
      * @remarks Any query params may be sent (none documented).
      */
-    sync(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/queues/{id}/sync", { path: { id }, query: opts.query });
+    sync(queueId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/queues/{queue_id}/sync", { path: { queue_id: queueId }, query: opts.query });
     }
     /**
      * Delete queue by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/queues/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteQueue(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/queues/{id}", { path: { id }, query: opts.query });
+    deleteQueue(queueId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/queues/{queue_id}", { path: { queue_id: queueId }, query: opts.query });
     }
     /**
      * Get queue by id.
-     * @method GET /v1/workspaces/{workspace_id}/queues/{id}
+     * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getQueue(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/queues/{id}", { path: { id }, query: opts.query });
+    getQueue(queueId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/queues/{queue_id}", { path: { queue_id: queueId }, query: opts.query });
     }
     /**
      * Update queue by id.
-     * @method PUT /v1/workspaces/{workspace_id}/queues/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateQueue(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/queues/{id}", { path: { id }, body, query: opts.query });
+    updateQueue(queueId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/queues/{queue_id}", { path: { queue_id: queueId }, body, query: opts.query });
     }
     /**
      * Get all queues.
@@ -4666,22 +4560,6 @@ class W_HabllaClient {
   // src/sdk/resources/gen_quotation.ts
   var Quotation = class extends Resource {
     /**
-     * listQuotationGlobal.
-     * @method GET /v1/quotation
-     * @remarks Any query params may be sent (none documented).
-     */
-    listQuotationGlobal(opts = {}) {
-      return this.http.get("/v1/quotation", { query: opts.query });
-    }
-    /**
-     * updateQuotation.
-     * @method PATCH /v1/quotation
-     * @remarks Any query params may be sent (none documented).
-     */
-    updateQuotation(body, opts = {}) {
-      return this.http.patch("/v1/quotation", { body, query: opts.query });
-    }
-    /**
      * publish.
      * @method POST /v1/workspaces/{workspace_id}/quotation/publish
      * @remarks Any query params may be sent (none documented).
@@ -4690,12 +4568,28 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/quotation/publish", { body, query: opts.query });
     }
     /**
-     * listQuotation.
+     * getQuotationAll.
      * @method GET /v1/workspaces/{workspace_id}/quotation
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listQuotation(opts = {}) {
+    getQuotationAll(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/quotation", { query: opts.query });
+    }
+    /**
+     * getQuotationPublic.
+     * @method GET /v1/quotation
+     * @remarks Any query params may be sent (none documented).
+     */
+    getQuotationPublic(opts = {}) {
+      return this.http.get("/v1/quotation", { query: opts.query });
+    }
+    /**
+     * patchQuotation.
+     * @method PATCH /v1/quotation
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchQuotation(body, opts = {}) {
+      return this.http.patch("/v1/quotation", { body, query: opts.query });
     }
   };
 
@@ -4703,19 +4597,19 @@ class W_HabllaClient {
   var Reasons = class extends Resource {
     /**
      * Get reason by id.
-     * @method GET /v1/workspaces/{workspace_id}/reasons/{id}
+     * @method GET /v1/workspaces/{workspace_id}/reasons/{reason_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getReason(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reasons/{id}", { path: { id }, query: opts.query });
+    getReason(reasonId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reasons/{reason_id}", { path: { reason_id: reasonId }, query: opts.query });
     }
     /**
      * Update reason by id.
-     * @method PUT /v1/workspaces/{workspace_id}/reasons/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/reasons/{reason_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateReason(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/reasons/{id}", { path: { id }, body, query: opts.query });
+    updateReason(reasonId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/reasons/{reason_id}", { path: { reason_id: reasonId }, body, query: opts.query });
     }
     /**
      * Get all reasons.
@@ -4749,6 +4643,126 @@ class W_HabllaClient {
 
   // src/sdk/resources/gen_reports.ts
   var Reports = class extends Resource {
+    /**
+     * getCrmListMetrics.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCrmListMetrics(boardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list", { path: { board_id: boardId }, query: opts.query });
+    }
+    /**
+     * getBoard.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getBoard(boardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}", { path: { board_id: boardId }, query: opts.query });
+    }
+    /**
+     * getCard.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCard(cardId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}", { path: { card_id: cardId }, query: opts.query });
+    }
+    /**
+     * getChurn.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getChurn(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn", { query: opts.query });
+    }
+    /**
+     * getOrganizations.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getOrganizations(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations", { query: opts.query });
+    }
+    /**
+     * getUser.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getUser(userId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}", { path: { user_id: userId }, query: opts.query });
+    }
+    /**
+     * getCount.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCount(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count", { query: opts.query });
+    }
+    /**
+     * getCscxMetrics.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCscxMetrics(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics", { query: opts.query });
+    }
+    /**
+     * getUsers.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getUsers(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users", { query: opts.query });
+    }
+    /**
+     * getCounts.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts
+     * @remarks Any query params may be sent (none documented).
+     */
+    getCounts(npId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts", { path: { np_id: npId }, query: opts.query });
+    }
+    /**
+     * getNpsSummary.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary
+     * @remarks Any query params may be sent (none documented).
+     */
+    getNpsSummary(npId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary", { path: { np_id: npId }, query: opts.query });
+    }
+    /**
+     * getDacList.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getDacList(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list", { query: opts.query });
+    }
+    /**
+     * getCampaignEmailsStatsList.
+     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCampaignEmailsStatsList(body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list", { body, query: opts.query });
+    }
+    /**
+     * getCampaignMessagesStatsList.
+     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCampaignMessagesStatsList(body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list", { body, query: opts.query });
+    }
+    /**
+     * Get all desahboard users counters by me.
+     * @method GET /v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me
+     * @remarks Documented query: page, limit, user, sector, connection, is_available, is_available_to_call (extra keys allowed).
+     */
+    ReportsController_getAllDashBoardUsersCountersMe_v1(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me", { query: opts.query });
+    }
     /**
      * getMonthlySessionsStates.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/admin/monthly-sessions-states
@@ -4878,6 +4892,14 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/campaign-cards-count", { query: opts.query });
     }
     /**
+     * getCardsCount.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCardsCount(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count", { query: opts.query });
+    }
+    /**
      * getCardsCountUsers.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count-users
      * @remarks Documented query: filters (extra keys allowed).
@@ -4892,14 +4914,6 @@ class W_HabllaClient {
      */
     getCardsCountersByDay(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-counters-by-day", { query: opts.query });
-    }
-    /**
-     * getCardsCount.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCardsCount(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/cards-count", { query: opts.query });
     }
     /**
      * getCardsUserMetrics.
@@ -4918,91 +4932,19 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/funnel-count", { query: opts.query });
     }
     /**
-     * listBoardList.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listBoardList(boardId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}/list", { path: { board_id: boardId }, query: opts.query });
-    }
-    /**
-     * getBoard.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getBoard(boardId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/board/{board_id}", { path: { board_id: boardId }, query: opts.query });
-    }
-    /**
-     * getCard.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCard(cardId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/card/{card_id}", { path: { card_id: cardId }, query: opts.query });
-    }
-    /**
-     * getChurn.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChurn(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/churn", { query: opts.query });
-    }
-    /**
-     * getOrganizations.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getOrganizations(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics/organizations", { query: opts.query });
-    }
-    /**
-     * getCscxMetrics.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCscxMetrics(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics", { query: opts.query });
-    }
-    /**
-     * getUser.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getUser(userId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}", { path: { user_id: userId }, query: opts.query });
-    }
-    /**
-     * getCount.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCount(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users/count", { query: opts.query });
-    }
-    /**
-     * getUsers.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getUsers(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/users", { query: opts.query });
-    }
-    /**
-     * listMonthlyHistory.
+     * getRepCardsMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listMonthlyHistory(opts = {}) {
+    getRepCardsMonthlyHistory(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/monthly-history", { query: opts.query });
     }
     /**
-     * listReasons.
+     * getRepCardsReasons.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/reasons
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listReasons(opts = {}) {
+    getRepCardsReasons(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/reasons", { query: opts.query });
     }
     /**
@@ -5030,11 +4972,11 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/completions/by-model-today", { query: opts.query });
     }
     /**
-     * listFlowsExecutionsMonthlyHistory.
+     * getRepFlowsExecutionsMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listFlowsExecutionsMonthlyHistory(opts = {}) {
+    getRepFlowsExecutionsMonthlyHistory(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/monthly-history", { query: opts.query });
     }
     /**
@@ -5046,11 +4988,11 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/nodes-count", { query: opts.query });
     }
     /**
-     * listFlowsExecutionsResume.
+     * getRepFlowsExecutionsResume.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/resume
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listFlowsExecutionsResume(opts = {}) {
+    getRepFlowsExecutionsResume(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/flows-executions/resume", { query: opts.query });
     }
     /**
@@ -5078,28 +5020,20 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/marketing/screenshot", { query: opts.query });
     }
     /**
-     * getCounts.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts
-     * @remarks Any query params may be sent (none documented).
-     */
-    getCounts(npId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/counts", { path: { np_id: npId }, query: opts.query });
-    }
-    /**
-     * listNpsSummary.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary
-     * @remarks Any query params may be sent (none documented).
-     */
-    listNpsSummary(npId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/nps/{np_id}/summary", { path: { np_id: npId }, query: opts.query });
-    }
-    /**
-     * listPersonsTags.
+     * getRepPersonsTags.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/persons/tags
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listPersonsTags(opts = {}) {
+    getRepPersonsTags(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/persons/tags", { query: opts.query });
+    }
+    /**
+     * getCharges.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCharges(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges", { query: opts.query });
     }
     /**
      * getChargesPartners.
@@ -5126,22 +5060,6 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3", { query: opts.query });
     }
     /**
-     * getCharges.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCharges(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges", { query: opts.query });
-    }
-    /**
-     * listList.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    listList(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/dac/list", { query: opts.query });
-    }
-    /**
      * getHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/history
      * @remarks Documented query: filters (extra keys allowed).
@@ -5158,20 +5076,12 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/prices", { query: opts.query });
     }
     /**
-     * listResume.
+     * getPlanResume.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/resume
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listResume(opts = {}) {
+    getPlanResume(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/resume", { query: opts.query });
-    }
-    /**
-     * getSectors.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sectors
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getSectors(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/sectors", { query: opts.query });
     }
     /**
      * count.
@@ -5182,14 +5092,6 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/count", { body, query: opts.query });
     }
     /**
-     * createEmailStatsList.
-     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    createEmailStatsList(body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats/list", { body, query: opts.query });
-    }
-    /**
      * emailStats.
      * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats
      * @remarks Any query params may be sent (none documented).
@@ -5198,20 +5100,12 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/email-stats", { body, query: opts.query });
     }
     /**
-     * createList.
+     * getDymamicSegmentations.
      * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/list
      * @remarks Any query params may be sent (none documented).
      */
-    createList(body, opts = {}) {
+    getDymamicSegmentations(body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/list", { body, query: opts.query });
-    }
-    /**
-     * createMessageStatsList.
-     * @method POST /v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    createMessageStatsList(body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list", { body, query: opts.query });
     }
     /**
      * messageStats.
@@ -5238,12 +5132,12 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/attendance-total-time", { query: opts.query });
     }
     /**
-     * getBotAverageTimeMonthSectors.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors
+     * getBotAverageTime.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getBotAverageTimeMonthSectors(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors", { query: opts.query });
+    getBotAverageTime(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time", { query: opts.query });
     }
     /**
      * getBotAverageTimeMonth.
@@ -5254,12 +5148,12 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month", { query: opts.query });
     }
     /**
-     * getBotAverageTime.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time
+     * getBotAverageTimeMonthSectors.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getBotAverageTime(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time", { query: opts.query });
+    getBotAverageTimeMonthSectors(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/bot-average-time-month-sectors", { query: opts.query });
     }
     /**
      * getFirstResponseTime.
@@ -5270,28 +5164,12 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/first-response-time", { query: opts.query });
     }
     /**
-     * listServicesMonthlyHistory.
+     * getRepServicesMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listServicesMonthlyHistory(opts = {}) {
+    getRepServicesMonthlyHistory(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/monthly-history", { query: opts.query });
-    }
-    /**
-     * getQueueAverageTimeMonthSectors.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getQueueAverageTimeMonthSectors(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors", { query: opts.query });
-    }
-    /**
-     * getQueueAverageTimeMonth.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getQueueAverageTimeMonth(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month", { query: opts.query });
     }
     /**
      * getQueueAverageTime.
@@ -5302,11 +5180,27 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time", { query: opts.query });
     }
     /**
-     * listServicesReasons.
+     * getQueueAverageTimeMonth.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getQueueAverageTimeMonth(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month", { query: opts.query });
+    }
+    /**
+     * getQueueAverageTimeMonthSectors.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getQueueAverageTimeMonthSectors(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/queue-average-time-month-sectors", { query: opts.query });
+    }
+    /**
+     * getRepServicesReasons.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/reasons
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listServicesReasons(opts = {}) {
+    getRepServicesReasons(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/reasons", { query: opts.query });
     }
     /**
@@ -5342,19 +5236,19 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-user-weekly-count", { query: opts.query });
     }
     /**
-     * listServicesTags.
+     * getRepServicesTags.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/tags
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listServicesTags(opts = {}) {
+    getRepServicesTags(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/services/tags", { query: opts.query });
     }
     /**
-     * listSessionsMonthlyHistory.
+     * getRepSessionsMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSessionsMonthlyHistory(opts = {}) {
+    getRepSessionsMonthlyHistory(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-history", { query: opts.query });
     }
     /**
@@ -5366,11 +5260,11 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-twoway", { query: opts.query });
     }
     /**
-     * listSessionsResume.
+     * getRepSessionsResume.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/resume
      * @remarks Any query params may be sent (none documented).
      */
-    listSessionsResume(opts = {}) {
+    getRepSessionsResume(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/resume", { query: opts.query });
     }
     /**
@@ -5406,28 +5300,12 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/services/consolidated/sectors-users", { query: opts.query });
     }
     /**
-     * Get csat.
-     * @method GET /v1/workspaces/{workspace_id}/reports/services/csat
-     * @remarks Documented query: filters, page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
-     */
-    getCsat(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/services/csat", { query: opts.query });
-    }
-    /**
      * Get all dashboard counters.
      * @method GET /v1/workspaces/{workspace_id}/reports/services/dashboard/counters
      * @remarks Documented query: filters, user, sector, connection (extra keys allowed).
      */
     getCounters(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/services/dashboard/counters", { query: opts.query });
-    }
-    /**
-     * Get all desahboard users counters by me.
-     * @method GET /v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me
-     * @remarks Documented query: page, limit, user, sector, connection, is_available, is_available_to_call (extra keys allowed).
-     */
-    listUsersCountersMe(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me", { query: opts.query });
     }
     /**
      * Get all dashboard users counters.
@@ -5442,15 +5320,31 @@ class W_HabllaClient {
      * @method GET /v1/workspaces/{workspace_id}/reports/services/summary/me
      * @remarks Documented query: page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
      */
-    listMe(opts = {}) {
+    ReportsController_getAllMe_v1(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/services/summary/me", { query: opts.query });
+    }
+    /**
+     * getSectors.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sectors
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getSectors(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/alloy-reports/sectors", { query: opts.query });
+    }
+    /**
+     * Get csat.
+     * @method GET /v1/workspaces/{workspace_id}/reports/services/csat
+     * @remarks Documented query: filters, page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
+     */
+    getCsat(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/reports/services/csat", { query: opts.query });
     }
     /**
      * Get all reports.
      * @method GET /v1/workspaces/{workspace_id}/reports/services/summary
      * @remarks Documented query: filters, page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
      */
-    listSummary(opts = {}) {
+    getReports(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/services/summary", { query: opts.query });
     }
     /**
@@ -5458,7 +5352,7 @@ class W_HabllaClient {
      * @method GET /v1/workspaces/{workspace_id}/reports/services/tags
      * @remarks Documented query: page, limit, connection, user, sector, start_date, end_date, field_date (extra keys allowed).
      */
-    listTags(opts = {}) {
+    ReportsController_getServicesCountersByTag_v1(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/services/tags", { query: opts.query });
     }
     /**
@@ -5466,7 +5360,7 @@ class W_HabllaClient {
      * @method GET /v1/workspaces/{workspace_id}/reports/templates/{id}
      * @remarks Documented query: page, limit, order, direction_order, to, from, person, campaign, populate, created_at (extra keys allowed).
      */
-    getTemplates(id, opts = {}) {
+    getTemplate(id, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/reports/templates/{id}", { path: { id }, query: opts.query });
     }
   };
@@ -5486,6 +5380,22 @@ class W_HabllaClient {
   // src/sdk/resources/gen_root.ts
   var Root = class extends Resource {
     /**
+     * Get all workspaces.
+     * @method GET /v1/workspaces
+     * @remarks Documented query: filters, page, limit, order, direction_order, name, search, type, plan_type, owner, partner, is_blocked, is_deleted, pending_plan, auto_invoice, created_at, updated_at (extra keys allowed).
+     */
+    getWorkspaces(opts = {}) {
+      return this.http.get("/v1/workspaces", { query: opts.query });
+    }
+    /**
+     * workspaces.
+     * @method POST /v1/workspaces
+     * @remarks Any query params may be sent (none documented).
+     */
+    workspaces(body, opts = {}) {
+      return this.http.post("/v1/workspaces", { body, query: opts.query });
+    }
+    /**
      * deleteRoot.
      * @method DELETE /v1/workspaces/{workspace_id}
      * @remarks Any query params may be sent (none documented).
@@ -5494,31 +5404,31 @@ class W_HabllaClient {
       return this.http.delete("/v1/workspaces/{workspace_id}", { query: opts.query });
     }
     /**
-     * updateRoot.
+     * Get workspace by id.
+     * @method GET /v1/workspaces/{workspace_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getRoot(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}", { query: opts.query });
+    }
+    /**
+     * putRoot.
      * @method PUT /v1/workspaces/{workspace_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateRoot(body, opts = {}) {
+    putRoot(body, opts = {}) {
       return this.http.put("/v1/workspaces/{workspace_id}", { body, query: opts.query });
-    }
-    /**
-     * createRoot.
-     * @method POST /v1/workspaces
-     * @remarks Any query params may be sent (none documented).
-     */
-    createRoot(body, opts = {}) {
-      return this.http.post("/v1/workspaces", { body, query: opts.query });
     }
   };
 
   // src/sdk/resources/gen_scripts.ts
   var Scripts = class extends Resource {
     /**
-     * createExecutionByScript.
+     * scriptExecution.
      * @method POST /v1/workspaces/{workspace_id}/scripts/{script_id}/execution
      * @remarks Any query params may be sent (none documented).
      */
-    createExecutionByScript(scriptId, body, opts = {}) {
+    scriptExecution(scriptId, body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/scripts/{script_id}/execution", { path: { script_id: scriptId }, body, query: opts.query });
     }
     /**
@@ -5546,11 +5456,11 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/scripts/{script_id}", { path: { script_id: scriptId }, body, query: opts.query });
     }
     /**
-     * createExecution.
+     * runCode.
      * @method POST /v1/workspaces/{workspace_id}/scripts/execution
      * @remarks Any query params may be sent (none documented).
      */
-    createExecution(body, opts = {}) {
+    runCode(body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/scripts/execution", { body, query: opts.query });
     }
     /**
@@ -5605,6 +5515,7 @@ class W_HabllaClient {
      * Get all users from sector by id.
      * @method GET /v1/workspaces/{workspace_id}/sectors/{id}/sectors-users
      * @remarks Documented query: filters, page, limit, order, direction_order, name, email, is_attendant, role_type (extra keys allowed).
+     * @remarks Returns the users that belong to the sector, not sectors.
      */
     getSectorsUsers(id, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/sectors/{id}/sectors-users", { path: { id }, query: opts.query });
@@ -5661,6 +5572,7 @@ class W_HabllaClient {
      * Get all sectors by user.
      * @method GET /v1/workspaces/{workspace_id}/sectors/user
      * @remarks Documented query: filters, sector (extra keys allowed).
+     * @remarks Returns the sectors the current user belongs to (not users), hence {@link Sector}.
      */
     getUser(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/sectors/user", { query: opts.query });
@@ -5669,6 +5581,8 @@ class W_HabllaClient {
      * Get all sectors by user id.
      * @method GET /v1/workspaces/{workspace_id}/sectors/users/{user_id}
      * @remarks Documented query: filters, sector (extra keys allowed).
+     * @remarks Returns the sectors the given user belongs to (not the user), hence {@link Sector}.
+     *          The API has no get-user-by-id route — resolve a user via the workspace member list.
      */
     getUserById(userId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/sectors/users/{user_id}", { path: { user_id: userId }, query: opts.query });
@@ -5677,6 +5591,7 @@ class W_HabllaClient {
      * listUsers.
      * @method GET /v1/workspaces/{workspace_id}/sectors/users
      * @remarks Any query params may be sent (none documented).
+     * @remarks Returns workspace users (the `/sectors/users` collection), not sectors.
      */
     listUsers(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/sectors/users", { query: opts.query });
@@ -5703,27 +5618,59 @@ class W_HabllaClient {
   var Segmentations = class extends Resource {
     /**
      * Delete segmentation by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/segmentations/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{segmentations_item_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteSegmentation(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/segmentations/{id}", { path: { id }, query: opts.query });
+    deleteSegmentationsItems(segmentationId, segmentationsItemId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{segmentations_item_id}", { path: { segmentation_id: segmentationId, segmentations_item_id: segmentationsItemId }, query: opts.query });
     }
     /**
      * Get segmentation by id.
-     * @method GET /v1/workspaces/{workspace_id}/segmentations/{id}
+     * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{segmentations_item_id}
+     * @remarks Documented query: filters, populate (extra keys allowed).
+     */
+    getSegmentationsItem(segmentationId, segmentationsItemId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{segmentations_item_id}", { path: { segmentation_id: segmentationId, segmentations_item_id: segmentationsItemId }, query: opts.query });
+    }
+    /**
+     * Get all segmentations items.
+     * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items
+     * @remarks Documented query: filters, page, limit, order, direction_order, populate, search (extra keys allowed).
+     */
+    getSegmentationsItems(segmentationId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items", { path: { segmentation_id: segmentationId }, query: opts.query });
+    }
+    /**
+     * Create a new segmentation item.
+     * @method POST /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items
+     * @remarks Documented query: populate (extra keys allowed).
+     */
+    segmentationsItems(segmentationId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items", { path: { segmentation_id: segmentationId }, body, query: opts.query });
+    }
+    /**
+     * Delete segmentation by id.
+     * @method DELETE /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getSegmentation(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/segmentations/{id}", { path: { id }, query: opts.query });
+    deleteSegmentation(segmentationId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}", { path: { segmentation_id: segmentationId }, query: opts.query });
+    }
+    /**
+     * Get segmentation by id.
+     * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    getSegmentation(segmentationId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}", { path: { segmentation_id: segmentationId }, query: opts.query });
     }
     /**
      * Update segmentation by id.
-     * @method PUT /v1/workspaces/{workspace_id}/segmentations/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateSegmentation(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/segmentations/{id}", { path: { id }, body, query: opts.query });
+    updateSegmentation(segmentationId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}", { path: { segmentation_id: segmentationId }, body, query: opts.query });
     }
     /**
      * Get all segmentations.
@@ -5740,42 +5687,6 @@ class W_HabllaClient {
      */
     createSegmentation(body, opts = {}) {
       return this.http.post("/v1/workspaces/{workspace_id}/segmentations", { body, query: opts.query });
-    }
-  };
-
-  // src/sdk/resources/gen_segmentationsItems.ts
-  var SegmentationsItems = class extends Resource {
-    /**
-     * Delete segmentation by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteSegmentationsItem(segmentationId, id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{id}", { path: { segmentation_id: segmentationId, id }, query: opts.query });
-    }
-    /**
-     * Get segmentation by id.
-     * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{id}
-     * @remarks Documented query: filters, populate (extra keys allowed).
-     */
-    getSegmentationsItem(segmentationId, id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{id}", { path: { segmentation_id: segmentationId, id }, query: opts.query });
-    }
-    /**
-     * Get all segmentations items.
-     * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items
-     * @remarks Documented query: filters, page, limit, order, direction_order, populate, search (extra keys allowed).
-     */
-    listSegmentationsItems(segmentationId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items", { path: { segmentation_id: segmentationId }, query: opts.query });
-    }
-    /**
-     * Create a new segmentation item.
-     * @method POST /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items
-     * @remarks Documented query: populate (extra keys allowed).
-     */
-    createSegmentationsItem(segmentationId, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items", { path: { segmentation_id: segmentationId }, body, query: opts.query });
     }
   };
 
@@ -5806,11 +5717,11 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/seo-projects/{seo_project_id}/seo-sites/{seo_site_id}", { path: { seo_project_id: seoProjectId, seo_site_id: seoSiteId }, body, query: opts.query });
     }
     /**
-     * listSeoSites.
+     * getSeoSites.
      * @method GET /v1/workspaces/{workspace_id}/seo-projects/{seo_project_id}/seo-sites
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listSeoSites(seoProjectId, opts = {}) {
+    getSeoSites(seoProjectId, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/seo-projects/{seo_project_id}/seo-sites", { path: { seo_project_id: seoProjectId }, query: opts.query });
     }
     /**
@@ -5874,36 +5785,60 @@ class W_HabllaClient {
   // src/sdk/resources/gen_services.ts
   var Services = class extends Resource {
     /**
-     * Do action on service by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/services/{id}/action
+     * Get all messages by service and connection.
+     * @method GET /v1/workspaces/{workspace_id}/services/{service_id}/connection/{connection_id}/messages
+     * @remarks Documented query: filters, page, limit, order, direction_order, user, body, type, key, populate, message, media_only (extra keys allowed).
+     */
+    getAllMediaMessagesByConnection(serviceId, connectionId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/services/{service_id}/connection/{connection_id}/messages", { path: { service_id: serviceId, connection_id: connectionId }, query: opts.query });
+    }
+    /**
+     * Delete a message (of type comment) by id.
+     * @method DELETE /v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}
      * @remarks Any query params may be sent (none documented).
      */
-    patchAction(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/services/{id}/action", { path: { id }, body, query: opts.query });
+    deleteMessages(serviceId, messageId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}", { path: { service_id: serviceId, message_id: messageId }, query: opts.query });
+    }
+    /**
+     * Update a message (of type comment) by id.
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    putMessages(serviceId, messageId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/messages/{message_id}", { path: { service_id: serviceId, message_id: messageId }, body, query: opts.query });
+    }
+    /**
+     * Do action on service by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/services/{service_id}/action
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchAction(serviceId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/services/{service_id}/action", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Add cards on service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/add-cards
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/add-cards
      * @remarks Any query params may be sent (none documented).
      */
-    addCards(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}/add-cards", { path: { id }, body, query: opts.query });
+    addCards(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/add-cards", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Add followers to service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/add-followers
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/add-followers
      * @remarks Any query params may be sent (none documented).
      */
-    addFollowers(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}/add-followers", { path: { id }, body, query: opts.query });
+    addFollowers(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/add-followers", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Add tags on service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/add-tags
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/add-tags
      * @remarks Any query params may be sent (none documented).
      */
-    addTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}/add-tags", { path: { id }, body, query: opts.query });
+    addTags(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/add-tags", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Create or associate a person with a service.
@@ -5914,20 +5849,12 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/services/{id}/associate", { path: { id }, body, query: opts.query });
     }
     /**
-     * Get all messages by service and connection.
-     * @method GET /v1/workspaces/{workspace_id}/services/{id}/connection/{connection_id}/messages
-     * @remarks Documented query: filters, page, limit, order, direction_order, user, body, type, key, populate, message, media_only (extra keys allowed).
-     */
-    listConnectionMessages(id, connectionId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/services/{id}/connection/{connection_id}/messages", { path: { id, connection_id: connectionId }, query: opts.query });
-    }
-    /**
      * Update custom-fields on service by id.
-     * @method PATCH /v1/workspaces/{workspace_id}/services/{id}/custom-fields
+     * @method PATCH /v1/workspaces/{workspace_id}/services/{service_id}/custom-fields
      * @remarks Any query params may be sent (none documented).
      */
-    patchCustomFields(id, body, opts = {}) {
-      return this.http.patch("/v1/workspaces/{workspace_id}/services/{id}/custom-fields", { path: { id }, body, query: opts.query });
+    patchCustomFields(serviceId, body, opts = {}) {
+      return this.http.patch("/v1/workspaces/{workspace_id}/services/{service_id}/custom-fields", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Get emails from services by id.
@@ -5938,14 +5865,6 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/services/{id}/emails", { path: { id }, query: opts.query });
     }
     /**
-     * Get all services by permission.
-     * @method GET /v1/workspaces/{workspace_id}/services/{id}/history-by-permission
-     * @remarks Documented query: page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
-     */
-    getHistoryByPermission(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/services/{id}/history-by-permission", { path: { id }, query: opts.query });
-    }
-    /**
      * Get history (countless).
      * @method GET /v1/workspaces/{workspace_id}/services/{id}/history
      * @remarks Documented query: page, limit, order, retrieve_mode, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key (extra keys allowed).
@@ -5954,36 +5873,60 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/services/{id}/history", { path: { id }, query: opts.query });
     }
     /**
+     * Get all services by permission.
+     * @method GET /v1/workspaces/{workspace_id}/services/{id}/history-by-permission
+     * @remarks Documented query: page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
+     */
+    getHistoryByPermission(id, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/services/{id}/history-by-permission", { path: { id }, query: opts.query });
+    }
+    /**
      * Get services messages by id.
      * @method GET /v1/workspaces/{workspace_id}/services/{id}/messages
      * @remarks Documented query: page, limit, order, direction_order, user, body, populate, message (extra keys allowed).
      */
-    listMessages(id, opts = {}) {
+    ServicesController_getServicesMessages_v1(id, opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/services/{id}/messages", { path: { id }, query: opts.query });
     }
     /**
-     * Remove cards by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/remove-cards
+     * Create a message.
+     * @method POST /v1/workspaces/{workspace_id}/services/{service_id}/messages
      * @remarks Any query params may be sent (none documented).
      */
-    removeCards(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}/remove-cards", { path: { id }, body, query: opts.query });
+    messagesV1(serviceId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/services/{service_id}/messages", { path: { service_id: serviceId }, body, query: opts.query });
+    }
+    /**
+     * Create a message template.
+     * @method POST /v1/workspaces/{workspace_id}/services/{service_id}/messages-templates
+     * @remarks Any query params may be sent (none documented).
+     */
+    messagesTemplates(serviceId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/services/{service_id}/messages-templates", { path: { service_id: serviceId }, body, query: opts.query });
+    }
+    /**
+     * Remove cards by id.
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/remove-cards
+     * @remarks Any query params may be sent (none documented).
+     */
+    removeCards(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/remove-cards", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Remove followers by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/remove-followers
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/remove-followers
      * @remarks Any query params may be sent (none documented).
      */
-    removeFollowers(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}/remove-followers", { path: { id }, body, query: opts.query });
+    removeFollowers(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/remove-followers", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Remove tags by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/remove-tags
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/remove-tags
      * @remarks Any query params may be sent (none documented).
      */
-    removeTags(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}/remove-tags", { path: { id }, body, query: opts.query });
+    removeTags(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/remove-tags", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Get service-times by id.
@@ -6003,27 +5946,27 @@ class W_HabllaClient {
     }
     /**
      * Transfer service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}/transfer
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}/transfer
      * @remarks Documented query: populate (extra keys allowed).
      */
-    putTransfer(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}/transfer", { path: { id }, body, query: opts.query });
+    putTransfer(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}/transfer", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Get service by id.
-     * @method GET /v1/workspaces/{workspace_id}/services/{id}
+     * @method GET /v1/workspaces/{workspace_id}/services/{service_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getServiceV1(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/services/{id}", { path: { id }, query: opts.query });
+    getServiceV1(serviceId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/services/{service_id}", { path: { service_id: serviceId }, query: opts.query });
     }
     /**
      * Update service by id.
-     * @method PUT /v1/workspaces/{workspace_id}/services/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/services/{service_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateService(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/services/{id}", { path: { id }, body, query: opts.query });
+    updateService(serviceId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/services/{service_id}", { path: { service_id: serviceId }, body, query: opts.query });
     }
     /**
      * Batch service actions.
@@ -6050,12 +5993,23 @@ class W_HabllaClient {
       return this.http.post("/v1/workspaces/{workspace_id}/services", { body, query: opts.query });
     }
     /**
+     * messages. Create a message v2.
+     * @method POST /v2/workspaces/{workspace_id}/services/{service_id}/messages
+     * @remarks Any query params may be sent (none documented).
+     * @param file The spreadsheet file part (sent under the `file` field).
+     * @param fields Extra form-data text fields to send alongside the file.
+     */
+    messages(serviceId, file, fields, opts = {}) {
+      const body = { kind: "multipart", fields, files: { file } };
+      return this.http.post("/v2/workspaces/{workspace_id}/services/{service_id}/messages", { path: { service_id: serviceId }, body, query: opts.query });
+    }
+    /**
      * Get service by id (V2).
-     * @method GET /v2/workspaces/{workspace_id}/services/{id}
+     * @method GET /v2/workspaces/{workspace_id}/services/{service_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getService(id, opts = {}) {
-      return this.http.get("/v2/workspaces/{workspace_id}/services/{id}", { path: { id }, query: opts.query });
+    getService(serviceId, opts = {}) {
+      return this.http.get("/v2/workspaces/{workspace_id}/services/{service_id}", { path: { service_id: serviceId }, query: opts.query });
     }
     /**
      * Get all services (V2).
@@ -6071,11 +6025,11 @@ class W_HabllaClient {
   var Sessions = class extends Resource {
     /**
      * Get session by id.
-     * @method GET /v1/workspaces/{workspace_id}/sessions/{id}
+     * @method GET /v1/workspaces/{workspace_id}/sessions/{session_id}
      * @remarks Documented query: connection, key (extra keys allowed).
      */
-    getSession(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/sessions/{id}", { path: { id }, query: opts.query });
+    getSession(sessionId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/sessions/{session_id}", { path: { session_id: sessionId }, query: opts.query });
     }
     /**
      * Get opened session by key.
@@ -6219,27 +6173,27 @@ class W_HabllaClient {
   var Tags = class extends Resource {
     /**
      * Delete tag by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/tags/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/tags/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteTag(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/tags/{id}", { path: { id }, query: opts.query });
+    deleteTag(tagId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/tags/{tag_id}", { path: { tag_id: tagId }, query: opts.query });
     }
     /**
      * Get tag by id.
-     * @method GET /v1/workspaces/{workspace_id}/tags/{id}
+     * @method GET /v1/workspaces/{workspace_id}/tags/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getTag(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/tags/{id}", { path: { id }, query: opts.query });
+    getTag(tagId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/tags/{tag_id}", { path: { tag_id: tagId }, query: opts.query });
     }
     /**
      * Update tag by id.
-     * @method PUT /v1/workspaces/{workspace_id}/tags/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/tags/{tag_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateTag(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/tags/{id}", { path: { id }, body, query: opts.query });
+    updateTag(tagId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/tags/{tag_id}", { path: { tag_id: tagId }, body, query: opts.query });
     }
     /**
      * Get all tags.
@@ -6262,60 +6216,60 @@ class W_HabllaClient {
   // src/sdk/resources/gen_tasks.ts
   var Tasks = class extends Resource {
     /**
-     * Approve (give acceptance to) a service-team task.
-     * @method PUT /v1/workspaces/{workspace_id}/tasks/{id}/approval
-     * @remarks Any query params may be sent (none documented).
-     */
-    putApproval(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/tasks/{id}/approval", { path: { id }, body, query: opts.query });
-    }
-    /**
      * Delete checklist item by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}
+     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteChecklist(id, checklistId, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}", { path: { id, checklist_id: checklistId }, query: opts.query });
+    deleteChecklist(taskId, checklistId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}", { path: { task_id: taskId, checklist_id: checklistId }, query: opts.query });
     }
     /**
      * Update checklist item on tag by id.
-     * @method PUT /v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}
+     * @method PUT /v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putChecklist(id, checklistId, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/tasks/{id}/checklist/{checklist_id}", { path: { id, checklist_id: checklistId }, body, query: opts.query });
+    putChecklist(taskId, checklistId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/tasks/{task_id}/checklist/{checklist_id}", { path: { task_id: taskId, checklist_id: checklistId }, body, query: opts.query });
+    }
+    /**
+     * Approve (give acceptance to) a service-team task.
+     * @method PUT /v1/workspaces/{workspace_id}/tasks/{task_id}/approval
+     * @remarks Any query params may be sent (none documented).
+     */
+    putApproval(taskId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/tasks/{task_id}/approval", { path: { task_id: taskId }, body, query: opts.query });
     }
     /**
      * Add checklist item to task by id.
-     * @method POST /v1/workspaces/{workspace_id}/tasks/{id}/checklist
+     * @method POST /v1/workspaces/{workspace_id}/tasks/{task_id}/checklist
      * @remarks Any query params may be sent (none documented).
      */
-    checklist(id, body, opts = {}) {
-      return this.http.post("/v1/workspaces/{workspace_id}/tasks/{id}/checklist", { path: { id }, body, query: opts.query });
+    checklist(taskId, body, opts = {}) {
+      return this.http.post("/v1/workspaces/{workspace_id}/tasks/{task_id}/checklist", { path: { task_id: taskId }, body, query: opts.query });
     }
     /**
      * Delete task by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/tasks/{task_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteTask(id, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/tasks/{id}", { path: { id }, query: opts.query });
+    deleteTask(taskId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/tasks/{task_id}", { path: { task_id: taskId }, query: opts.query });
     }
     /**
      * Get task by id.
-     * @method GET /v1/workspaces/{workspace_id}/tasks/{id}
+     * @method GET /v1/workspaces/{workspace_id}/tasks/{task_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    getTask(id, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/tasks/{id}", { path: { id }, query: opts.query });
+    getTask(taskId, opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/tasks/{task_id}", { path: { task_id: taskId }, query: opts.query });
     }
     /**
      * Update task by id.
-     * @method PUT /v1/workspaces/{workspace_id}/tasks/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/tasks/{task_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updateTask(id, body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/tasks/{id}", { path: { id }, body, query: opts.query });
+    updateTask(taskId, body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/tasks/{task_id}", { path: { task_id: taskId }, body, query: opts.query });
     }
     /**
      * Get all tasks created by the service team for this client's organization.
@@ -6446,14 +6400,6 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/transfer-logs/cards/{id}", { path: { id }, query: opts.query });
     }
     /**
-     * Get all cards from transfer-logs.
-     * @method GET /v1/workspaces/{workspace_id}/transfer-logs/cards
-     * @remarks Documented query: page, limit, order, direction_order, flow, reason, user, card, service, description, type, populate (extra keys allowed).
-     */
-    listCards(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/transfer-logs/cards", { query: opts.query });
-    }
-    /**
      * Get on service by id.
      * @method GET /v1/workspaces/{workspace_id}/transfer-logs/services/{id}
      * @remarks Any query params may be sent (none documented).
@@ -6462,11 +6408,19 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/transfer-logs/services/{id}", { path: { id }, query: opts.query });
     }
     /**
+     * Get all cards from transfer-logs.
+     * @method GET /v1/workspaces/{workspace_id}/transfer-logs/cards
+     * @remarks Documented query: page, limit, order, direction_order, flow, reason, user, card, service, description, type, populate (extra keys allowed).
+     */
+    getCards(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/transfer-logs/cards", { query: opts.query });
+    }
+    /**
      * Get all transfer-logs.
      * @method GET /v1/workspaces/{workspace_id}/transfer-logs/services
      * @remarks Documented query: page, limit, order, direction_order, flow, reason, user, card, service, description, type, populate (extra keys allowed).
      */
-    listServices(opts = {}) {
+    getServices(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/transfer-logs/services", { query: opts.query });
     }
   };
@@ -6527,11 +6481,11 @@ class W_HabllaClient {
     }
     /**
      * updateUser.
-     * @method PUT /v1/users/{id}
+     * @method PUT /v1/users/{user_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateUser(id, body, opts = {}) {
-      return this.http.put("/v1/users/{id}", { path: { id }, body, query: opts.query });
+    updateUser(userId, body, opts = {}) {
+      return this.http.put("/v1/users/{user_id}", { path: { user_id: userId }, body, query: opts.query });
     }
     /**
      * getHabllaDomain.
@@ -6564,6 +6518,14 @@ class W_HabllaClient {
      */
     verifyCode(body, opts = {}) {
       return this.http.post("/v1/users/verify-code", { body, query: opts.query });
+    }
+    /**
+     * Get all users from a workspace by id.
+     * @method GET /v1/workspaces/{workspace_id}/users
+     * @remarks Documented query: filters, page, limit, order, direction_order, name, email, role_type, no_sector, no_person, no_service, permission, search, populate, start_date, end_date, field_date (extra keys allowed).
+     */
+    listUsers(opts = {}) {
+      return this.http.get("/v1/workspaces/{workspace_id}/users", { query: opts.query });
     }
   };
 
@@ -6618,6 +6580,14 @@ class W_HabllaClient {
   // src/sdk/resources/gen_workspacesPlans.ts
   var WorkspacesPlans = class extends Resource {
     /**
+     * deleteItems.
+     * @method DELETE /v1/workspaces/{workspace_id}/workspaces-plans/items/{item_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteItems(itemId, opts = {}) {
+      return this.http.delete("/v1/workspaces/{workspace_id}/workspaces-plans/items/{item_id}", { path: { item_id: itemId }, query: opts.query });
+    }
+    /**
      * getWorkspacesPlan.
      * @method GET /v1/workspaces/{workspace_id}/workspaces-plans/{workspaces_plan_id}
      * @remarks Any query params may be sent (none documented).
@@ -6634,20 +6604,12 @@ class W_HabllaClient {
       return this.http.put("/v1/workspaces/{workspace_id}/workspaces-plans/{workspaces_plan_id}", { path: { workspaces_plan_id: workspacesPlanId }, body, query: opts.query });
     }
     /**
-     * additionalItems.
+     * putAdditionalItems.
      * @method PUT /v1/workspaces/{workspace_id}/workspaces-plans/additional-items
      * @remarks Any query params may be sent (none documented).
      */
-    additionalItems(body, opts = {}) {
+    putAdditionalItems(body, opts = {}) {
       return this.http.put("/v1/workspaces/{workspace_id}/workspaces-plans/additional-items", { body, query: opts.query });
-    }
-    /**
-     * deleteItems.
-     * @method DELETE /v1/workspaces/{workspace_id}/workspaces-plans/items/{item_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    deleteItems(itemId, opts = {}) {
-      return this.http.delete("/v1/workspaces/{workspace_id}/workspaces-plans/items/{item_id}", { path: { item_id: itemId }, query: opts.query });
     }
     /**
      * patchItems.
@@ -6670,20 +6632,20 @@ class W_HabllaClient {
   // src/sdk/resources/gen_wsusers.ts
   var Wsusers = class extends Resource {
     /**
-     * putAdmin.
-     * @method PUT /v1/workspaces/{workspace_id}/wsusers/admin
-     * @remarks Any query params may be sent (none documented).
-     */
-    putAdmin(body, opts = {}) {
-      return this.http.put("/v1/workspaces/{workspace_id}/wsusers/admin", { body, query: opts.query });
-    }
-    /**
      * getCounters.
      * @method GET /v1/workspaces/{workspace_id}/wsusers/logs/counters
      * @remarks Documented query: query (extra keys allowed).
      */
     getCounters(opts = {}) {
       return this.http.get("/v1/workspaces/{workspace_id}/wsusers/logs/counters", { query: opts.query });
+    }
+    /**
+     * putAdmin.
+     * @method PUT /v1/workspaces/{workspace_id}/wsusers/admin
+     * @remarks Any query params may be sent (none documented).
+     */
+    putAdmin(body, opts = {}) {
+      return this.http.put("/v1/workspaces/{workspace_id}/wsusers/admin", { body, query: opts.query });
     }
     /**
      * getLogs.
@@ -6702,11 +6664,11 @@ class W_HabllaClient {
       return this.http.get("/v1/workspaces/{workspace_id}/wsusers/me", { query: opts.query });
     }
     /**
-     * updateWsuser.
+     * patchWsuser.
      * @method PATCH /v1/workspaces/{workspace_id}/wsusers
      * @remarks Any query params may be sent (none documented).
      */
-    updateWsuser(body, opts = {}) {
+    patchWsuser(body, opts = {}) {
       return this.http.patch("/v1/workspaces/{workspace_id}/wsusers", { body, query: opts.query });
     }
   };
@@ -6769,7 +6731,7 @@ class W_HabllaClient {
       if (variables.length < spec.templateVarCount) return { status: "variaveis_invalidas", phone, assessor: advisor?.name };
       const destinationKey = this.destinationKey(person, variants, phone);
       try {
-        await this.client.messages.createConnectionsMessagesTemplates(spec.connectionId, {
+        await this.client.connections.messagesTemplates(spec.connectionId, {
           examples: { body: spec.templateVarCount ? variables.slice(0, spec.templateVarCount) : [], header: [] },
           template: spec.templateId,
           sector: spec.sectorId,
@@ -6915,7 +6877,6 @@ class W_HabllaClient {
     knowledgeBases;
     legalEntities;
     linkInBio;
-    lists;
     messages;
     newPrefix;
     nps;
@@ -6945,7 +6906,6 @@ class W_HabllaClient {
     search;
     sectors;
     segmentations;
-    segmentationsItems;
     seoProjects;
     services;
     sessions;
@@ -7029,7 +6989,6 @@ class W_HabllaClient {
       this.knowledgeBases = new KnowledgeBases(this.http);
       this.legalEntities = new LegalEntities(this.http);
       this.linkInBio = new LinkInBio(this.http);
-      this.lists = new Lists(this.http);
       this.messages = new Messages(this.http);
       this.newPrefix = new NewPrefix(this.http);
       this.nps = new Nps(this.http);
@@ -7059,7 +7018,6 @@ class W_HabllaClient {
       this.search = new Search(this.http);
       this.sectors = new Sectors(this.http);
       this.segmentations = new Segmentations(this.http);
-      this.segmentationsItems = new SegmentationsItems(this.http);
       this.seoProjects = new SeoProjects(this.http);
       this.services = new Services(this.http);
       this.sessions = new Sessions(this.http);
@@ -7086,9 +7044,50 @@ class W_HabllaClient {
   };
 
   // src/runtime/rpo/transport.ts
+  function stripContentType(headers) {
+    const out = {};
+    for (const key of Object.keys(headers)) {
+      const value = headers[key];
+      if (value !== void 0 && key.toLowerCase() !== "content-type") out[key] = value;
+    }
+    return out;
+  }
+  function bytesToBinaryString(bytes) {
+    let out = "";
+    const chunk = 32768;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      out += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+    }
+    return out;
+  }
+  function buildMultipart(body) {
+    const boundary = "----hablla" + Date.now().toString(16) + Math.random().toString(16).slice(2);
+    const crlf = "\r\n";
+    let data = "";
+    const fields = body.fields ?? {};
+    for (const name of Object.keys(fields)) {
+      const value = fields[name] ?? "";
+      data += `--${boundary}${crlf}Content-Disposition: form-data; name="${name}"${crlf}${crlf}${value}${crlf}`;
+    }
+    for (const field of Object.keys(body.files)) {
+      const file = body.files[field];
+      if (!file) continue;
+      const type = file.contentType ?? "application/octet-stream";
+      data += `--${boundary}${crlf}Content-Disposition: form-data; name="${field}"; filename="${file.filename}"${crlf}Content-Type: ${type}${crlf}${crlf}` + bytesToBinaryString(file.data) + crlf;
+    }
+    data += `--${boundary}--${crlf}`;
+    return { data, contentType: `multipart/form-data; boundary=${boundary}` };
+  }
   var HostTransport = class {
     async send(req) {
-      const config = { method: req.method, url: req.url, headers: req.headers, data: req.body, validateStatus: () => true };
+      let headers = req.headers;
+      let data = req.body;
+      if (isMultipart(req.body)) {
+        const built = buildMultipart(req.body);
+        data = built.data;
+        headers = { ...stripContentType(req.headers ?? {}), "Content-Type": built.contentType };
+      }
+      const config = { method: req.method, url: req.url, headers, data, validateStatus: () => true };
       try {
         const res = await _axiosRequest(config);
         return { status: res.status, statusText: res.statusText, headers: res.headers, data: res.data };

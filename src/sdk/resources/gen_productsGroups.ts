@@ -3,6 +3,24 @@ import { Resource } from './base';
 /** `products-groups` resource (generated from openapi.json). */
 export class ProductsGroups extends Resource {
     /**
+     * getParent.
+     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}
+     * @remarks Documented query: product_group (extra keys allowed).
+     */
+    getParent(codeId: string, parentId: string, opts: { query?: { product_group?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}', { path: { code_id: codeId, parent_id: parentId }, query: opts.query });
+    }
+
+    /**
+     * getCode.
+     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}
+     * @remarks Documented query: product_group (extra keys allowed).
+     */
+    getCode(codeId: string, opts: { query?: { product_group?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}', { path: { code_id: codeId }, query: opts.query });
+    }
+
+    /**
      * deleteProductsGroup.
      * @method DELETE /v1/workspaces/{workspace_id}/products-groups/{products_group_id}
      * @remarks Any query params may be sent (none documented).
@@ -27,24 +45,6 @@ export class ProductsGroups extends Resource {
      */
     updateProductsGroup(productsGroupId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/products-groups/{products_group_id}', { path: { products_group_id: productsGroupId }, body, query: opts.query });
-    }
-
-    /**
-     * getParent.
-     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}
-     * @remarks Documented query: product_group (extra keys allowed).
-     */
-    getParent(codeId: string, parentId: string, opts: { query?: { product_group?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}/parent/{parent_id}', { path: { code_id: codeId, parent_id: parentId }, query: opts.query });
-    }
-
-    /**
-     * getCode.
-     * @method GET /v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}
-     * @remarks Documented query: product_group (extra keys allowed).
-     */
-    getCode(codeId: string, opts: { query?: { product_group?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/products-groups/check/code/{code_id}', { path: { code_id: codeId }, query: opts.query });
     }
 
     /**

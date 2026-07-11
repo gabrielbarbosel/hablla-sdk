@@ -12,15 +12,6 @@ export class Data extends Resource {
     }
 
     /**
-     * getDataById.
-     * @method GET /v2/workspaces/{workspace_id}/data/{data_id}/{data2_id}
-     * @remarks Any query params may be sent (none documented).
-     */
-    getDataById(dataId: string, data2Id: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v2/workspaces/{workspace_id}/data/{data_id}/{data2_id}', { path: { data_id: dataId, data2_id: data2Id }, query: opts.query });
-    }
-
-    /**
      * updateData.
      * @method PUT /v2/workspaces/{workspace_id}/data/{data_id}/{data2_id}
      * @remarks Any query params may be sent (none documented).

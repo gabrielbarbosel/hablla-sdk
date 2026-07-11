@@ -18,6 +18,24 @@ export interface Queue {
 /** `queues` resource (generated from openapi.json). */
 export class Queues extends Resource {
     /**
+     * Delete queue item.
+     * @method DELETE /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteQueueItems(queueId: string, queueItemId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}', { path: { queue_id: queueId, queue_item_id: queueItemId }, query: opts.query });
+    }
+
+    /**
+     * Update queue item by id.
+     * @method PUT /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    putQueueItems(queueId: string, queueItemId: string, body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+        return this.http.put('/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}', { path: { queue_id: queueId, queue_item_id: queueItemId }, body, query: opts.query });
+    }
+
+    /**
      * Clear queue by id.
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/clear
      * @remarks Any query params may be sent (none documented).
@@ -45,6 +63,24 @@ export class Queues extends Resource {
     }
 
     /**
+     * Get all queue items.
+     * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
+     * @remarks Documented query: filters, page, limit, order, direction_order, key, populate (extra keys allowed).
+     */
+    getQueueItems(queueId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; key?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items', { path: { queue_id: queueId }, query: opts.query });
+    }
+
+    /**
+     * Create a queue item.
+     * @method POST /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
+     * @remarks Any query params may be sent (none documented).
+     */
+    queueItems(queueId: string, body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+        return this.http.post('/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items', { path: { queue_id: queueId }, body, query: opts.query });
+    }
+
+    /**
      * Reset queue by id.
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/reset
      * @remarks Any query params may be sent (none documented).
@@ -55,38 +91,38 @@ export class Queues extends Resource {
 
     /**
      * Sync queue by id.
-     * @method GET /v1/workspaces/{workspace_id}/queues/{id}/sync
+     * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/sync
      * @remarks Any query params may be sent (none documented).
      */
-    sync(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Queue>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/queues/{id}/sync', { path: { id }, query: opts.query });
+    sync(queueId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/queues/{queue_id}/sync', { path: { queue_id: queueId }, query: opts.query });
     }
 
     /**
      * Delete queue by id.
-     * @method DELETE /v1/workspaces/{workspace_id}/queues/{id}
+     * @method DELETE /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    deleteQueue(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
-        return this.http.delete('/v1/workspaces/{workspace_id}/queues/{id}', { path: { id }, query: opts.query });
+    deleteQueue(queueId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/queues/{queue_id}', { path: { queue_id: queueId }, query: opts.query });
     }
 
     /**
      * Get queue by id.
-     * @method GET /v1/workspaces/{workspace_id}/queues/{id}
+     * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getQueue(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
-        return this.http.get('/v1/workspaces/{workspace_id}/queues/{id}', { path: { id }, query: opts.query });
+    getQueue(queueId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+        return this.http.get('/v1/workspaces/{workspace_id}/queues/{queue_id}', { path: { queue_id: queueId }, query: opts.query });
     }
 
     /**
      * Update queue by id.
-     * @method PUT /v1/workspaces/{workspace_id}/queues/{id}
+     * @method PUT /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateQueue(id: string, body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
-        return this.http.put('/v1/workspaces/{workspace_id}/queues/{id}', { path: { id }, body, query: opts.query });
+    updateQueue(queueId: string, body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+        return this.http.put('/v1/workspaces/{workspace_id}/queues/{queue_id}', { path: { queue_id: queueId }, body, query: opts.query });
     }
 
     /**

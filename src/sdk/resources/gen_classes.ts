@@ -22,20 +22,20 @@ export interface Class {
 export class Classes extends Resource {
     /**
      * makePublic.
-     * @method POST /v1/workspaces/{workspace_id}/classes/{classe_id}/make-public
+     * @method POST /v1/workspaces/{workspace_id}/classes/{class_id}/make-public
      * @remarks Any query params may be sent (none documented).
      */
-    makePublic(classeId: string, body: Partial<Class>, opts: { query?: Record<string, unknown> } = {}): Promise<Class> {
-        return this.http.post('/v1/workspaces/{workspace_id}/classes/{classe_id}/make-public', { path: { classe_id: classeId }, body, query: opts.query });
+    makePublic(classId: string, body: Partial<Class>, opts: { query?: Record<string, unknown> } = {}): Promise<Class> {
+        return this.http.post('/v1/workspaces/{workspace_id}/classes/{class_id}/make-public', { path: { class_id: classId }, body, query: opts.query });
     }
 
     /**
      * updateClass.
-     * @method PUT /v1/workspaces/{workspace_id}/classes/{classe_id}
+     * @method PUT /v1/workspaces/{workspace_id}/classes/{class_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateClass(classeId: string, body: Partial<Class>, opts: { query?: Record<string, unknown> } = {}): Promise<Class> {
-        return this.http.put('/v1/workspaces/{workspace_id}/classes/{classe_id}', { path: { classe_id: classeId }, body, query: opts.query });
+    updateClass(classId: string, body: Partial<Class>, opts: { query?: Record<string, unknown> } = {}): Promise<Class> {
+        return this.http.put('/v1/workspaces/{workspace_id}/classes/{class_id}', { path: { class_id: classId }, body, query: opts.query });
     }
 
     /**

@@ -13,11 +13,11 @@ export class Users extends Resource {
 
     /**
      * updateUser.
-     * @method PUT /v1/users/{id}
+     * @method PUT /v1/users/{user_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateUser(id: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.put('/v1/users/{id}', { path: { id }, body, query: opts.query });
+    updateUser(userId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.put('/v1/users/{user_id}', { path: { user_id: userId }, body, query: opts.query });
     }
 
     /**
@@ -54,5 +54,14 @@ export class Users extends Resource {
      */
     verifyCode(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/users/verify-code', { body, query: opts.query });
+    }
+
+    /**
+     * Get all users from a workspace by id.
+     * @method GET /v1/workspaces/{workspace_id}/users
+     * @remarks Documented query: filters, page, limit, order, direction_order, name, email, role_type, no_sector, no_person, no_service, permission, search, populate, start_date, end_date, field_date (extra keys allowed).
+     */
+    listUsers(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; email?: string; role_type?: string; no_sector?: string; no_person?: string; no_service?: string; permission?: string; search?: string; populate?: string[]; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/users', { query: opts.query });
     }
 }
