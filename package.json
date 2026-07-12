@@ -1,0 +1,39 @@
+{
+  "name": "hablla",
+  "version": "0.1.1",
+  "description": "Typed TypeScript SDK for the Hablla API, generated from the studio bundle and the official swagger.",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "assets",
+    "!assets/**/*.bak.js",
+    "!assets/**/*.BACKUP.js"
+  ],
+  "scripts": {
+    "prepare": "npm run build",
+    "build": "tsc",
+    "build:gas": "node tooling/build-gas.js",
+    "build:rpo": "node tooling/build-rpo.js",
+    "deploy:rpo": "npm run build:rpo && npm run build && node tooling/deploy-rpo.js",
+    "deploy:gas": "npm run build:gas && npm run build && node tooling/deploy-gas.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "axios": "^1.7.0"
+  },
+  "devDependencies": {
+    "@babel/parser": "^7.25.0",
+    "@babel/types": "^7.25.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -1,0 +1,5 @@
+# Force LF everywhere so Windows (CRLF checkout) and the Linux CI generate byte-identical
+# output — otherwise the codegen diff sees phantom line-ending changes and misclassifies
+# every run as "breaking".
+* text=auto eol=lf
+*.gs text eol=lf
