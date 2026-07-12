@@ -26,6 +26,11 @@ import {
     mergeSpecs,
 } from './extract';
 import { applyOverrides, isMultipartOperation, OverrideResult } from './overrides';
+import { emitAll } from './stages/emit';
+import { evaluateGuards } from './stages/guard';
+import { classify, countEndpoints, diffResources, endpointDropPct } from './stages/diff';
+import { promoteResources, PromoteResult } from './stages/promote';
+import { buildReport, writeReport } from './stages/report';
 
 /**
  * Repo root, resolved from this module's location. Works whether running from
@@ -51,6 +56,15 @@ export const DEFAULT_ENTITY_SCHEMAS = path.resolve(
 
 /** Default output path for the resolved spec. */
 export const DEFAULT_OUTPUT = path.resolve(REPO_ROOT, 'src', 'generator', 'openapi.json');
+
+/** Staging directory the emit stage writes candidate resources into. */
+export const DEFAULT_STAGING_DIR = path.resolve(REPO_ROOT, 'src', 'generator', '_staging');
+
+/** Live SDK resources directory — promotion's target. */
+export const DEFAULT_RESOURCES_DIR = path.resolve(REPO_ROOT, 'src', 'sdk', 'resources');
+
+/** Destination for the machine-readable run report. */
+export const DEFAULT_REPORT_PATH = path.resolve(REPO_ROOT, 'generation-report.json');
 
 /** Options for {@link runExtractPipeline}. */
 export interface ExtractPipelineOptions {
@@ -78,6 +92,23 @@ export interface ExtractPipelineResult {
     bundleOperationCount: number;
     /** How many operations declare a multipart/form-data body. */
     multipartCount: number;
+    /** How many request functions the bundle AST walk recovered. */
+    bundleFunctionCount: number;
+    /** Whether the AST walk recovered any request functions (a proxy for parse health). */
+    parseOk: boolean;
+    /** Whether the `APIClient` class was present in the bundle source. */
+    apiClientFound: boolean;
+    /** How many resolved routes carry `{workspace_id}` (the resolved `{workspace}` alias). */
+    workspaceAliasCount: number;
+}
+
+/** Count resolved routes that carry the `{workspace_id}` path segment. */
+function countWorkspaceRoutes(spec: OpenApiSpec): number {
+    let n = 0;
+    for (const pathStr of Object.keys(spec.paths)) {
+        if (pathStr.includes('{workspace_id}')) n++;
+    }
+    return n;
 }
 
 /** Count operations whose request body is multipart/form-data. */
@@ -121,6 +152,7 @@ export async function runExtractPipeline(
     }
 
     log('[extract] AST-walking bundle for request functions...');
+    const apiClientFound = /\bAPIClient\b/.test(bundleCode);
     const functions = extractBundleFunctions(bundleCode);
     const multipartFns = functions.filter((f) => f.multipart).length;
     log(`[extract] recovered ${functions.length} request functions (${multipartFns} *WithFile uploads)`);
@@ -169,6 +201,10 @@ export async function runExtractPipeline(
         pathCount: Object.keys(spec.paths).length,
         bundleOperationCount,
         multipartCount: countMultipart(spec),
+        bundleFunctionCount: functions.length,
+        parseOk: functions.length > 0,
+        apiClientFound,
+        workspaceAliasCount: countWorkspaceRoutes(spec),
     };
 }
 
@@ -200,25 +236,178 @@ export function assertSheetIsMultipart(spec: OpenApiSpec): void {
     }
 }
 
-/** CLI entry: build and write the resolved spec, then verify the sheet override. */
+/** Options for {@link runCodegenPipeline}. */
+export interface CodegenPipelineOptions extends ExtractPipelineOptions {
+    /** Where to write the resolved spec (defaults to {@link DEFAULT_OUTPUT}). */
+    outputPath?: string;
+    /** Where the emit stage stages candidate resources (defaults to {@link DEFAULT_STAGING_DIR}). */
+    stagingDir?: string;
+    /** The live resources tree to diff/promote against (defaults to {@link DEFAULT_RESOURCES_DIR}). */
+    resourcesDir?: string;
+    /** Where to write the run report (defaults to {@link DEFAULT_REPORT_PATH}). */
+    reportPath?: string;
+    /** When false, compute + report but never write to the resources tree. */
+    promote?: boolean;
+}
+
+/** Remove every `gen_*.ts` in a staging dir so it reflects exactly this run. */
+function cleanStaging(stagingDir: string): void {
+    if (!fs.existsSync(stagingDir)) return;
+    for (const file of fs.readdirSync(stagingDir)) {
+        if (file.startsWith('gen_') && file.endsWith('.ts')) fs.rmSync(path.join(stagingDir, file));
+    }
+}
+
+/**
+ * Run the WHOLE codegen loop autonomously: fetch -> extract -> merge -> emit ->
+ * guard -> diff -> classify -> promote -> report.
+ *
+ * The single side-effecting contract for downstream automation is the report
+ * written to `reportPath`. Promotion writes to the resources tree only when the
+ * run is safe (any classification except `failure`) and `promote !== false`.
+ * @param options See {@link CodegenPipelineOptions}.
+ * @returns The generation report (also written to disk).
+ */
+export async function runCodegenPipeline(options: CodegenPipelineOptions = {}) {
+    const log = options.log ?? ((m: string) => console.log(m));
+    const stagingDir = options.stagingDir ?? DEFAULT_STAGING_DIR;
+    const resourcesDir = options.resourcesDir ?? DEFAULT_RESOURCES_DIR;
+    const reportPath = options.reportPath ?? DEFAULT_REPORT_PATH;
+    const outputPath = options.outputPath ?? DEFAULT_OUTPUT;
+
+    // 1. FETCH -> EXTRACT -> MERGE, and persist the resolved spec.
+    const extract = await writeResolvedSpec(outputPath, options);
+
+    // 2. EMIT -> _staging (clean first so dropped resources leave no stale file).
+    log('[emit] emitting candidate resources to staging...');
+    cleanStaging(stagingDir);
+    const emit = emitAll(extract.spec, stagingDir);
+    log(`[emit] ${emit.files} groups, ${emit.methods} generated methods, ${emit.overridden} curated verbatim`);
+
+    // 3. GUARDS / CANARY (A11): abort promotion on an anomalous extraction.
+    const guards = evaluateGuards({
+        parseOk: extract.parseOk,
+        operationCount: extract.operationCount,
+        multipartCount: extract.multipartCount,
+        apiClientFound: extract.apiClientFound,
+        workspaceAliasCount: extract.workspaceAliasCount,
+    });
+    if (guards.ok) {
+        log('[guard] all invariants held');
+    } else {
+        log(`[guard] ANOMALY -> ${guards.reasons.join('; ')}`);
+    }
+
+    // 4. DIFF _staging vs the live resources tree.
+    const diff = diffResources(stagingDir, resourcesDir);
+    const dropPct = endpointDropPct(diff, countEndpoints(resourcesDir));
+    log(`[diff] +${diff.addedEndpoints.length} -${diff.removedEndpoints.length} ~${diff.changedSignatures.length} endpoints; files +${diff.addedFiles.length} ~${diff.changedFiles.length}`);
+
+    // 5. CLASSIFY.
+    const classification = classify(guards, diff);
+    log(`[classify] ${classification}`);
+
+    // 6. PROMOTE — unless a guard tripped (keep the current resources intact).
+    let promotion: PromoteResult | null = null;
+    if (classification === 'failure') {
+        log('[promote] SKIPPED (failure) — current resources kept intact');
+    } else if (options.promote === false) {
+        log('[promote] SKIPPED (promote disabled)');
+    } else {
+        promotion = promoteResources(stagingDir, resourcesDir);
+        log(`[promote] copied ${promotion.copied.length}, removed ${promotion.removed.length}`);
+    }
+
+    // 7. REPORT.
+    const report = buildReport({
+        classification,
+        guards,
+        endpointDropPct: dropPct,
+        spec: {
+            generatedAt: new Date().toISOString(),
+            swaggerSource: extract.swaggerSource,
+            operations: extract.operationCount,
+            paths: extract.pathCount,
+            bundleOperations: extract.bundleOperationCount,
+            multipart: extract.multipartCount,
+            bundleFunctions: extract.bundleFunctionCount,
+            apiClientFound: extract.apiClientFound,
+            workspaceAlias: extract.workspaceAliasCount,
+        },
+        diff,
+        promotion,
+    });
+    writeReport(reportPath, report);
+    log(`[report] wrote ${reportPath}`);
+    return report;
+}
+
+/**
+ * Write a `failure` report when the pipeline could not even reach the guard
+ * stage (a hard fetch/parse error). Keeps the report contract intact for the
+ * downstream release driver so cron never silently produces nothing.
+ * @param reportPath Destination report path.
+ * @param error The thrown error.
+ */
+function writeFailureReport(reportPath: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    writeReport(reportPath, {
+        classification: 'failure',
+        guards: {
+            parseOk: false,
+            uploads: 0,
+            endpointDropPct: 0,
+            anomaly: true,
+            reasons: [`pipeline threw before classification: ${message}`],
+        },
+        spec: {
+            generatedAt: new Date().toISOString(),
+            swaggerSource: 'unavailable',
+            operations: 0,
+            paths: 0,
+            bundleOperations: 0,
+            multipart: 0,
+            bundleFunctions: 0,
+            apiClientFound: false,
+            workspaceAlias: 0,
+        },
+        diff: {
+            addedEndpoints: [],
+            removedEndpoints: [],
+            changedSignatures: [],
+            addedFiles: [],
+            changedFiles: [],
+        },
+        promotion: null,
+    });
+}
+
+/** CLI entry: run the whole codegen loop and print a summary. */
 async function main(): Promise<void> {
-    const result = await writeResolvedSpec();
-    assertSheetIsMultipart(result.spec);
-    const sheet = result.spec.paths['/v2/workspaces/{workspace_id}/campaigns/sheet']?.post;
-    const contentTypes = Object.keys(
-        (sheet?.requestBody as { content?: Record<string, unknown> } | undefined)?.content ?? {},
+    const report = await runCodegenPipeline();
+    assertSheetIsMultipart(
+        JSON.parse(fs.readFileSync(DEFAULT_OUTPUT, 'utf8')) as OpenApiSpec,
     );
-    console.log('[extract] DONE');
-    console.log(`  swagger source : ${result.swaggerSource}`);
-    console.log(`  paths          : ${result.pathCount}`);
-    console.log(`  operations     : ${result.operationCount} (bundle: ${result.bundleOperationCount})`);
-    console.log(`  multipart ops  : ${result.multipartCount}`);
-    console.log(`  campaigns/sheet: ${contentTypes.join(', ')}  (multipart OK)`);
+    console.log('[pipeline] DONE');
+    console.log(`  classification : ${report.classification}`);
+    console.log(`  swagger source : ${report.spec.swaggerSource}`);
+    console.log(`  operations     : ${report.spec.operations} (bundle: ${report.spec.bundleOperations})`);
+    console.log(`  multipart ops  : ${report.spec.multipart}`);
+    console.log(`  guards         : ${report.guards.anomaly ? `ANOMALY (${report.guards.reasons.join('; ')})` : 'OK'}`);
+    console.log(`  endpoints      : +${report.diff.addedEndpoints.length} / -${report.diff.removedEndpoints.length} / ~${report.diff.changedSignatures.length}`);
+    console.log(`  files          : +${report.diff.addedFiles.length} / ~${report.diff.changedFiles.length}`);
+    console.log(`  promotion      : ${report.promotion ? `${report.promotion.copied.length} copied, ${report.promotion.removed.length} removed` : 'skipped'}`);
 }
 
 if (require.main === module) {
     main().catch((error) => {
-        console.error('[extract] FAILED:', error);
+        console.error('[pipeline] FAILED:', error);
+        try {
+            writeFailureReport(DEFAULT_REPORT_PATH, error);
+            console.error(`[pipeline] wrote failure report to ${DEFAULT_REPORT_PATH}`);
+        } catch (reportError) {
+            console.error('[pipeline] could not write failure report:', reportError);
+        }
         process.exit(1);
     });
 }

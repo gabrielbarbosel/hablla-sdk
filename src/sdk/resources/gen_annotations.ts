@@ -47,7 +47,7 @@ export class Annotations extends Resource {
      * @remarks Documented query: filters, page, limit, order, direction_order, person, card, service, organization, description, type, populate, is_fixed (extra keys allowed).
      */
     listAnnotations(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; card?: string; service?: string; organization?: string; description?: string; type?: string; populate?: string[]; is_fixed?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Annotation>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/annotations', { query: opts.query });
+        return this.http.get('/v1/workspaces/{workspace_id}/annotations', { query: opts.query, queryFormat: 'json' });
     }
 
     /**

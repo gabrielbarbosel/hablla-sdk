@@ -261,6 +261,14 @@ export interface BundleFunction {
     queryKeys: string[];
     /** True when the raw method is a `*WithFile` upload (multipart/form-data). */
     multipart: boolean;
+    /**
+     * True when the raw method is `getWithConfig`. These endpoints receive their
+     * query in an axios config `params` object and the backend expects each
+     * first-level object/array value to be `JSON.stringify`-ed (`?filters={...}`),
+     * NOT qs-indices (`filters[stage]=x`) — the emit flags the operation so the
+     * HTTP client serializes the query in the JSON form the server understands.
+     */
+    configGet: boolean;
 }
 
 /**
@@ -453,6 +461,29 @@ export function extractBundleFunctions(code: string): BundleFunction[] {
                             : arg.type === 'ObjectExpression'
                               ? '(inline)'
                               : rest || 'data';
+                } else if (method === 'delete' && args[1]?.type === 'ObjectExpression') {
+                    // A5: `apiClient.delete(url, config)` — the 2nd argument is an
+                    // axios CONFIG object, not a positional body. `config.data` is
+                    // the request body and `config.params` is the query. Recover the
+                    // body key from `.data` so it is excluded from the query-key
+                    // derivation below; `.params` keys stay in `queryKeys`. Never
+                    // treat the whole config object as a positional body.
+                    for (const prop of (args[1].properties as AstNode[]) ?? []) {
+                        if (prop.type !== 'ObjectProperty') continue;
+                        const keyNode = prop.key as AstNode;
+                        const keyName =
+                            keyNode.type === 'Identifier'
+                                ? (keyNode.name as string)
+                                : keyNode.type === 'StringLiteral'
+                                  ? (keyNode.value as string)
+                                  : null;
+                        if (keyName !== 'data') continue;
+                        const value = prop.value as AstNode;
+                        body =
+                            value.type === 'Identifier'
+                                ? map[value.name as string] || (value.name as string)
+                                : '(inline)';
+                    }
                 }
                 const queryKeys = keys.filter((k) => !pathParamKeys.includes(k) && k !== body && k !== 'workspace');
 
@@ -466,6 +497,7 @@ export function extractBundleFunctions(code: string): BundleFunction[] {
                     body,
                     queryKeys,
                     multipart: MULTIPART_METHODS.has(rawMethod),
+                    configGet: rawMethod === 'getWithConfig',
                 });
             }
         }
@@ -700,9 +732,14 @@ export function buildStudioSpec(functions: BundleFunction[], options: BuildStudi
             op.requestBody = multipartBody();
             op['x-multipart'] = true;
             multipartOps++;
-        } else if (fn.body) {
+        } else if (fn.body && fn.method !== 'delete') {
             op.requestBody = { required: true, content: jsonContent(GENERIC_OBJECT), 'x-source': 'generic' };
         }
+
+        // A8: mark `getWithConfig` operations so the emit/HTTP client serialize the
+        // query as JSON.stringify of first-level objects/arrays (`?filters={...}`)
+        // instead of qs-indices — the form these endpoints' backends actually read.
+        if (fn.configGet) op['x-config-get'] = true;
 
         const responses = bareSuccess(fn.method);
         addStandardErrors(responses, fn.method, path);

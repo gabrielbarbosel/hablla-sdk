@@ -14,7 +14,7 @@
       "multipartOperations": 7
     },
     "x-generator": "hablla-sdk generator / extract stage",
-    "x-extracted-at": "2026-07-11T16:37:47.787Z",
+    "x-extracted-at": "2026-07-12T19:20:23.499Z",
     "x-merge-stats": {
       "studioOperations": 654,
       "swaggerOnlyAdded": 71,
@@ -8790,6 +8790,7 @@
         "x-source": "bundle",
         "x-bundle-fn": "getAllBoardCardsApi",
         "x-sdk-method": "getAllBoardCards",
+        "x-config-get": true,
         "responses": {
           "200": {
             "description": "OK",
@@ -11402,6 +11403,7 @@
         "x-source": "bundle",
         "x-bundle-fn": "getAllCardsApi",
         "x-sdk-method": "getAllCards",
+        "x-config-get": true,
         "responses": {
           "200": {
             "description": "OK",
@@ -23045,6 +23047,7 @@
         "x-source": "bundle",
         "x-bundle-fn": "getAllAgentHistory",
         "x-sdk-method": "getAllAgentHistory",
+        "x-config-get": true,
         "responses": {
           "200": {
             "description": "OK",
@@ -23162,6 +23165,7 @@
         "x-source": "bundle",
         "x-bundle-fn": "getAgentHistoryBySkill",
         "x-sdk-method": "getAgentHistoryBySkill",
+        "x-config-get": true,
         "responses": {
           "200": {
             "description": "OK",
@@ -23279,6 +23283,7 @@
         "x-source": "bundle",
         "x-bundle-fn": "getAgentSkillByIdApi",
         "x-sdk-method": "getAgentSkillById",
+        "x-config-get": true,
         "responses": {
           "200": {
             "description": "OK",
@@ -61774,6 +61779,7 @@
         "x-source": "bundle",
         "x-bundle-fn": "verifyEmailApi",
         "x-sdk-method": "verifyEmail",
+        "x-config-get": true,
         "responses": {
           "200": {
             "description": "OK"
@@ -64747,6 +64753,7 @@
         "x-source": "bundle",
         "x-bundle-fn": "getAnnotationsApi",
         "x-sdk-method": "getAnnotations",
+        "x-config-get": true,
         "responses": {
           "200": {
             "description": "OK",

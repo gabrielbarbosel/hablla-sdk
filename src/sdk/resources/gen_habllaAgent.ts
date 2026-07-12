@@ -25,7 +25,7 @@ export class HabllaAgent extends Resource {
      * @remarks Documented query: filters (extra keys allowed).
      */
     getAgentHistoryBySkill(habllaAgentId: string, skillId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<HabllaAgent>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
+        return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query, queryFormat: 'json' });
     }
 
     /**
@@ -52,7 +52,7 @@ export class HabllaAgent extends Resource {
      * @remarks Documented query: filters (extra keys allowed).
      */
     getAgentSkillById(habllaAgentId: string, skillId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<HabllaAgent> {
-        return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
+        return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query, queryFormat: 'json' });
     }
 
     /**
@@ -70,7 +70,7 @@ export class HabllaAgent extends Resource {
      * @remarks Documented query: filters (extra keys allowed).
      */
     getAllAgentHistory(habllaAgentId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<HabllaAgent>> {
-        return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history', { path: { hablla_agent_id: habllaAgentId }, query: opts.query });
+        return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history', { path: { hablla_agent_id: habllaAgentId }, query: opts.query, queryFormat: 'json' });
     }
 
     /**

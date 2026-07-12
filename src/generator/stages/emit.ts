@@ -119,6 +119,12 @@ interface Method {
     hasBody: boolean;
     bodyType: string;
     multipart?: { fileField: string };
+    /**
+     * True for `getWithConfig` operations (`x-config-get`). The emitted call sets
+     * `queryFormat: 'json'` so the HTTP client `JSON.stringify`s first-level
+     * query objects (`?filters={...}`) as these endpoints require.
+     */
+    configGet?: boolean;
 }
 
 /** Split a kebab/snake/space string into its words. */
@@ -366,6 +372,7 @@ function buildMethod(http: HttpMethod, pathStr: string, op: OpenApiOperation, ta
         hasBody: hasBody && !mp,
         bodyType,
         multipart: mp ? { fileField: mp } : undefined,
+        configGet: op['x-config-get'] === true,
     };
 }
 
@@ -522,6 +529,7 @@ function emitMethod(method: Method): string {
     if (method.pathParams.length) callParts.push(pathFragment(method.pathParams));
     if (method.hasBody) callParts.push('body');
     callParts.push('query: opts.query');
+    if (method.configGet) callParts.push("queryFormat: 'json'");
 
     return [
         jsdoc.join('\n'),

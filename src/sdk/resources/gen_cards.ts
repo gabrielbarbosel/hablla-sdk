@@ -269,6 +269,6 @@ export class Cards extends Resource {
      * @remarks Documented query: filters, page, limit, order, direction_order, name, search, campaign, source, list, custom_id, board, person, organization, user, product, service, sector, status, rating, tags, followers, users, populate, start_date, end_date, field_date, created_at, updated_at, finished_at, prediction_date, entry_date, next_task_start_date, next_task_type, has_next_task, custom_fields, highlight_old_cards (extra keys allowed).
      */
     listCards(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; list?: string; custom_id?: string; board?: string; person?: string; organization?: string; user?: string; product?: string; service?: string; sector?: string; status?: string; rating?: string; tags?: string[]; followers?: string[]; users?: string[]; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; finished_at?: unknown; prediction_date?: unknown; entry_date?: unknown; next_task_start_date?: unknown; next_task_type?: string; has_next_task?: string; custom_fields?: string[]; highlight_old_cards?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Card>> {
-        return this.http.get('/v3/workspaces/{workspace_id}/cards', { query: opts.query });
+        return this.http.get('/v3/workspaces/{workspace_id}/cards', { query: opts.query, queryFormat: 'json' });
     }
 }

@@ -62,6 +62,6 @@ export class Authentication extends Resource {
      * @remarks Any query params may be sent (none documented).
      */
     getVerifyEmail(opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/authentication/verify-email', { query: opts.query });
+        return this.http.get('/v1/authentication/verify-email', { query: opts.query, queryFormat: 'json' });
     }
 }

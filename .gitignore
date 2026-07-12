@@ -12,3 +12,5 @@ bundles/
 *.BACKUP.js
 *.inlined.bak.js
 .DS_Store
+generation-report.json
+src/generator/_staging/

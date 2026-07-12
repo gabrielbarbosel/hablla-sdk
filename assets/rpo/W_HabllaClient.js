@@ -150,6 +150,16 @@ class W_HabllaClient {
     for (const [k, v] of Object.entries(obj)) add(k, v);
     return parts.length ? `?${parts.join("&")}` : "";
   }
+  function serializeQueryJson(obj) {
+    if (!obj || typeof obj !== "object") return "";
+    const parts = [];
+    for (const [key, val] of Object.entries(obj)) {
+      if (val == null) continue;
+      const encoded = typeof val === "object" ? JSON.stringify(val) : String(val);
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(encoded)}`);
+    }
+    return parts.length ? `?${parts.join("&")}` : "";
+  }
 
   // src/sdk/core/errors.ts
   function safeStringify(value, max) {
@@ -354,7 +364,8 @@ class W_HabllaClient {
      * POST when the request may already have been applied).
      */
     async _requestOnce(method, rawPath, opts = {}) {
-      const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serializeQuery(opts.query);
+      const serialize = opts.queryFormat === "json" ? serializeQueryJson : serializeQuery;
+      const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serialize(opts.query);
       const cacheKey = `${method}:${rawPath}`;
       const primary = await this.auth.resolveStrategy(cacheKey);
       const idempotent = method === "GET" || method === "HEAD";
@@ -451,7 +462,7 @@ class W_HabllaClient {
      * @remarks Documented query: filters, page, limit, order, direction_order, person, card, service, organization, description, type, populate, is_fixed (extra keys allowed).
      */
     listAnnotations(opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/annotations", { query: opts.query });
+      return this.http.get("/v1/workspaces/{workspace_id}/annotations", { query: opts.query, queryFormat: "json" });
     }
     /**
      * createAnnotation. Create a new annotation.
@@ -534,7 +545,7 @@ class W_HabllaClient {
      * @remarks Any query params may be sent (none documented).
      */
     getVerifyEmail(opts = {}) {
-      return this.http.get("/v1/authentication/verify-email", { query: opts.query });
+      return this.http.get("/v1/authentication/verify-email", { query: opts.query, queryFormat: "json" });
     }
   };
 
@@ -746,7 +757,7 @@ class W_HabllaClient {
      * @remarks Documented query: filters, limit, order, direction_order, name, search, campaign, source, person, organization, user, sector, status, product, reason, rating, tags, populate, board_populate, start_date, end_date, field_date, created_at, updated_at, has_next_task, next_task_start_date, prediction_date, entry_date, finished_at, next_task_type, custom_fields, list, highlight_old_cards, custom_id (extra keys allowed).
      */
     getCards(boardId, opts = {}) {
-      return this.http.get("/v2/workspaces/{workspace_id}/boards/{board_id}/cards", { path: { board_id: boardId }, query: opts.query });
+      return this.http.get("/v2/workspaces/{workspace_id}/boards/{board_id}/cards", { path: { board_id: boardId }, query: opts.query, queryFormat: "json" });
     }
   };
 
@@ -1237,7 +1248,7 @@ class W_HabllaClient {
      * @remarks Documented query: filters, page, limit, order, direction_order, name, search, campaign, source, list, custom_id, board, person, organization, user, product, service, sector, status, rating, tags, followers, users, populate, start_date, end_date, field_date, created_at, updated_at, finished_at, prediction_date, entry_date, next_task_start_date, next_task_type, has_next_task, custom_fields, highlight_old_cards (extra keys allowed).
      */
     listCards(opts = {}) {
-      return this.http.get("/v3/workspaces/{workspace_id}/cards", { query: opts.query });
+      return this.http.get("/v3/workspaces/{workspace_id}/cards", { query: opts.query, queryFormat: "json" });
     }
   };
 
@@ -2614,7 +2625,7 @@ class W_HabllaClient {
      * @remarks Documented query: filters (extra keys allowed).
      */
     getAgentHistoryBySkill(habllaAgentId, skillId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
+      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query, queryFormat: "json" });
     }
     /**
      * putRestore.
@@ -2638,7 +2649,7 @@ class W_HabllaClient {
      * @remarks Documented query: filters (extra keys allowed).
      */
     getAgentSkillById(habllaAgentId, skillId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query });
+      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}", { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query, queryFormat: "json" });
     }
     /**
      * putSkill.
@@ -2654,7 +2665,7 @@ class W_HabllaClient {
      * @remarks Documented query: filters (extra keys allowed).
      */
     getAllAgentHistory(habllaAgentId, opts = {}) {
-      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history", { path: { hablla_agent_id: habllaAgentId }, query: opts.query });
+      return this.http.get("/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history", { path: { hablla_agent_id: habllaAgentId }, query: opts.query, queryFormat: "json" });
     }
     /**
      * getAllSkillsAgent.

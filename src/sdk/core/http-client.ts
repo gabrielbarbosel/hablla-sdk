@@ -2,7 +2,7 @@ import type { HttpTransport, HttpResponse, Paged } from './types';
 import { isMultipart } from './types';
 import type { HabllaAuth } from './auth';
 import type { AuthStrategy } from './strategy';
-import { serializeQuery } from './query';
+import { serializeQuery, serializeQueryJson } from './query';
 import { HabllaApiError, type TraceEntry } from './errors';
 import { paginate, type PaginateOptions, type PaginateResult } from './pagination';
 
@@ -19,6 +19,13 @@ export interface RequestOptions {
     /** Path parameter values. `workspace` is filled automatically. */
     path?: Record<string, unknown>;
     query?: Record<string, unknown>;
+    /**
+     * How to serialize {@link query}. `'indices'` (default) uses the qs-indices
+     * convention (`filters[stage]=x`); `'json'` `JSON.stringify`s first-level
+     * object/array values (`?filters={"stage":"x"}`) as the studio's
+     * `getWithConfig` endpoints require — those backends ignore the indices form.
+     */
+    queryFormat?: 'indices' | 'json';
     body?: unknown;
     headers?: Record<string, string>;
     contentType?: string;
@@ -134,7 +141,8 @@ export class HabllaHttpClient {
      * POST when the request may already have been applied).
      */
     private async _requestOnce<T>(method: string, rawPath: string, opts: RequestOptions = {}): Promise<T> {
-        const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serializeQuery(opts.query);
+        const serialize = opts.queryFormat === 'json' ? serializeQueryJson : serializeQuery;
+        const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serialize(opts.query);
         const cacheKey = `${method}:${rawPath}`;
         const primary = await this.auth.resolveStrategy(cacheKey);
 
