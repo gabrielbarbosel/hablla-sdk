@@ -1,11 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A holiday entry. */
-export interface Holiday {
-    id: string;
-    [key: string]: unknown;
-}
 
 /** `holidays` resource (generated from openapi.json). */
 export class Holidays extends Resource {
@@ -23,7 +16,7 @@ export class Holidays extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/holidays/{id}
      * @remarks Any query params may be sent (none documented).
      */
-    getHoliday(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Holiday> {
+    getHoliday(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/holidays/{id}', { path: { id }, query: opts.query });
     }
 
@@ -32,7 +25,7 @@ export class Holidays extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/holidays/{holiday_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateHoliday(holidayId: string, body: Partial<Holiday>, opts: { query?: Record<string, unknown> } = {}): Promise<Holiday> {
+    updateHoliday(holidayId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/holidays/{holiday_id}', { path: { holiday_id: holidayId }, body, query: opts.query });
     }
 
@@ -41,7 +34,7 @@ export class Holidays extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/holidays/filter
      * @remarks Documented query: name, date, nameOrDate (extra keys allowed).
      */
-    getFilter(opts: { query?: { name?: string; date?: string; nameOrDate?: unknown } & Record<string, unknown> } = {}): Promise<Paged<Holiday>> {
+    getFilter(opts: { query?: { name?: string; date?: string; nameOrDate?: unknown } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/holidays/filter', { query: opts.query });
     }
 
@@ -50,7 +43,7 @@ export class Holidays extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/holidays
      * @remarks Documented query: filters, page, limit, order, direction_order, name, date (extra keys allowed).
      */
-    listHolidays(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; date?: string } & Record<string, unknown> } = {}): Promise<Paged<Holiday>> {
+    listHolidays(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/holidays', { query: opts.query });
     }
 
@@ -59,7 +52,7 @@ export class Holidays extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/holidays
      * @remarks Any query params may be sent (none documented).
      */
-    createHoliday(body: Partial<Holiday>, opts: { query?: Record<string, unknown> } = {}): Promise<Holiday> {
+    createHoliday(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/holidays', { body, query: opts.query });
     }
 }

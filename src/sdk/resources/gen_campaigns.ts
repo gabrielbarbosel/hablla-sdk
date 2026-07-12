@@ -1,23 +1,5 @@
 import { Resource } from './base';
-import type { Paged, MultipartFile, MultipartBody } from '../core/types';
-
-/** A campaign. */
-export interface Campaign {
-    id: string;
-    workspace?: string;
-    user?: string;
-    type?: string;
-    status?: string;
-    name?: string;
-    std_name?: string;
-    quantity?: number;
-    created_at?: string;
-    updated_at?: string;
-    processed_status?: unknown;
-    workspace_id?: string;
-    user_id?: string;
-    [key: string]: unknown;
-}
+import type { MultipartFile, MultipartBody } from '../core/types';
 
 /** `campaigns` resource (generated from openapi.json). */
 export class Campaigns extends Resource {
@@ -26,7 +8,7 @@ export class Campaigns extends Resource {
      * @method PATCH /v1/workspaces/{workspace_id}/campaigns/{campaign_id}/cancel
      * @remarks Any query params may be sent (none documented).
      */
-    patchCancel(campaignId: string, body: Partial<Campaign>, opts: { query?: Record<string, unknown> } = {}): Promise<Campaign> {
+    patchCancel(campaignId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.patch('/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/cancel', { path: { campaign_id: campaignId }, body, query: opts.query });
     }
 
@@ -44,7 +26,7 @@ export class Campaigns extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/campaigns/{campaign_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getCampaign(campaignId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Campaign> {
+    getCampaign(campaignId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/campaigns/{campaign_id}', { path: { campaign_id: campaignId }, query: opts.query });
     }
 
@@ -53,7 +35,7 @@ export class Campaigns extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/campaigns/{campaign_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateCampaign(campaignId: string, body: Partial<Campaign>, opts: { query?: Record<string, unknown> } = {}): Promise<Campaign> {
+    updateCampaign(campaignId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/campaigns/{campaign_id}', { path: { campaign_id: campaignId }, body, query: opts.query });
     }
 
@@ -62,7 +44,7 @@ export class Campaigns extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/campaigns
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listCampaigns(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Campaign>> {
+    listCampaigns(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/campaigns', { query: opts.query });
     }
 
@@ -73,7 +55,7 @@ export class Campaigns extends Resource {
      * @param file The spreadsheet file part (sent under the `file` field).
      * @param fields Extra form-data text fields to send alongside the file.
      */
-    sheet(file: MultipartFile, fields?: Record<string, string>, opts: { query?: Record<string, unknown> } = {}): Promise<Campaign> {
+    sheet(file: MultipartFile, fields?: Record<string, string>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         const body: MultipartBody = { kind: 'multipart', fields, files: { file } };
         return this.http.post('/v2/workspaces/{workspace_id}/campaigns/sheet', { body, query: opts.query });
     }
@@ -83,7 +65,7 @@ export class Campaigns extends Resource {
      * @method POST /v2/workspaces/{workspace_id}/campaigns
      * @remarks Any query params may be sent (none documented).
      */
-    createCampaign(body: Partial<Campaign>, opts: { query?: Record<string, unknown> } = {}): Promise<Campaign> {
+    createCampaign(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v2/workspaces/{workspace_id}/campaigns', { body, query: opts.query });
     }
 }

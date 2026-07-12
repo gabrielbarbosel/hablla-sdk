@@ -1,20 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** An office-hours configuration. */
-export interface OfficeHour {
-    id: string;
-    workspace?: string;
-    name?: string;
-    std_name?: string;
-    office_hours?: unknown;
-    timezone?: unknown;
-    emit_events?: boolean;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    [key: string]: unknown;
-}
 
 /** `office-hours` resource (generated from openapi.json). */
 export class OfficeHours extends Resource {
@@ -32,7 +16,7 @@ export class OfficeHours extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/office-hours/{office_hour_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getOfficeHour(officeHourId: string, opts: { query?: Record<string, unknown> } = {}): Promise<OfficeHour> {
+    getOfficeHour(officeHourId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/office-hours/{office_hour_id}', { path: { office_hour_id: officeHourId }, query: opts.query });
     }
 
@@ -41,7 +25,7 @@ export class OfficeHours extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/office-hours/{office_hour_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateOfficeHour(officeHourId: string, body: Partial<OfficeHour>, opts: { query?: Record<string, unknown> } = {}): Promise<OfficeHour> {
+    updateOfficeHour(officeHourId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/office-hours/{office_hour_id}', { path: { office_hour_id: officeHourId }, body, query: opts.query });
     }
 
@@ -50,7 +34,7 @@ export class OfficeHours extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/office-hours
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listOfficeHours(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<OfficeHour>> {
+    listOfficeHours(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/office-hours', { query: opts.query });
     }
 
@@ -59,7 +43,7 @@ export class OfficeHours extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/office-hours
      * @remarks Any query params may be sent (none documented).
      */
-    createOfficeHour(body: Partial<OfficeHour>, opts: { query?: Record<string, unknown> } = {}): Promise<OfficeHour> {
+    createOfficeHour(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/office-hours', { body, query: opts.query });
     }
 }

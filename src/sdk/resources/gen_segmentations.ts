@@ -1,21 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A segmentation. */
-export interface Segmentation {
-    id: string;
-    user?: string;
-    type?: string;
-    result_type?: string;
-    name?: string;
-    std_name?: string;
-    description?: string;
-    is_enable?: boolean;
-    counter?: number;
-    created_at?: string;
-    updated_at?: string;
-    [key: string]: unknown;
-}
 
 /** `segmentations` resource (generated from openapi.json). */
 export class Segmentations extends Resource {
@@ -33,7 +16,7 @@ export class Segmentations extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{segmentations_item_id}
      * @remarks Documented query: filters, populate (extra keys allowed).
      */
-    getSegmentationsItem(segmentationId: string, segmentationsItemId: string, opts: { query?: { filters?: string; populate?: boolean } & Record<string, unknown> } = {}): Promise<Segmentation> {
+    getSegmentationsItem(segmentationId: string, segmentationsItemId: string, opts: { query?: { filters?: string; populate?: boolean } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items/{segmentations_item_id}', { path: { segmentation_id: segmentationId, segmentations_item_id: segmentationsItemId }, query: opts.query });
     }
 
@@ -42,7 +25,7 @@ export class Segmentations extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items
      * @remarks Documented query: filters, page, limit, order, direction_order, populate, search (extra keys allowed).
      */
-    getSegmentationsItems(segmentationId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; populate?: string[]; search?: string } & Record<string, unknown> } = {}): Promise<Paged<Segmentation>> {
+    getSegmentationsItems(segmentationId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; populate?: string[]; search?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items', { path: { segmentation_id: segmentationId }, query: opts.query });
     }
 
@@ -51,7 +34,7 @@ export class Segmentations extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items
      * @remarks Documented query: populate (extra keys allowed).
      */
-    segmentationsItems(segmentationId: string, body: Partial<Segmentation>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Segmentation> {
+    segmentationsItems(segmentationId: string, body: Record<string, unknown>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items', { path: { segmentation_id: segmentationId }, body, query: opts.query });
     }
 
@@ -69,7 +52,7 @@ export class Segmentations extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getSegmentation(segmentationId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Segmentation> {
+    getSegmentation(segmentationId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}', { path: { segmentation_id: segmentationId }, query: opts.query });
     }
 
@@ -78,7 +61,7 @@ export class Segmentations extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/segmentations/{segmentation_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateSegmentation(segmentationId: string, body: Partial<Segmentation>, opts: { query?: Record<string, unknown> } = {}): Promise<Segmentation> {
+    updateSegmentation(segmentationId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}', { path: { segmentation_id: segmentationId }, body, query: opts.query });
     }
 
@@ -87,7 +70,7 @@ export class Segmentations extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/segmentations
      * @remarks Documented query: filters, page, limit, order, direction_order, name, is_enable, type, result_type (extra keys allowed).
      */
-    listSegmentations(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; is_enable?: boolean; type?: string; result_type?: string } & Record<string, unknown> } = {}): Promise<Paged<Segmentation>> {
+    listSegmentations(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; is_enable?: boolean; type?: string; result_type?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/segmentations', { query: opts.query });
     }
 
@@ -96,7 +79,7 @@ export class Segmentations extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/segmentations
      * @remarks Any query params may be sent (none documented).
      */
-    createSegmentation(body: Partial<Segmentation>, opts: { query?: Record<string, unknown> } = {}): Promise<Segmentation> {
+    createSegmentation(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/segmentations', { body, query: opts.query });
     }
 }

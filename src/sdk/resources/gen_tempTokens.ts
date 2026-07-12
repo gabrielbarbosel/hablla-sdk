@@ -1,22 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A temporary access token. */
-export interface TempToken {
-    id: string;
-    name?: string;
-    workspace?: string;
-    user?: string;
-    role_type?: string;
-    is_expired?: boolean;
-    expires_at?: string;
-    last_used_at?: string;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    user_id?: string;
-    [key: string]: unknown;
-}
 
 /** `temp-tokens` resource (generated from openapi.json). */
 export class TempTokens extends Resource {
@@ -34,7 +16,7 @@ export class TempTokens extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/temp-tokens
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listTempTokens(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<TempToken>> {
+    listTempTokens(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/temp-tokens', { query: opts.query });
     }
 
@@ -43,7 +25,7 @@ export class TempTokens extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/temp-tokens
      * @remarks Any query params may be sent (none documented).
      */
-    createTempToken(body: Partial<TempToken>, opts: { query?: Record<string, unknown> } = {}): Promise<TempToken> {
+    createTempToken(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/temp-tokens', { body, query: opts.query });
     }
 }

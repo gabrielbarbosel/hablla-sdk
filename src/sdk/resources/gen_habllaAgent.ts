@@ -1,12 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A Hablla agent. */
-export interface HabllaAgent {
-    id: string;
-    name?: unknown;
-    [key: string]: unknown;
-}
 
 /** `hablla-agent` resource (generated from openapi.json). */
 export class HabllaAgent extends Resource {
@@ -15,7 +7,7 @@ export class HabllaAgent extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history/{history_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putHistory(habllaAgentId: string, skillId: string, historyId: string, body: Partial<HabllaAgent>, opts: { query?: Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    putHistory(habllaAgentId: string, skillId: string, historyId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history/{history_id}', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId, history_id: historyId }, body, query: opts.query });
     }
 
@@ -24,7 +16,7 @@ export class HabllaAgent extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getAgentHistoryBySkill(habllaAgentId: string, skillId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<HabllaAgent>> {
+    getAgentHistoryBySkill(habllaAgentId: string, skillId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}/history', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query, queryFormat: 'json' });
     }
 
@@ -33,7 +25,7 @@ export class HabllaAgent extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/restore/{restore_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putRestore(habllaAgentId: string, restoreId: string, body: Partial<HabllaAgent>, opts: { query?: Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    putRestore(habllaAgentId: string, restoreId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/restore/{restore_id}', { path: { hablla_agent_id: habllaAgentId, restore_id: restoreId }, body, query: opts.query });
     }
 
@@ -51,7 +43,7 @@ export class HabllaAgent extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getAgentSkillById(habllaAgentId: string, skillId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    getAgentSkillById(habllaAgentId: string, skillId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, query: opts.query, queryFormat: 'json' });
     }
 
@@ -60,7 +52,7 @@ export class HabllaAgent extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putSkill(habllaAgentId: string, skillId: string, body: Partial<HabllaAgent>, opts: { query?: Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    putSkill(habllaAgentId: string, skillId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill/{skill_id}', { path: { hablla_agent_id: habllaAgentId, skill_id: skillId }, body, query: opts.query });
     }
 
@@ -69,7 +61,7 @@ export class HabllaAgent extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getAllAgentHistory(habllaAgentId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<HabllaAgent>> {
+    getAllAgentHistory(habllaAgentId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/history', { path: { hablla_agent_id: habllaAgentId }, query: opts.query, queryFormat: 'json' });
     }
 
@@ -78,7 +70,7 @@ export class HabllaAgent extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getAllSkillsAgent(habllaAgentId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<HabllaAgent>> {
+    getAllSkillsAgent(habllaAgentId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill', { path: { hablla_agent_id: habllaAgentId }, query: opts.query });
     }
 
@@ -87,7 +79,7 @@ export class HabllaAgent extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill
      * @remarks Any query params may be sent (none documented).
      */
-    skill(habllaAgentId: string, body: Partial<HabllaAgent>, opts: { query?: Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    skill(habllaAgentId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}/skill', { path: { hablla_agent_id: habllaAgentId }, body, query: opts.query });
     }
 
@@ -105,7 +97,7 @@ export class HabllaAgent extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getHabllaAgent(habllaAgentId: string, opts: { query?: Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    getHabllaAgent(habllaAgentId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}', { path: { hablla_agent_id: habllaAgentId }, query: opts.query });
     }
 
@@ -114,7 +106,7 @@ export class HabllaAgent extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateHabllaAgent(habllaAgentId: string, body: Partial<HabllaAgent>, opts: { query?: Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    updateHabllaAgent(habllaAgentId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/hablla-agent/{hablla_agent_id}', { path: { hablla_agent_id: habllaAgentId }, body, query: opts.query });
     }
 
@@ -123,7 +115,7 @@ export class HabllaAgent extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/hablla-agent
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listHabllaAgent(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<HabllaAgent>> {
+    listHabllaAgent(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/hablla-agent', { query: opts.query });
     }
 
@@ -132,7 +124,7 @@ export class HabllaAgent extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/hablla-agent
      * @remarks Any query params may be sent (none documented).
      */
-    createHabllaAgent(body: Partial<HabllaAgent>, opts: { query?: Record<string, unknown> } = {}): Promise<HabllaAgent> {
+    createHabllaAgent(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/hablla-agent', { body, query: opts.query });
     }
 }

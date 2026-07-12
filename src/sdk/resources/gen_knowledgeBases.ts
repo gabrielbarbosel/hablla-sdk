@@ -1,18 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A knowledge base. */
-export interface KnowledgeBase {
-    id: string;
-    workspace?: string;
-    name?: string;
-    status?: string;
-    sources_counter?: number;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    [key: string]: unknown;
-}
 
 /** `knowledge-bases` resource (generated from openapi.json). */
 export class KnowledgeBases extends Resource {
@@ -30,7 +16,7 @@ export class KnowledgeBases extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources/{source_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getSource(knowledgeBaseId: string, sourceId: string, opts: { query?: Record<string, unknown> } = {}): Promise<KnowledgeBase> {
+    getSource(knowledgeBaseId: string, sourceId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources/{source_id}', { path: { knowledge_base_id: knowledgeBaseId, source_id: sourceId }, query: opts.query });
     }
 
@@ -39,7 +25,7 @@ export class KnowledgeBases extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources/{source_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putSources(knowledgeBaseId: string, sourceId: string, body: Partial<KnowledgeBase>, opts: { query?: Record<string, unknown> } = {}): Promise<KnowledgeBase> {
+    putSources(knowledgeBaseId: string, sourceId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources/{source_id}', { path: { knowledge_base_id: knowledgeBaseId, source_id: sourceId }, body, query: opts.query });
     }
 
@@ -48,7 +34,7 @@ export class KnowledgeBases extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getSources(knowledgeBaseId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<KnowledgeBase>> {
+    getSources(knowledgeBaseId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources', { path: { knowledge_base_id: knowledgeBaseId }, query: opts.query });
     }
 
@@ -57,7 +43,7 @@ export class KnowledgeBases extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources
      * @remarks Any query params may be sent (none documented).
      */
-    sources(knowledgeBaseId: string, body: Partial<KnowledgeBase>, opts: { query?: Record<string, unknown> } = {}): Promise<KnowledgeBase> {
+    sources(knowledgeBaseId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/sources', { path: { knowledge_base_id: knowledgeBaseId }, body, query: opts.query });
     }
 
@@ -75,7 +61,7 @@ export class KnowledgeBases extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getKnowledgeBase(knowledgeBaseId: string, opts: { query?: Record<string, unknown> } = {}): Promise<KnowledgeBase> {
+    getKnowledgeBase(knowledgeBaseId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}', { path: { knowledge_base_id: knowledgeBaseId }, query: opts.query });
     }
 
@@ -84,7 +70,7 @@ export class KnowledgeBases extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateKnowledgeBase(knowledgeBaseId: string, body: Partial<KnowledgeBase>, opts: { query?: Record<string, unknown> } = {}): Promise<KnowledgeBase> {
+    updateKnowledgeBase(knowledgeBaseId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}', { path: { knowledge_base_id: knowledgeBaseId }, body, query: opts.query });
     }
 
@@ -93,7 +79,7 @@ export class KnowledgeBases extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/knowledge-bases
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listKnowledgeBases(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<KnowledgeBase>> {
+    listKnowledgeBases(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/knowledge-bases', { query: opts.query });
     }
 
@@ -102,7 +88,7 @@ export class KnowledgeBases extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/knowledge-bases
      * @remarks Any query params may be sent (none documented).
      */
-    createKnowledgeBase(body: Partial<KnowledgeBase>, opts: { query?: Record<string, unknown> } = {}): Promise<KnowledgeBase> {
+    createKnowledgeBase(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/knowledge-bases', { body, query: opts.query });
     }
 }

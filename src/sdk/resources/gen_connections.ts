@@ -1,26 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A connection (channel integration). */
-export interface Connection {
-    id: string;
-    workspace?: string;
-    credential?: string;
-    sector?: string;
-    name?: string;
-    std_name?: string;
-    type?: string;
-    color?: string;
-    key?: string;
-    status?: string;
-    data?: unknown;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    credential_id?: string;
-    sector_id?: string;
-    [key: string]: unknown;
-}
 
 /** `connections` resource (generated from openapi.json). */
 export class Connections extends Resource {
@@ -29,7 +7,7 @@ export class Connections extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}
      * @remarks Any query params may be sent (none documented).
      */
-    createDuplicate(connectionId: string, duplicateId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    createDuplicate(connectionId: string, duplicateId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}', { path: { connection_id: connectionId, duplicate_id: duplicateId }, body, query: opts.query });
     }
 
@@ -47,7 +25,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getTemplate(connectionId: string, templateId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    getTemplate(connectionId: string, templateId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}', { path: { connection_id: connectionId, template_id: templateId }, query: opts.query });
     }
 
@@ -56,7 +34,7 @@ export class Connections extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putTemplates(connectionId: string, templateId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    putTemplates(connectionId: string, templateId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}', { path: { connection_id: connectionId, template_id: templateId }, body, query: opts.query });
     }
 
@@ -65,7 +43,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/chat
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getChat(connectionId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getChat(connectionId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/chat', { path: { connection_id: connectionId }, query: opts.query });
     }
 
@@ -74,7 +52,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{id}/messages
      * @remarks Documented query: page, limit, order, direction_order, user, body, populate, start_date, end_date, to (extra keys allowed).
      */
-    getMessages(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; populate?: string[]; start_date?: string; end_date?: string; to?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getMessages(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; populate?: string[]; start_date?: string; end_date?: string; to?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{id}/messages', { path: { id }, query: opts.query });
     }
 
@@ -83,7 +61,7 @@ export class Connections extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages
      * @remarks Any query params may be sent (none documented).
      */
-    messages(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    messages(connectionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/messages', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
@@ -92,7 +70,7 @@ export class Connections extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates
      * @remarks Any query params may be sent (none documented).
      */
-    messagesTemplates(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    messagesTemplates(connectionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/messages-templates', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
@@ -101,7 +79,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/meta-waba-logs
      * @remarks Documented query: filters, page, limit, order, direction_order, type, start_date, end_date, populate (extra keys allowed).
      */
-    getMetaWabaLogs(connectionId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; type?: string; start_date?: string; end_date?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getMetaWabaLogs(connectionId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; type?: string; start_date?: string; end_date?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/meta-waba-logs', { path: { connection_id: connectionId }, query: opts.query });
     }
 
@@ -110,7 +88,7 @@ export class Connections extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/register
      * @remarks Any query params may be sent (none documented).
      */
-    register(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    register(connectionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/register', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
@@ -119,7 +97,7 @@ export class Connections extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/subscribe-app
      * @remarks Any query params may be sent (none documented).
      */
-    subscribeApp(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    subscribeApp(connectionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/subscribe-app', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
@@ -128,7 +106,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/subscribed-apps
      * @remarks Any query params may be sent (none documented).
      */
-    getSubscribedApps(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getSubscribedApps(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/subscribed-apps', { path: { connection_id: connectionId }, query: opts.query });
     }
 
@@ -137,7 +115,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/sync
      * @remarks Any query params may be sent (none documented).
      */
-    sync(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    sync(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/sync', { path: { connection_id: connectionId }, query: opts.query });
     }
 
@@ -146,7 +124,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/templates
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getTemplates(connectionId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getTemplates(connectionId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates', { path: { connection_id: connectionId }, query: opts.query });
     }
 
@@ -155,7 +133,7 @@ export class Connections extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/templates
      * @remarks Any query params may be sent (none documented).
      */
-    templatesV1(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    templatesV1(connectionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
@@ -173,7 +151,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getConnection(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    getConnection(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}', { path: { connection_id: connectionId }, query: opts.query });
     }
 
@@ -182,7 +160,7 @@ export class Connections extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Documented query: populate (extra keys allowed).
      */
-    updateConnection(connectionId: string, body: Partial<Connection>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<Connection> {
+    updateConnection(connectionId: string, body: Record<string, unknown>, opts: { query?: { populate?: boolean } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/connections/{connection_id}', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
@@ -191,7 +169,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/availables
      * @remarks Any query params may be sent (none documented).
      */
-    getAvailables(opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getAvailables(opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/availables', { query: opts.query });
     }
 
@@ -200,7 +178,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/counters
      * @remarks Any query params may be sent (none documented).
      */
-    getCounters(opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getCounters(opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/counters', { query: opts.query });
     }
 
@@ -209,7 +187,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections/multiple
      * @remarks Documented query: ids (extra keys allowed).
      */
-    getMultiple(opts: { query?: { ids?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    getMultiple(opts: { query?: { ids?: string[] } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections/multiple', { query: opts.query });
     }
 
@@ -218,7 +196,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections
      * @remarks Documented query: page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnectionsV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: string; generic_type?: string; types?: string[]; status?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnectionsV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: string; generic_type?: string; types?: string[]; status?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 
@@ -227,7 +205,7 @@ export class Connections extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/connections
      * @remarks Any query params may be sent (none documented).
      */
-    createConnection(body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    createConnection(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/connections', { body, query: opts.query });
     }
 
@@ -236,7 +214,7 @@ export class Connections extends Resource {
      * @method POST /v2/workspaces/{workspace_id}/connections/{connection_id}/templates
      * @remarks Any query params may be sent (none documented).
      */
-    templates(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+    templates(connectionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v2/workspaces/{workspace_id}/connections/{connection_id}/templates', { path: { connection_id: connectionId }, body, query: opts.query });
     }
 
@@ -245,7 +223,7 @@ export class Connections extends Resource {
      * @method GET /v2/workspaces/{workspace_id}/connections
      * @remarks Documented query: filters, page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnections(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: string; generic_type?: string; types?: string[]; status?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnections(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: string; generic_type?: string; types?: string[]; status?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v2/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 }

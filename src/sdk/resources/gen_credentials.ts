@@ -1,18 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A credential (connection auth). */
-export interface Credential {
-    id: string;
-    workspace?: string;
-    name?: string;
-    std_name?: string;
-    type?: string;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    [key: string]: unknown;
-}
 
 /** `credentials` resource (generated from openapi.json). */
 export class Credentials extends Resource {
@@ -30,7 +16,7 @@ export class Credentials extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/credentials/{credential_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getCredential(credentialId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Credential> {
+    getCredential(credentialId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/credentials/{credential_id}', { path: { credential_id: credentialId }, query: opts.query });
     }
 
@@ -39,7 +25,7 @@ export class Credentials extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/credentials/{credential_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateCredential(credentialId: string, body: Partial<Credential>, opts: { query?: Record<string, unknown> } = {}): Promise<Credential> {
+    updateCredential(credentialId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/credentials/{credential_id}', { path: { credential_id: credentialId }, body, query: opts.query });
     }
 
@@ -48,7 +34,7 @@ export class Credentials extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/credentials
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listCredentials(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Credential>> {
+    listCredentials(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/credentials', { query: opts.query });
     }
 
@@ -57,7 +43,7 @@ export class Credentials extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/credentials
      * @remarks Any query params may be sent (none documented).
      */
-    createCredential(body: Partial<Credential>, opts: { query?: Record<string, unknown> } = {}): Promise<Credential> {
+    createCredential(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/credentials', { body, query: opts.query });
     }
 
@@ -66,7 +52,7 @@ export class Credentials extends Resource {
      * @method POST /v2/workspaces/{workspace_id}/credentials/login-oauth
      * @remarks Any query params may be sent (none documented).
      */
-    loginOauth(body: Partial<Credential>, opts: { query?: Record<string, unknown> } = {}): Promise<Credential> {
+    loginOauth(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v2/workspaces/{workspace_id}/credentials/login-oauth', { body, query: opts.query });
     }
 }

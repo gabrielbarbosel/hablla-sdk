@@ -1,28 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A permission profile. */
-export interface Permission {
-    id: string;
-    name?: string;
-    std_name?: string;
-    description?: string;
-    workspace?: string;
-    persons_permissions?: unknown;
-    services_permissions?: unknown;
-    cards_permissions?: unknown;
-    organizations_permissions?: unknown;
-    internal_chat_permissions?: unknown;
-    tasks_permissions?: unknown;
-    post_feed_permissions?: unknown;
-    menu_permissions?: unknown;
-    bulk_messaging_config?: unknown;
-    services_config?: unknown;
-    block_access_on_shift_end?: boolean;
-    created_at?: string;
-    updated_at?: string;
-    [key: string]: unknown;
-}
 
 /** `permissions` resource (generated from openapi.json). */
 export class Permissions extends Resource {
@@ -40,7 +16,7 @@ export class Permissions extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/permissions/{permission_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getPermission(permissionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Permission> {
+    getPermission(permissionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/permissions/{permission_id}', { path: { permission_id: permissionId }, query: opts.query });
     }
 
@@ -49,7 +25,7 @@ export class Permissions extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/permissions/{permission_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updatePermission(permissionId: string, body: Partial<Permission>, opts: { query?: Record<string, unknown> } = {}): Promise<Permission> {
+    updatePermission(permissionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/permissions/{permission_id}', { path: { permission_id: permissionId }, body, query: opts.query });
     }
 
@@ -58,7 +34,7 @@ export class Permissions extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/permissions
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listPermissions(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Permission>> {
+    listPermissions(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/permissions', { query: opts.query });
     }
 
@@ -67,7 +43,7 @@ export class Permissions extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/permissions
      * @remarks Any query params may be sent (none documented).
      */
-    createPermission(body: Partial<Permission>, opts: { query?: Record<string, unknown> } = {}): Promise<Permission> {
+    createPermission(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/permissions', { body, query: opts.query });
     }
 
@@ -76,7 +52,7 @@ export class Permissions extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/permissions
      * @remarks Any query params may be sent (none documented).
      */
-    updateWorkspacePermissions(body: Partial<Permission>, opts: { query?: Record<string, unknown> } = {}): Promise<Permission> {
+    updateWorkspacePermissions(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/permissions', { body, query: opts.query });
     }
 }

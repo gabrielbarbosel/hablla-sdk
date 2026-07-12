@@ -1,16 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A blocked word. */
-export interface BlockedWord {
-    id: string;
-    workspace?: string;
-    word?: string;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    [key: string]: unknown;
-}
 
 /** `blocked-words` resource (generated from openapi.json). */
 export class BlockedWords extends Resource {
@@ -28,7 +16,7 @@ export class BlockedWords extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/blocked-words
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listBlockedWords(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<BlockedWord>> {
+    listBlockedWords(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/blocked-words', { query: opts.query });
     }
 
@@ -37,7 +25,7 @@ export class BlockedWords extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/blocked-words
      * @remarks Any query params may be sent (none documented).
      */
-    createBlockedWord(body: Partial<BlockedWord>, opts: { query?: Record<string, unknown> } = {}): Promise<BlockedWord> {
+    createBlockedWord(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/blocked-words', { body, query: opts.query });
     }
 }

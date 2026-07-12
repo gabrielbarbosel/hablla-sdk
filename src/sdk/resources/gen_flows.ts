@@ -1,21 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** An automation flow. */
-export interface Flow {
-    id: string;
-    name?: string;
-    type?: string;
-    workspace?: string;
-    user?: string;
-    is_enable?: boolean;
-    triggers?: unknown;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    user_id?: string;
-    [key: string]: unknown;
-}
 
 /** `flows` resource (generated from openapi.json). */
 export class Flows extends Resource {
@@ -24,7 +7,7 @@ export class Flows extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/flows/{flow_id}/execute-node
      * @remarks Any query params may be sent (none documented).
      */
-    executeNode(flowId: string, body: Partial<Flow>, opts: { query?: Record<string, unknown> } = {}): Promise<Flow> {
+    executeNode(flowId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows/{flow_id}/execute-node', { path: { flow_id: flowId }, body, query: opts.query });
     }
 
@@ -33,7 +16,7 @@ export class Flows extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/flows/{flow_id}/install
      * @remarks Any query params may be sent (none documented).
      */
-    install(flowId: string, body: Partial<Flow>, opts: { query?: Record<string, unknown> } = {}): Promise<Flow> {
+    install(flowId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows/{flow_id}/install', { path: { flow_id: flowId }, body, query: opts.query });
     }
 
@@ -42,7 +25,7 @@ export class Flows extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/flows/{flow_id}/make-public
      * @remarks Any query params may be sent (none documented).
      */
-    makePublic(flowId: string, body: Partial<Flow>, opts: { query?: Record<string, unknown> } = {}): Promise<Flow> {
+    makePublic(flowId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows/{flow_id}/make-public', { path: { flow_id: flowId }, body, query: opts.query });
     }
 
@@ -51,7 +34,7 @@ export class Flows extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/flows/{flow_id}/publish
      * @remarks Any query params may be sent (none documented).
      */
-    publish(flowId: string, body: Partial<Flow>, opts: { query?: Record<string, unknown> } = {}): Promise<Flow> {
+    publish(flowId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows/{flow_id}/publish', { path: { flow_id: flowId }, body, query: opts.query });
     }
 
@@ -60,7 +43,7 @@ export class Flows extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/flows/{flow_id}/version
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getVersion(flowId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Flow>> {
+    getVersion(flowId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/flows/{flow_id}/version', { path: { flow_id: flowId }, query: opts.query });
     }
 
@@ -78,7 +61,7 @@ export class Flows extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/flows/{flow_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getFlow(flowId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Flow> {
+    getFlow(flowId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/flows/{flow_id}', { path: { flow_id: flowId }, query: opts.query });
     }
 
@@ -87,7 +70,7 @@ export class Flows extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/flows/{flow_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateFlow(flowId: string, body: Partial<Flow>, opts: { query?: Record<string, unknown> } = {}): Promise<Flow> {
+    updateFlow(flowId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/flows/{flow_id}', { path: { flow_id: flowId }, body, query: opts.query });
     }
 
@@ -96,7 +79,7 @@ export class Flows extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/flows/public
      * @remarks Documented query: filters (extra keys allowed).
      */
-    getPublic(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Flow>> {
+    getPublic(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/flows/public', { query: opts.query });
     }
 
@@ -105,7 +88,7 @@ export class Flows extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/flows
      * @remarks Documented query: filters (extra keys allowed).
      */
-    listFlows(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Flow>> {
+    listFlows(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/flows', { query: opts.query });
     }
 
@@ -114,7 +97,7 @@ export class Flows extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/flows
      * @remarks Any query params may be sent (none documented).
      */
-    createFlow(body: Partial<Flow>, opts: { query?: Record<string, unknown> } = {}): Promise<Flow> {
+    createFlow(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/flows', { body, query: opts.query });
     }
 }

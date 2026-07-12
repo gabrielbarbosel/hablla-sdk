@@ -1,19 +1,4 @@
 import { Resource } from './base';
-import type { Paged } from '../core/types';
-
-/** A queue. */
-export interface Queue {
-    id: string;
-    workspace?: string;
-    name?: string;
-    std_name?: string;
-    algorithm?: string;
-    type?: string;
-    created_at?: string;
-    updated_at?: string;
-    workspace_id?: string;
-    [key: string]: unknown;
-}
 
 /** `queues` resource (generated from openapi.json). */
 export class Queues extends Resource {
@@ -31,7 +16,7 @@ export class Queues extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}
      * @remarks Any query params may be sent (none documented).
      */
-    putQueueItems(queueId: string, queueItemId: string, body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+    putQueueItems(queueId: string, queueItemId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items/{queue_item_id}', { path: { queue_id: queueId, queue_item_id: queueItemId }, body, query: opts.query });
     }
 
@@ -40,7 +25,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/clear
      * @remarks Any query params may be sent (none documented).
      */
-    getClear(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+    getClear(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues/{id}/clear', { path: { id }, query: opts.query });
     }
 
@@ -49,7 +34,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/logs
      * @remarks Documented query: page, limit, order, direction_order, key, populate (extra keys allowed).
      */
-    getLogs(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; key?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+    getLogs(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; key?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues/{id}/logs', { path: { id }, query: opts.query });
     }
 
@@ -58,7 +43,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/next
      * @remarks Any query params may be sent (none documented).
      */
-    getNext(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+    getNext(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues/{id}/next', { path: { id }, query: opts.query });
     }
 
@@ -67,7 +52,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
      * @remarks Documented query: filters, page, limit, order, direction_order, key, populate (extra keys allowed).
      */
-    getQueueItems(queueId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; key?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+    getQueueItems(queueId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; key?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items', { path: { queue_id: queueId }, query: opts.query });
     }
 
@@ -76,7 +61,7 @@ export class Queues extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
      * @remarks Any query params may be sent (none documented).
      */
-    queueItems(queueId: string, body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+    queueItems(queueId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items', { path: { queue_id: queueId }, body, query: opts.query });
     }
 
@@ -85,7 +70,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues/{id}/reset
      * @remarks Any query params may be sent (none documented).
      */
-    getReset(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+    getReset(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues/{id}/reset', { path: { id }, query: opts.query });
     }
 
@@ -94,7 +79,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/sync
      * @remarks Any query params may be sent (none documented).
      */
-    sync(queueId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+    sync(queueId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues/{queue_id}/sync', { path: { queue_id: queueId }, query: opts.query });
     }
 
@@ -112,7 +97,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    getQueue(queueId: string, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+    getQueue(queueId: string, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues/{queue_id}', { path: { queue_id: queueId }, query: opts.query });
     }
 
@@ -121,7 +106,7 @@ export class Queues extends Resource {
      * @method PUT /v1/workspaces/{workspace_id}/queues/{queue_id}
      * @remarks Any query params may be sent (none documented).
      */
-    updateQueue(queueId: string, body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+    updateQueue(queueId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.put('/v1/workspaces/{workspace_id}/queues/{queue_id}', { path: { queue_id: queueId }, body, query: opts.query });
     }
 
@@ -130,7 +115,7 @@ export class Queues extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/queues
      * @remarks Documented query: filters, page, limit, order, direction_order, name, populate (extra keys allowed).
      */
-    listQueues(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+    listQueues(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/queues', { query: opts.query });
     }
 
@@ -139,7 +124,7 @@ export class Queues extends Resource {
      * @method POST /v1/workspaces/{workspace_id}/queues
      * @remarks Any query params may be sent (none documented).
      */
-    createQueue(body: Partial<Queue>, opts: { query?: Record<string, unknown> } = {}): Promise<Queue> {
+    createQueue(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.post('/v1/workspaces/{workspace_id}/queues', { body, query: opts.query });
     }
 }
