@@ -57,7 +57,9 @@ export type Classification = 'failure' | 'breaking' | 'additive' | 'noop';
  * @returns One entry per annotated method (endpoint key + signature).
  */
 export function parseEndpointSignatures(source: string): EndpointSignature[] {
-    const lines = source.split('\n');
+    // Split on either line ending so CRLF (Windows checkout) vs LF (Linux CI) never
+    // shows up as a phantom signature change.
+    const lines = source.split(/\r?\n/);
     const out: EndpointSignature[] = [];
     for (let i = 0; i < lines.length; i++) {
         const tag = /@method\s+(\w+)\s+(\S+)/.exec(lines[i]!);
@@ -129,8 +131,9 @@ export function diffResources(stagingDir: string, currentDir: string): ResourceD
     const changedFiles: string[] = [];
     for (const file of stagingFiles) {
         if (!currentSet.has(file)) continue;
-        const a = fs.readFileSync(path.join(stagingDir, file), 'utf8');
-        const b = fs.readFileSync(path.join(currentDir, file), 'utf8');
+        // Normalize line endings before comparing so CRLF vs LF is not a diff.
+        const a = fs.readFileSync(path.join(stagingDir, file), 'utf8').replace(/\r\n/g, '\n');
+        const b = fs.readFileSync(path.join(currentDir, file), 'utf8').replace(/\r\n/g, '\n');
         if (a !== b) changedFiles.push(file);
     }
 

@@ -14,7 +14,7 @@
       "multipartOperations": 7
     },
     "x-generator": "hablla-sdk generator / extract stage",
-    "x-extracted-at": "2026-07-12T19:20:23.499Z",
+    "x-extracted-at": "2026-07-12T19:55:36.876Z",
     "x-merge-stats": {
       "studioOperations": 654,
       "swaggerOnlyAdded": 71,

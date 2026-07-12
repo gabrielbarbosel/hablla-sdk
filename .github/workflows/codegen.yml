@@ -124,6 +124,14 @@ jobs:
       # Build ONE prompt that carries the whole report, so we make a SINGLE model
       # call per run (GitHub Models is rate-limited). additive and breaking are
       # mutually exclusive per run, so one call always suffices.
+      - name: Upload generation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generation-report
+          path: generation-report.json
+          if-no-files-found: ignore
+
       - name: Compose LLM prompt
         id: prompt
         if: steps.classify.outputs.outcome == 'additive' || steps.classify.outputs.outcome == 'breaking'
@@ -146,10 +154,26 @@ jobs:
               echo "newly added endpoints for SDK consumers. Group related endpoints."
             fi
             echo ""
-            echo "Base your answer ONLY on this generation report:"
+            echo "Base your answer ONLY on this compact generation summary"
+            echo "(the 'spec' blob is omitted and endpoint lists are truncated to keep"
+            echo "the prompt small — GitHub Models caps input tokens):"
             echo ""
             echo '```json'
-            cat generation-report.json
+            # Compact the report: drop the big 'spec' blob, keep classification +
+            # guard reasons + diff counts + up to 80 endpoint names per bucket.
+            jq '{
+              classification,
+              guards: { reasons: (.guards.reasons // []) },
+              diff: {
+                addedCount: ((.diff.addedEndpoints // []) | length),
+                removedCount: ((.diff.removedEndpoints // []) | length),
+                changedSignatureCount: ((.diff.changedSignatures // []) | length),
+                addedEndpoints: ((.diff.addedEndpoints // [])[0:80]),
+                removedEndpoints: ((.diff.removedEndpoints // [])[0:80]),
+                changedSignatures: ((.diff.changedSignatures // [])[0:80]),
+                changedFiles: (.diff.changedFiles // [])
+              }
+            }' generation-report.json | head -c 12000
             echo '```'
           } > codegen-prompt.md
 
