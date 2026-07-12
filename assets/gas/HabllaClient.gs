@@ -7410,6 +7410,7 @@
   }
 
   // src/runtime/gas/entry.ts
+  var FETCH_ALL_BATCH = 100;
   var SET_TIMEOUT_CAP_MS = 15e3;
   function readVariables() {
     var _a, _b, _c, _d, _e, _f;
@@ -7460,7 +7461,54 @@
       }
     }
   }
+  function makeGetAll(client, base, workspaceId) {
+    return function getAll(paths) {
+      const out = new Array(paths.length).fill(null);
+      if (paths.length === 0) return out;
+      const g = globalThis;
+      const nativePromise = g.Promise;
+      const nativeSetTimeout = g.setTimeout;
+      g.Promise = SyncPromise;
+      g.setTimeout = gasSetTimeout;
+      let token;
+      try {
+        token = unwrap(client.auth.token());
+      } finally {
+        g.Promise = nativePromise;
+        g.setTimeout = nativeSetTimeout;
+      }
+      const authorization = "Bearer " + token;
+      for (let offset = 0; offset < paths.length; offset += FETCH_ALL_BATCH) {
+        const slice = paths.slice(offset, offset + FETCH_ALL_BATCH);
+        const requests = slice.map((path) => ({
+          url: base + path.replace("{ws}", workspaceId),
+          method: "get",
+          headers: { Authorization: authorization },
+          muteHttpExceptions: true
+        }));
+        let responses;
+        try {
+          responses = UrlFetchApp.fetchAll(requests);
+        } catch (e) {
+          continue;
+        }
+        for (let i = 0; i < responses.length; i++) {
+          const response = responses[i];
+          if (!response) continue;
+          const status = response.getResponseCode();
+          if (status >= 200 && status < 300) {
+            try {
+              out[offset + i] = JSON.parse(response.getContentText());
+            } catch (e) {
+            }
+          }
+        }
+      }
+      return out;
+    };
+  }
   function installHabllaClient() {
+    var _a;
     const vars = readVariables();
     const client = new HabllaClient(__spreadProps(__spreadValues({}, vars), {
       transport: new UrlFetchTransport(),
@@ -7468,7 +7516,7 @@
     }));
     const g = globalThis;
     g.hablla = client;
-    g.Hablla = { client, runSync, unwrap };
+    g.Hablla = { client, runSync, unwrap, getAll: makeGetAll(client, (_a = vars.baseUrl) != null ? _a : "https://api.hablla.com", vars.workspaceId) };
     return client;
   }
   installHabllaClient();

@@ -104,6 +104,32 @@ async function putClass(url: string, body: unknown, config: AxiosRequestConfig):
     throw lastError;
 }
 
+/** The API caps `limit` at 50, so `/classes` must be paged to enumerate them all. */
+const CLASSES_PAGE_SIZE = 50;
+
+/**
+ * Fetches every class in the workspace, paging past the API's small default page
+ * size. Without paging, once the full runtime is deployed the class count exceeds
+ * one page and later classes (e.g. W_Variables) fall off it — the deploy guard
+ * would then wrongly report them as missing and abort.
+ */
+async function listAllClasses(base: string, headers: Record<string, string>): Promise<WorkspaceClass[]> {
+    const classes: WorkspaceClass[] = [];
+    for (let offset = 0; ; offset += CLASSES_PAGE_SIZE) {
+        const page = await axios.get<{ results?: WorkspaceClass[] } | WorkspaceClass[]>(`${base}/classes`, {
+            headers,
+            params: { limit: CLASSES_PAGE_SIZE, offset },
+            timeout: REQUEST_TIMEOUT_MS,
+            validateStatus: () => true,
+        });
+        if (page.status >= 300) throw new Error(`GET /classes failed (${page.status})`);
+        const batch = Array.isArray(page.data) ? page.data : (page.data.results ?? []);
+        classes.push(...batch);
+        if (batch.length < CLASSES_PAGE_SIZE) break;
+    }
+    return classes;
+}
+
 /**
  * Deploys the RPO artifacts (polyfills + W_Variables with the given variables +
  * the bundled W_HabllaClient) to the workspace and publishes. The variables are
@@ -119,13 +145,7 @@ export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions = {
     const base = `${baseUrl}/v1/workspaces/${vars.workspaceId}`;
     const headers = { Authorization: `Bearer ${token}` };
 
-    const list = await axios.get<{ results?: WorkspaceClass[] } | WorkspaceClass[]>(`${base}/classes`, {
-        headers,
-        timeout: REQUEST_TIMEOUT_MS,
-        validateStatus: () => true,
-    });
-    if (list.status >= 300) throw new Error(`GET /classes failed (${list.status})`);
-    const classes = Array.isArray(list.data) ? list.data : (list.data.results ?? []);
+    const classes = await listAllClasses(base, headers);
     if (classes.length === 0) throw new Error('GET /classes returned no classes — refusing to deploy against an empty workspace');
     const byName = new Map(classes.map((c) => [c.name, c]));
 

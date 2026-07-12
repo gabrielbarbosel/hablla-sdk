@@ -8,6 +8,12 @@ declare const PropertiesService: {
     getScriptProperties(): { getProperty(key: string): string | null };
 };
 declare const Utilities: { sleep(ms: number): void };
+declare const UrlFetchApp: {
+    fetchAll(requests: Array<Record<string, unknown>>): Array<{ getResponseCode(): number; getContentText(): string }>;
+};
+
+/** Teto de requests por lote no `fetchAll` (igual ao antigo apiGetAll_ hand-rolled). */
+const FETCH_ALL_BATCH = 100;
 
 /**
  * Teto do `setTimeout` polifilado. NÃO existe para encurtar o backoff — só para
@@ -78,6 +84,66 @@ export function runSync<T>(call: () => PromiseLike<T>): T {
     }
 }
 
+/**
+ * GET em lote PARALELO via `UrlFetchApp.fetchAll`, autenticado pelo token que o
+ * próprio SDK gerencia (`client.auth.token()` — força refresh quando preciso).
+ *
+ * Existe porque o {@link UrlFetchTransport} é síncrono e SERIAL: uma varredura de
+ * dezenas de recursos (ex.: tracking de campanha grande — flows-executions/persons)
+ * estouraria o limite de 6min do GAS se feita 1-a-1. Este é o único ponto de
+ * paralelismo; o resto do app usa `runSync(() => hablla.x.y())` normalmente.
+ *
+ * `paths` podem conter o placeholder `{ws}` (trocado pelo workspaceId). Retorna um
+ * array ALINHADO a `paths` com o JSON parseado, ou `null` em erro/non-2xx (mesmo
+ * contrato do antigo apiGetAll_). Uso no Code.gs: `Hablla.getAll(paths)`.
+ */
+function makeGetAll(client: HabllaClient, base: string, workspaceId: string): (paths: string[]) => unknown[] {
+    return function getAll(paths: string[]): unknown[] {
+        const out: unknown[] = new Array(paths.length).fill(null);
+        if (paths.length === 0) return out;
+
+        // Token via SDK: resolve inline sob o Promise síncrono do docker, depois restaura.
+        const g = globalThis as unknown as GasGlobal;
+        const nativePromise = g.Promise;
+        const nativeSetTimeout = g.setTimeout;
+        g.Promise = SyncPromise;
+        g.setTimeout = gasSetTimeout;
+        let token: string;
+        try {
+            token = unwrap(client.auth.token());
+        } finally {
+            g.Promise = nativePromise;
+            g.setTimeout = nativeSetTimeout;
+        }
+        const authorization = 'Bearer ' + token;
+
+        for (let offset = 0; offset < paths.length; offset += FETCH_ALL_BATCH) {
+            const slice = paths.slice(offset, offset + FETCH_ALL_BATCH);
+            const requests = slice.map((path) => ({
+                url: base + path.replace('{ws}', workspaceId),
+                method: 'get',
+                headers: { Authorization: authorization },
+                muteHttpExceptions: true,
+            }));
+            let responses: Array<{ getResponseCode(): number; getContentText(): string }>;
+            try {
+                responses = UrlFetchApp.fetchAll(requests);
+            } catch {
+                continue; // lote inteiro falhou → mantém null alinhado
+            }
+            for (let i = 0; i < responses.length; i++) {
+                const response = responses[i];
+                if (!response) continue;
+                const status = response.getResponseCode();
+                if (status >= 200 && status < 300) {
+                    try { out[offset + i] = JSON.parse(response.getContentText()); } catch { /* mantém null */ }
+                }
+            }
+        }
+        return out;
+    };
+}
+
 /** Instancia o client GAS (UrlFetchApp + cache em Script Properties) e expõe os globais. */
 export function installHabllaClient(): HabllaClient {
     const vars = readVariables();
@@ -88,7 +154,7 @@ export function installHabllaClient(): HabllaClient {
     });
     const g = globalThis as unknown as GasGlobal;
     g.hablla = client;
-    g.Hablla = { client, runSync, unwrap };
+    g.Hablla = { client, runSync, unwrap, getAll: makeGetAll(client, vars.baseUrl ?? 'https://api.hablla.com', vars.workspaceId) };
     return client;
 }
 
