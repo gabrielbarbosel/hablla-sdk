@@ -7477,7 +7477,10 @@
     }
   }
   function makeGetAll(client, base, workspaceId) {
+    const auth = client.auth;
+    const keyOf = (rawPath) => "GET:" + rawPath.split("?")[0].replace("{ws}", "{workspace_id}").replace(/\/[0-9a-fA-F]{24}(?=\/|$)/g, "/{id}");
     return function getAll(paths) {
+      var _a;
       const out = new Array(paths.length).fill(null);
       if (paths.length === 0) return out;
       const g = globalThis;
@@ -7485,39 +7488,87 @@
       const nativeSetTimeout = g.setTimeout;
       g.Promise = SyncPromise;
       g.setTimeout = gasSetTimeout;
-      let token;
+      const wsHeader = String((_a = unwrap(auth.authorization("workspace"))) != null ? _a : "");
+      let bearerHeader = null;
+      const headerFor = (strategy) => {
+        if (strategy === "workspace" && wsHeader) return wsHeader;
+        if (bearerHeader == null) bearerHeader = String(unwrap(auth.authorization("bearer")));
+        return bearerHeader;
+      };
+      const strategyFor = [];
       try {
-        token = unwrap(client.auth.token());
+        for (let i = 0; i < paths.length; i++) {
+          strategyFor[i] = wsHeader ? unwrap(auth.resolveStrategy(keyOf(paths[i]))) : "bearer";
+        }
       } finally {
         g.Promise = nativePromise;
         g.setTimeout = nativeSetTimeout;
       }
-      const authorization = "Bearer " + token;
-      for (let offset = 0; offset < paths.length; offset += FETCH_ALL_BATCH) {
-        const slice = paths.slice(offset, offset + FETCH_ALL_BATCH);
-        const requests = slice.map((path) => ({
-          url: base + path.replace("{ws}", workspaceId),
-          method: "get",
-          headers: { Authorization: authorization },
-          muteHttpExceptions: true
-        }));
-        let responses;
-        try {
-          responses = UrlFetchApp.fetchAll(requests);
-        } catch (e) {
-          continue;
-        }
-        for (let i = 0; i < responses.length; i++) {
-          const response = responses[i];
-          if (!response) continue;
-          const status = response.getResponseCode();
-          if (status >= 200 && status < 300) {
+      const winner = new Array(paths.length).fill(null);
+      for (let start = 0; start < paths.length; start += FETCH_ALL_BATCH) {
+        const end = Math.min(start + FETCH_ALL_BATCH, paths.length);
+        let pending = [];
+        for (let i = start; i < end; i++) pending.push({ i, strategy: strategyFor[i], flipped: false });
+        for (let attempt = 0; attempt < 4 && pending.length; attempt++) {
+          if (attempt > 0) {
             try {
-              out[offset + i] = JSON.parse(response.getContentText());
+              Utilities.sleep(500 * attempt);
             } catch (e) {
             }
           }
+          const requests = pending.map((p) => ({
+            url: base + paths[p.i].replace("{ws}", workspaceId),
+            method: "get",
+            headers: { Authorization: headerFor(p.strategy) },
+            muteHttpExceptions: true
+          }));
+          let responses;
+          try {
+            responses = UrlFetchApp.fetchAll(requests);
+          } catch (e) {
+            responses = [];
+          }
+          const next = [];
+          for (let k = 0; k < pending.length; k++) {
+            const p = pending[k];
+            const response = responses[k];
+            if (!response) {
+              next.push(p);
+              continue;
+            }
+            const status = response.getResponseCode();
+            if (status >= 200 && status < 300) {
+              try {
+                out[p.i] = JSON.parse(response.getContentText());
+              } catch (e) {
+              }
+              winner[p.i] = p.strategy;
+              continue;
+            }
+            if ((status === 401 || status === 403) && !p.flipped && wsHeader) {
+              p.strategy = p.strategy === "workspace" ? "bearer" : "workspace";
+              p.flipped = true;
+              next.push(p);
+              continue;
+            }
+            if (status === 429 || status === 503) {
+              next.push(p);
+              continue;
+            }
+          }
+          pending = next;
         }
+      }
+      g.Promise = SyncPromise;
+      g.setTimeout = gasSetTimeout;
+      try {
+        for (let i = 0; i < paths.length; i++) {
+          const strategy = winner[i];
+          if (strategy) unwrap(auth.recordStrategy(keyOf(paths[i]), strategy));
+        }
+      } finally {
+        g.Promise = nativePromise;
+        g.setTimeout = nativeSetTimeout;
       }
       return out;
     };

@@ -1,5 +1,6 @@
 import { HabllaClient } from '../../sdk/client';
 import type { HabllaVariables } from '../../sdk/variables';
+import type { AuthStrategy } from '../../sdk/core/strategy';
 import { UrlFetchTransport } from './transport';
 import { PropertiesStrategyCache } from './properties-strategy-cache';
 import { SyncPromise, unwrap, drainUnhandledRejections } from './sync-promise';
@@ -85,61 +86,116 @@ export function runSync<T>(call: () => PromiseLike<T>): T {
 }
 
 /**
- * GET em lote PARALELO via `UrlFetchApp.fetchAll`, autenticado pelo token que o
- * próprio SDK gerencia (`client.auth.token()` — força refresh quando preciso).
+ * GET em lote PARALELO via `UrlFetchApp.fetchAll`, resolvendo a auth POR ENDPOINT
+ * pelo MESMO strategy cache do caminho single-call (workspace-first → bearer no
+ * fallback → grava o que funcionou). Antes cravava `Bearer` em tudo, o que jogava
+ * TODAS as leituras pesadas no token bearer (o mesmo que o motor de disparo usa) e
+ * ignorava o limite MUITO maior do workspace token. Agora cada endpoint usa o token
+ * certo e aprende sozinho — um seed errado se auto-corrige no 401/403.
  *
  * Existe porque o {@link UrlFetchTransport} é síncrono e SERIAL: uma varredura de
- * dezenas de recursos (ex.: tracking de campanha grande — flows-executions/persons)
- * estouraria o limite de 6min do GAS se feita 1-a-1. Este é o único ponto de
- * paralelismo; o resto do app usa `runSync(() => hablla.x.y())` normalmente.
+ * dezenas de recursos (ex.: tracking de campanha grande) estouraria o limite de 6min
+ * do GAS se feita 1-a-1. Este é o único ponto de paralelismo; o resto usa runSync.
  *
- * `paths` podem conter o placeholder `{ws}` (trocado pelo workspaceId). Retorna um
- * array ALINHADO a `paths` com o JSON parseado, ou `null` em erro/non-2xx (mesmo
- * contrato do antigo apiGetAll_). Uso no Code.gs: `Hablla.getAll(paths)`.
+ * `paths` podem conter o placeholder `{ws}`. Retorna um array ALINHADO a `paths` com
+ * o JSON parseado, ou `null` em erro/non-2xx. Uso no Code.gs: `Hablla.getAll(paths)`.
  */
 function makeGetAll(client: HabllaClient, base: string, workspaceId: string): (paths: string[]) => unknown[] {
+    const auth = client.auth;
+
+    // Normaliza o path pro MESMO espaço de chave do http-client (`${method}:${rawPath}`):
+    // tira a query, volta `{ws}`→`{workspace_id}` e colapsa ids (24-hex) em placeholder.
+    const keyOf = (rawPath: string): string =>
+        'GET:' + rawPath.split('?')[0]!
+            .replace('{ws}', '{workspace_id}')
+            .replace(/\/[0-9a-fA-F]{24}(?=\/|$)/g, '/{id}');
+
     return function getAll(paths: string[]): unknown[] {
         const out: unknown[] = new Array(paths.length).fill(null);
         if (paths.length === 0) return out;
 
-        // Token via SDK: resolve inline sob o Promise síncrono do docker, depois restaura.
         const g = globalThis as unknown as GasGlobal;
         const nativePromise = g.Promise;
         const nativeSetTimeout = g.setTimeout;
+
+        // Fase 1 — resolve headers + strategy por path sob o Promise síncrono do docker.
         g.Promise = SyncPromise;
         g.setTimeout = gasSetTimeout;
-        let token: string;
+        const wsHeader = String(unwrap(auth.authorization('workspace')) ?? '');
+        let bearerHeader: string | null = null; // lazy: só resolve (e refresca) o bearer se precisar
+        const headerFor = (strategy: AuthStrategy): string => {
+            if (strategy === 'workspace' && wsHeader) return wsHeader;
+            if (bearerHeader == null) bearerHeader = String(unwrap(auth.authorization('bearer')));
+            return bearerHeader;
+        };
+        const strategyFor: AuthStrategy[] = [];
         try {
-            token = unwrap(client.auth.token());
+            for (let i = 0; i < paths.length; i++) {
+                // sem workspace token configurado → nem tenta workspace (evita um 401 à toa).
+                strategyFor[i] = wsHeader ? unwrap(auth.resolveStrategy(keyOf(paths[i]!))) : 'bearer';
+            }
         } finally {
             g.Promise = nativePromise;
             g.setTimeout = nativeSetTimeout;
         }
-        const authorization = 'Bearer ' + token;
 
-        for (let offset = 0; offset < paths.length; offset += FETCH_ALL_BATCH) {
-            const slice = paths.slice(offset, offset + FETCH_ALL_BATCH);
-            const requests = slice.map((path) => ({
-                url: base + path.replace('{ws}', workspaceId),
-                method: 'get',
-                headers: { Authorization: authorization },
-                muteHttpExceptions: true,
-            }));
-            let responses: Array<{ getResponseCode(): number; getContentText(): string }>;
-            try {
-                responses = UrlFetchApp.fetchAll(requests);
-            } catch {
-                continue; // lote inteiro falhou → mantém null alinhado
-            }
-            for (let i = 0; i < responses.length; i++) {
-                const response = responses[i];
-                if (!response) continue;
-                const status = response.getResponseCode();
-                if (status >= 200 && status < 300) {
-                    try { out[offset + i] = JSON.parse(response.getContentText()); } catch { /* mantém null */ }
+        // Fase 2 — fetch em lote com fallback de auth (401/403, vira 1x) e backoff (429/503).
+        const winner: Array<AuthStrategy | null> = new Array(paths.length).fill(null);
+        for (let start = 0; start < paths.length; start += FETCH_ALL_BATCH) {
+            const end = Math.min(start + FETCH_ALL_BATCH, paths.length);
+            let pending: Array<{ i: number; strategy: AuthStrategy; flipped: boolean }> = [];
+            for (let i = start; i < end; i++) pending.push({ i, strategy: strategyFor[i]!, flipped: false });
+
+            for (let attempt = 0; attempt < 4 && pending.length; attempt++) {
+                if (attempt > 0) { try { Utilities.sleep(500 * attempt); } catch { /* ok */ } }
+                const requests = pending.map((p) => ({
+                    url: base + paths[p.i]!.replace('{ws}', workspaceId),
+                    method: 'get',
+                    headers: { Authorization: headerFor(p.strategy) },
+                    muteHttpExceptions: true,
+                }));
+                let responses: Array<{ getResponseCode(): number; getContentText(): string }>;
+                try { responses = UrlFetchApp.fetchAll(requests); } catch { responses = []; }
+
+                const next: typeof pending = [];
+                for (let k = 0; k < pending.length; k++) {
+                    const p = pending[k]!;
+                    const response = responses[k];
+                    if (!response) { next.push(p); continue; }
+                    const status = response.getResponseCode();
+                    if (status >= 200 && status < 300) {
+                        try { out[p.i] = JSON.parse(response.getContentText()); } catch { /* mantém null */ }
+                        winner[p.i] = p.strategy;
+                        continue;
+                    }
+                    if ((status === 401 || status === 403) && !p.flipped && wsHeader) {
+                        // auth rejeitada: vira pro alternate UMA vez (auto-corrige o seed).
+                        p.strategy = p.strategy === 'workspace' ? 'bearer' : 'workspace';
+                        p.flipped = true;
+                        next.push(p);
+                        continue;
+                    }
+                    if (status === 429 || status === 503) { next.push(p); continue; } // throttle → re-tenta
+                    // outro erro (404/400/5xx não-transiente): desiste, out[p.i] fica null.
                 }
+                pending = next;
             }
         }
+
+        // Fase 3 — grava as strategies vencedoras (recordStrategy dedupa por chave e só
+        // persiste em mudança, então uma vez estável isto vira no-op).
+        g.Promise = SyncPromise;
+        g.setTimeout = gasSetTimeout;
+        try {
+            for (let i = 0; i < paths.length; i++) {
+                const strategy = winner[i];
+                if (strategy) unwrap(auth.recordStrategy(keyOf(paths[i]!), strategy));
+            }
+        } finally {
+            g.Promise = nativePromise;
+            g.setTimeout = nativeSetTimeout;
+        }
+
         return out;
     };
 }
