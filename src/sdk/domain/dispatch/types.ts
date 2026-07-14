@@ -84,6 +84,13 @@ export interface DispatchResult {
     status: DispatchStatus;
     phone?: string;
     person?: string;
+    /**
+     * Id of the outbound attendance this dispatch settled (or the open one it hit). This is
+     * the durable dispatch→attendance link: the caller can persist it so traceability is an
+     * exact id join instead of a phone+time-window reconstruction. Absent when no service
+     * was created/found (e.g. `sem_cadastro`, `telefone_invalido`).
+     */
+    service?: string;
     assessor?: string;
     detail?: string;
     created?: boolean;

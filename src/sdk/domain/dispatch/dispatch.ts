@@ -61,7 +61,7 @@ export class Dispatch {
                     }
                     closedExisting = true;
                 } else {
-                    return { status: 'em_atendimento', person: person.id, assessor: advisor?.name };
+                    return { status: 'em_atendimento', person: person.id, service: open[0]?.id, assessor: advisor?.name };
                 }
             }
         }
@@ -86,9 +86,9 @@ export class Dispatch {
                 }
             }
 
-            await this.settleAttendance(person.id, spec, advisor?.id);
+            const service = await this.settleAttendance(person.id, spec, advisor?.id);
 
-            return { status: created ? 'criado_enviado' : closedExisting ? 'atendimento_encerrado_enviado' : 'enviado', person: person.id, assessor: advisor?.name, created };
+            return { status: created ? 'criado_enviado' : closedExisting ? 'atendimento_encerrado_enviado' : 'enviado', person: person.id, service, assessor: advisor?.name, created };
         } catch (error: any) {
             if (error && (error.status === 409 || /\b(?:136|409)\b/.test(String(error.message)))) {
                 return { status: 'em_atendimento', person: person.id, assessor: advisor?.name };
@@ -153,17 +153,23 @@ export class Dispatch {
         });
     }
 
-    /** Assigns the just-sent attendance to the advisor and finishes it (silent, with reason). */
-    private async settleAttendance(personId: string, spec: DispatchSpec, advisorId: string | undefined): Promise<void> {
+    /**
+     * Assigns the just-sent attendance to the advisor and finishes it (silent, with reason).
+     * Returns the settled service id — the durable dispatch→attendance link — so the caller
+     * can record it (exact traceability). Undefined when no attendance was found.
+     */
+    private async settleAttendance(personId: string, spec: DispatchSpec, advisorId: string | undefined): Promise<string | undefined> {
         try {
             const { results } = await this.client.services.listServices({ query: { limit: 5, connection: spec.connectionId, person: personId, status: 'in_attendance', order: 'created_at', direction_order: 'desc' } });
             const service = (results ?? [])[0];
-            if (!service) return;
+            if (!service) return undefined;
             if (advisorId) {
                 try { await this.client.services.putTransfer(service.id, { user: advisorId, sector: spec.sectorId }); } catch (error) { }
             }
             await this.client.services.patchAction(service.id, { status: 'finished', reason: spec.finishReasonId });
+            return service.id;
         } catch (error) {
+            return undefined;
         }
     }
 
