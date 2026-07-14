@@ -118,18 +118,18 @@ function makeGetAll(client: HabllaClient, base: string, workspaceId: string): (p
         const nativePromise = g.Promise;
         const nativeSetTimeout = g.setTimeout;
 
-        // Fase 1 — resolve headers + strategy por path sob o Promise síncrono do docker.
+        // Fase 1 — resolve os DOIS headers + a strategy por path, TUDO aqui sob o Promise
+        // síncrono. Bearer tem que ser resolvido AGORA (não lazy dentro do fetch): a fase 2
+        // roda com o Promise nativo restaurado, e um unwrap() ali estoura ("não resolveu de
+        // forma síncrona"). O token fica em cache na instância, então resolver eager é barato.
         g.Promise = SyncPromise;
         g.setTimeout = gasSetTimeout;
-        const wsHeader = String(unwrap(auth.authorization('workspace')) ?? '');
-        let bearerHeader: string | null = null; // lazy: só resolve (e refresca) o bearer se precisar
-        const headerFor = (strategy: AuthStrategy): string => {
-            if (strategy === 'workspace' && wsHeader) return wsHeader;
-            if (bearerHeader == null) bearerHeader = String(unwrap(auth.authorization('bearer')));
-            return bearerHeader;
-        };
+        let wsHeader = '';
+        let bearerHeader = '';
         const strategyFor: AuthStrategy[] = [];
         try {
+            wsHeader = String(unwrap(auth.authorization('workspace')) ?? '');
+            bearerHeader = String(unwrap(auth.authorization('bearer')));
             for (let i = 0; i < paths.length; i++) {
                 // sem workspace token configurado → nem tenta workspace (evita um 401 à toa).
                 strategyFor[i] = wsHeader ? unwrap(auth.resolveStrategy(keyOf(paths[i]!))) : 'bearer';
@@ -138,6 +138,8 @@ function makeGetAll(client: HabllaClient, base: string, workspaceId: string): (p
             g.Promise = nativePromise;
             g.setTimeout = nativeSetTimeout;
         }
+        const headerFor = (strategy: AuthStrategy): string =>
+            (strategy === 'workspace' && wsHeader) ? wsHeader : bearerHeader;
 
         // Fase 2 — fetch em lote com fallback de auth (401/403, vira 1x) e backoff (429/503).
         const winner: Array<AuthStrategy | null> = new Array(paths.length).fill(null);

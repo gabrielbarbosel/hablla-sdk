@@ -7488,15 +7488,12 @@
       const nativeSetTimeout = g.setTimeout;
       g.Promise = SyncPromise;
       g.setTimeout = gasSetTimeout;
-      const wsHeader = String((_a = unwrap(auth.authorization("workspace"))) != null ? _a : "");
-      let bearerHeader = null;
-      const headerFor = (strategy) => {
-        if (strategy === "workspace" && wsHeader) return wsHeader;
-        if (bearerHeader == null) bearerHeader = String(unwrap(auth.authorization("bearer")));
-        return bearerHeader;
-      };
+      let wsHeader = "";
+      let bearerHeader = "";
       const strategyFor = [];
       try {
+        wsHeader = String((_a = unwrap(auth.authorization("workspace"))) != null ? _a : "");
+        bearerHeader = String(unwrap(auth.authorization("bearer")));
         for (let i = 0; i < paths.length; i++) {
           strategyFor[i] = wsHeader ? unwrap(auth.resolveStrategy(keyOf(paths[i]))) : "bearer";
         }
@@ -7504,6 +7501,7 @@
         g.Promise = nativePromise;
         g.setTimeout = nativeSetTimeout;
       }
+      const headerFor = (strategy) => strategy === "workspace" && wsHeader ? wsHeader : bearerHeader;
       const winner = new Array(paths.length).fill(null);
       for (let start = 0; start < paths.length; start += FETCH_ALL_BATCH) {
         const end = Math.min(start + FETCH_ALL_BATCH, paths.length);
