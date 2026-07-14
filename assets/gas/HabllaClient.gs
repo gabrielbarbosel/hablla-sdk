@@ -7545,13 +7545,13 @@
               winner[p.i] = p.strategy;
               continue;
             }
-            if ((status === 401 || status === 403) && !p.flipped && wsHeader) {
-              p.strategy = p.strategy === "workspace" ? "bearer" : "workspace";
-              p.flipped = true;
+            if (status === 429 || status === 503) {
               next.push(p);
               continue;
             }
-            if (status === 429 || status === 503) {
+            if (!p.flipped && wsHeader) {
+              p.strategy = p.strategy === "workspace" ? "bearer" : "workspace";
+              p.flipped = true;
               next.push(p);
               continue;
             }

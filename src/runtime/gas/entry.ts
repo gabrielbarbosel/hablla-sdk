@@ -168,15 +168,18 @@ function makeGetAll(client: HabllaClient, base: string, workspaceId: string): (p
                         winner[p.i] = p.strategy;
                         continue;
                     }
-                    if ((status === 401 || status === 403) && !p.flipped && wsHeader) {
-                        // auth rejeitada: vira pro alternate UMA vez (auto-corrige o seed).
+                    if (status === 429 || status === 503) { next.push(p); continue; } // throttle → re-tenta mesma
+                    // QUALQUER outra falha (401/403/400/404/5xx): tenta o outro token UMA vez.
+                    // Espelha o fallback do single-call — endpoints bearer-only (ex.: tracking)
+                    // não dão 401 limpo no workspace, então flipar só em 401/403 os deixava vazios.
+                    // GET é idempotente, então retentar é seguro.
+                    if (!p.flipped && wsHeader) {
                         p.strategy = p.strategy === 'workspace' ? 'bearer' : 'workspace';
                         p.flipped = true;
                         next.push(p);
                         continue;
                     }
-                    if (status === 429 || status === 503) { next.push(p); continue; } // throttle → re-tenta
-                    // outro erro (404/400/5xx não-transiente): desiste, out[p.i] fica null.
+                    // já tentou os dois (ou não há workspace token): desiste, out[p.i] fica null.
                 }
                 pending = next;
             }
