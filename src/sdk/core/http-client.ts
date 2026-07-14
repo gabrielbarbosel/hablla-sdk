@@ -1,4 +1,4 @@
-import type { HttpTransport, HttpResponse, Paged } from './types';
+import type { HttpTransport, HttpResponse, Paged, RetryPolicy } from './types';
 import { isMultipart } from './types';
 import type { HabllaAuth } from './auth';
 import type { AuthStrategy } from './strategy';
@@ -36,6 +36,8 @@ export interface HttpClientConfig {
     baseUrl: string;
     /** When true, keeps a call trace and enriches errors with request context. */
     debug?: boolean;
+    /** Transient-retry tuning. Defaults: 6 attempts, 20s backoff cap. */
+    retry?: RetryPolicy;
 }
 
 /** True for transport errors with no HTTP status (timeout, reset, socket hang up). */
@@ -53,6 +55,8 @@ function isNetworkError(err: any): boolean {
  */
 export class HabllaHttpClient {
     private readonly debug: boolean;
+    private readonly maxAttempts: number;
+    private readonly maxBackoffMs: number;
 
     constructor(
         private readonly transport: HttpTransport,
@@ -60,6 +64,8 @@ export class HabllaHttpClient {
         private readonly config: HttpClientConfig,
     ) {
         this.debug = config.debug ?? false;
+        this.maxAttempts = config.retry?.maxAttempts ?? 6;
+        this.maxBackoffMs = config.retry?.maxBackoffMs ?? 20_000;
     }
 
     /** Appends to the runtime-global debug trace (ring buffer). No-op unless debug. */
@@ -120,8 +126,8 @@ export class HabllaHttpClient {
             } catch (err: any) {
                 const status = err?.status ?? err?.response?.status;
                 const transient = status === 429 || (idempotent && ((status != null && status >= 500) || isNetworkError(err)));
-                if (transient && attemptNum < 6) {
-                    await sleep(Math.min(1000 * Math.pow(2, attemptNum), 20000) + (Date.now() % 400));
+                if (transient && attemptNum < this.maxAttempts - 1) {
+                    await sleep(Math.min(1000 * Math.pow(2, attemptNum), this.maxBackoffMs) + (Date.now() % 400));
                     continue;
                 }
                 throw err;

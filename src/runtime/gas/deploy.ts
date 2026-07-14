@@ -5,6 +5,15 @@ import type { HabllaVariables } from '../../sdk/variables';
 
 const ASSETS = path.join(__dirname, '..', '..', '..', 'assets', 'gas');
 
+/** SDK version, stamped into the deployed Variables so the live env self-identifies. */
+function sdkVersion(): string {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8')).version ?? '0.0.0';
+    } catch {
+        return '0.0.0';
+    }
+}
+
 /** Apps Script REST API — projects.getContent / projects.updateContent. */
 const SCRIPT_API = 'https://script.googleapis.com/v1/projects';
 
@@ -82,6 +91,11 @@ function variablesSource(vars: HabllaVariables): string {
             firebaseApiKey: vars.firebaseApiKey,
             baseUrl: vars.baseUrl ?? 'https://api.hablla.com',
             debug: vars.debug ?? false,
+            sdkVersion: sdkVersion(),
+            // Warm-token slots (parity with RPO). GAS is single-threaded so there is no
+            // herd here, but a refresher may still seed these to skip the refresh call.
+            accessToken: vars.accessToken ?? '',
+            accessTokenExp: vars.accessTokenExp ?? 0,
         },
         null,
         8,

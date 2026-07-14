@@ -15,6 +15,12 @@ class W_Variables {
             firebaseApiKey: "",
             baseUrl: "https://api.hablla.com",
             debug: false,
+            // Token quente (opcional): quando um refresher preenche estes campos, o
+            // W_HabllaClient (auth.syncFromGlobal) usa o token pronto e NÃO chama o
+            // Firebase — evita o refresh em massa dos isolates no arranque. Vazio =
+            // cada isolate renova sozinho (comportamento anterior, sujeito a herd).
+            accessToken: "",
+            accessTokenExp: 0,
         };
         return { ok: true };
     }

@@ -47,6 +47,19 @@ export interface HttpTransport {
     send<T = unknown>(req: HttpRequest): Promise<HttpResponse<T>>;
 }
 
+/**
+ * Transient-failure retry knobs, tuned per runtime. The Node/GAS defaults are
+ * generous (a 6-min GAS budget can absorb long backoffs); the RPO isolate has a
+ * short wall-clock limit, so its runtime passes a small cap — a slow backoff there
+ * would blow the isolate timeout instead of failing fast with a clean status.
+ */
+export interface RetryPolicy {
+    /** Total attempts before giving up (auth refresh and HTTP transient retries). */
+    maxAttempts?: number;
+    /** Cap for a single exponential backoff sleep, in ms. */
+    maxBackoffMs?: number;
+}
+
 /** Standard Hablla paginated payload. */
 export interface Paged<T> {
     results: T[];

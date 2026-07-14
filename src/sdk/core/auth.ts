@@ -1,4 +1,4 @@
-import type { HttpTransport } from './types';
+import type { HttpTransport, RetryPolicy } from './types';
 import type { AuthStrategy, StrategyCache } from './strategy';
 import { MemoryStrategyCache } from './strategy';
 
@@ -7,6 +7,8 @@ export interface AuthConfig {
     refreshToken: string;
     firebaseApiKey: string;
     baseUrl: string;
+    /** Firebase-refresh retry tuning. Defaults: 6 attempts, 8s backoff cap. */
+    retry?: RetryPolicy;
 }
 
 interface FirebaseTokenResponse {
@@ -28,12 +30,17 @@ export class HabllaAuth {
     private pending: Promise<string> | null = null;
     private strategies: Record<string, AuthStrategy> = {};
     private loaded = false;
+    private readonly maxAttempts: number;
+    private readonly maxBackoffMs: number;
 
     constructor(
         private readonly transport: HttpTransport,
         private readonly config: AuthConfig,
         private cache: StrategyCache = new MemoryStrategyCache(),
-    ) {}
+    ) {
+        this.maxAttempts = config.retry?.maxAttempts ?? 6;
+        this.maxBackoffMs = config.retry?.maxBackoffMs ?? 8_000;
+    }
 
     /** Replaces the strategy cache (e.g. with a durable runtime implementation). */
     useCache(cache: StrategyCache): void {
@@ -112,8 +119,8 @@ export class HabllaAuth {
             try {
                 return await this.refreshOnce();
             } catch (err) {
-                if (attempt >= 5) throw err;
-                const backoff = Math.min(500 * 2 ** attempt, 8_000) + (Date.now() % 250);
+                if (attempt >= this.maxAttempts - 1) throw err;
+                const backoff = Math.min(500 * 2 ** attempt, this.maxBackoffMs) + (Date.now() % 250);
                 await new Promise(resolve => setTimeout(resolve, backoff));
             }
         }

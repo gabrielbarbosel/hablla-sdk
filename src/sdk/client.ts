@@ -1,4 +1,4 @@
-import type { HttpTransport } from './core/types';
+import type { HttpTransport, RetryPolicy } from './core/types';
 import type { StrategyCache } from './core/strategy';
 import type { HabllaVariables } from './variables';
 import { HabllaAuth } from './core/auth';
@@ -112,6 +112,8 @@ export interface HabllaClientConfig extends HabllaVariables {
     transport: HttpTransport;
     /** Durable store for the per-endpoint auth strategy map. Defaults to in-memory. */
     strategyCache?: StrategyCache;
+    /** Transient-retry tuning. The RPO runtime passes a short cap (see runtime/rpo). */
+    retry?: RetryPolicy;
 }
 
 /** Hablla API client, runtime-agnostic. Resources generated from openapi.json. */
@@ -227,10 +229,10 @@ export class HabllaClient {
         const baseUrl = config.baseUrl ?? 'https://api.hablla.com';
         this.auth = new HabllaAuth(
             config.transport,
-            { workspaceToken: config.workspaceToken ?? '', refreshToken: config.refreshToken, firebaseApiKey: config.firebaseApiKey, baseUrl },
+            { workspaceToken: config.workspaceToken ?? '', refreshToken: config.refreshToken, firebaseApiKey: config.firebaseApiKey, baseUrl, retry: config.retry },
             config.strategyCache,
         );
-        this.http = new HabllaHttpClient(config.transport, this.auth, { workspaceId: config.workspaceId, baseUrl, debug: config.debug });
+        this.http = new HabllaHttpClient(config.transport, this.auth, { workspaceId: config.workspaceId, baseUrl, debug: config.debug, retry: config.retry });
         this.acceptInvite = new AcceptInvite(this.http);
         this.annotations = new Annotations(this.http);
         this.asaas = new Asaas(this.http);

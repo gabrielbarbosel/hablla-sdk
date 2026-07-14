@@ -27,6 +27,10 @@ export function installHabllaClient(): HabllaClient {
         debug: env.debug,
         transport: new HostTransport(),
         strategyCache: new GlobalStrategyCache(),
+        // O isolate tem teto de tempo curto: um backoff longo (refresh 8s / 429 20s,
+        // 6x) estoura o `Execution timeout`. Com o token quente do W_Variables o
+        // refresh raramente roda; se rodar, falha rápido com status em vez de travar.
+        retry: { maxAttempts: 2, maxBackoffMs: 1500 },
     });
     g.hablla = client;
     return client;

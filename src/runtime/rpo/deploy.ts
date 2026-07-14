@@ -5,6 +5,15 @@ import type { HabllaVariables } from '../../sdk/variables';
 
 const ASSETS = path.join(__dirname, '..', '..', '..', 'assets', 'rpo');
 
+/** SDK version, stamped into the deployed W_Variables so the live env self-identifies. */
+function sdkVersion(): string {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8')).version ?? '0.0.0';
+    } catch {
+        return '0.0.0';
+    }
+}
+
 /** Wall-clock ceiling for every deploy HTTP call, so a hung request can never stall the deploy. */
 const REQUEST_TIMEOUT_MS = 30000;
 
@@ -59,6 +68,12 @@ function jsCode(name: string, vars: HabllaVariables): string {
                 firebaseApiKey: vars.firebaseApiKey,
                 baseUrl: vars.baseUrl ?? 'https://api.hablla.com',
                 debug: vars.debug ?? false,
+                sdkVersion: sdkVersion(),
+                // Warm token: seeded with the bearer this very deploy just minted, so the
+                // isolates start authenticated and skip the cold Firebase refresh herd.
+                // The 30-min refresher keeps these fields fresh afterwards.
+                accessToken: vars.accessToken ?? '',
+                accessTokenExp: vars.accessTokenExp ?? 0,
             },
             null,
             8,
@@ -72,16 +87,16 @@ function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function firebaseBearer(vars: HabllaVariables): Promise<string> {
+async function firebaseBearer(vars: HabllaVariables): Promise<{ token: string; expiresAt: number }> {
     const key = encodeURIComponent(vars.firebaseApiKey);
     const body = `grant_type=refresh_token&refresh_token=${encodeURIComponent(vars.refreshToken)}`;
-    const res = await axios.post<{ access_token: string }>(`https://securetoken.googleapis.com/v1/token?key=${key}`, body, {
+    const res = await axios.post<{ access_token: string; expires_in?: string }>(`https://securetoken.googleapis.com/v1/token?key=${key}`, body, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: REQUEST_TIMEOUT_MS,
         validateStatus: () => true,
     });
     if (res.status >= 300) throw new Error(`Firebase refresh failed (${res.status})`);
-    return res.data.access_token;
+    return { token: res.data.access_token, expiresAt: Date.now() + Number(res.data.expires_in ?? 3600) * 1000 };
 }
 
 /**
@@ -141,9 +156,11 @@ export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions = {
     const plan: DeployItem[] = CLASS_ORDER.map((name) => ({ name, bytes: jsCode(name, vars).length }));
     if (opts.dryRun) return plan;
 
-    const token = await firebaseBearer(vars);
+    const { token, expiresAt } = await firebaseBearer(vars);
     const base = `${baseUrl}/v1/workspaces/${vars.workspaceId}`;
     const headers = { Authorization: `Bearer ${token}` };
+    // Seed W_Variables with this fresh bearer so the isolates come up warm (no herd).
+    const warmVars: HabllaVariables = { ...vars, accessToken: token, accessTokenExp: expiresAt };
 
     const classes = await listAllClasses(base, headers);
     if (classes.length === 0) throw new Error('GET /classes returned no classes — refusing to deploy against an empty workspace');
@@ -152,7 +169,7 @@ export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions = {
     const results: DeployItem[] = [];
     for (const name of CLASS_ORDER) {
         const cls = byName.get(name);
-        const code = jsCode(name, vars);
+        const code = jsCode(name, warmVars);
         if (!cls) {
             throw new Error(`Required class ${name} is missing from the workspace — aborting deploy`);
         }

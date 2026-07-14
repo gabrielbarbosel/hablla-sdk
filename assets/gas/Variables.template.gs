@@ -12,5 +12,10 @@
         firebaseApiKey: "",
         baseUrl: "https://api.hablla.com",
         debug: false,
+        // Token quente (opcional): um refresher pode preencher estes campos para o
+        // HabllaClient.gs (auth) reusar o token pronto em vez de renovar. Paridade
+        // com o W_Variables do RPO.
+        accessToken: "",
+        accessTokenExp: 0,
     };
 })();

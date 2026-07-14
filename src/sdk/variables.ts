@@ -19,6 +19,13 @@ export interface HabllaVariables {
     /** When true, the client keeps a call trace and enriches API errors with the
      *  failing request + recent calls. Toggle via `HABLLA_ENV.debug` in W_Variables. */
     debug?: boolean;
+    /** Pre-minted Bearer access token. When present (and unexpired per
+     *  {@link accessTokenExp}), the client reuses it instead of refreshing — this is
+     *  how a deployer/refresher keeps the RPO isolates warm and avoids the cold
+     *  cross-isolate refresh herd. Optional; empty means "each runtime refreshes". */
+    accessToken?: string;
+    /** Epoch-ms expiry of {@link accessToken}. `0`/absent means no warm token. */
+    accessTokenExp?: number;
 }
 
 /** Names of the variables as environment keys, for documentation and injection. */
