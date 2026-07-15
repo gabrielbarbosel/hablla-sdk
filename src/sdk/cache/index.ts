@@ -4,3 +4,4 @@
  * se popula pelo USO e persiste (ver as StrategyCache por runtime).
  */
 export { HabllaCache } from './cache';
+export { STRATEGY_SEED } from './strategy-seed';
