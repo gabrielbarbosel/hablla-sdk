@@ -14,3 +14,4 @@ export type { PaginateOptions, PaginateResult } from './core/pagination';
 export { MemoryStrategyCache } from './core/strategy';
 export type { AuthStrategy, StrategyCache } from './core/strategy';
 export { Resource } from './resources/base';
+export * from './store';
