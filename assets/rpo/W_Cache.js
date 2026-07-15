@@ -45,6 +45,7 @@ class W_Cache {
     "POST:/v1/workspaces/{workspace_id}/services/{service_id}/messages-templates": "bearer",
     "POST:/v1/workspaces/{workspace_id}/services/batch": "bearer",
     "POST:/v1/workspaces/{workspace_id}/persons/batch": "bearer",
+    "POST:/v1/workspaces/{workspace_id}/import": "bearer",
     "POST:/v2/workspaces/{workspace_id}/campaigns": "bearer",
     "POST:/v2/workspaces/{workspace_id}/campaigns/sheet": "bearer"
   };
