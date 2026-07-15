@@ -9,61 +9,82 @@
  */
 import type { TableSchema } from './schema';
 
-/** Dimensions — full mirror (mudam devagar). */
+/**
+ * Dimensions — full mirror (mudam devagar). Colunas quentes = os campos REAIS da API do Hablla
+ * (snake_case, id hex de 24, `updated_at` como watermark); campos aninhados saem via `get()`. O
+ * `_raw` guarda o objeto inteiro, então a aba nunca perde nada. `workspace_id`/`std_name` ficam
+ * de fora das quentes (constantes/ruído) mas seguem no `_raw`. Shape confirmado ao vivo (jul/2026).
+ */
 export const SECTORS_SCHEMA: TableSchema = {
     name: 'sectors',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'name', 'active', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: ['id', 'name', 'color', 'default', 'created_at', 'updated_at'],
 };
 
+/** users = wsusers: o membro fica aninhado em `user:{id,name,email}`; o id da linha é o do wsuser. */
 export const USERS_SCHEMA: TableSchema = {
     name: 'users',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'name', 'email', 'role', 'active', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: [
+        'id',
+        { name: 'user_id', get: (e) => (e as { user?: { id?: unknown } }).user?.id },
+        { name: 'name', get: (e) => (e as { user?: { name?: unknown } }).user?.name },
+        { name: 'email', get: (e) => (e as { user?: { email?: unknown } }).user?.email },
+        'role_type', 'is_available', 'created_at', 'updated_at',
+    ],
 };
 
 export const CONNECTIONS_SCHEMA: TableSchema = {
     name: 'connections',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'name', 'channel', 'number', 'status', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: [
+        'id', 'name', 'type', 'status', 'sector_id', 'key',
+        { name: 'number', get: (e) => (e as { data?: { phone_number?: unknown } }).data?.phone_number },
+        'created_at', 'updated_at',
+    ],
 };
 
 export const FLOWS_SCHEMA: TableSchema = {
     name: 'flows',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'name', 'status', 'varCount', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: ['id', 'name', 'type', 'is_enable', 'user_id', 'created_at', 'updated_at'],
 };
 
 export const TAGS_SCHEMA: TableSchema = {
     name: 'tags',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'name', 'color', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: ['id', 'name', 'color', 'sector_id', 'created_at', 'updated_at'],
 };
 
 export const REASONS_SCHEMA: TableSchema = {
     name: 'reasons',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'name', 'sectorId', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: ['id', 'name', 'type', 'sector_id', 'created_at', 'updated_at'],
 };
 
 export const CUSTOM_FIELDS_SCHEMA: TableSchema = {
     name: 'custom_fields',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'key', 'label', 'type', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: ['id', 'name', 'std_name', 'target', 'type', 'is_required', 'is_sensitive', 'created_at', 'updated_at'],
 };
 
 export const CAMPAIGNS_SCHEMA: TableSchema = {
     name: 'campaigns',
     idField: 'id',
-    updatedAtField: 'updatedAt',
-    columns: ['id', 'name', 'status', 'connectionId', 'sectorId', 'createdAt', 'updatedAt'],
+    updatedAtField: 'updated_at',
+    columns: [
+        'id', 'name', 'type', 'status', 'quantity',
+        { name: 'done', get: (e) => (e as { processed_status?: { done?: unknown } }).processed_status?.done },
+        { name: 'failed', get: (e) => (e as { processed_status?: { failed?: unknown } }).processed_status?.failed },
+        'user_id', 'created_at', 'updated_at',
+    ],
 };
 
 /**
