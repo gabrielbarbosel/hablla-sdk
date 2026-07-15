@@ -122,4 +122,61 @@ describe('HabllaStore', () => {
     it('tableNames lists the registered tables (not _sync)', () => {
         expect(makeStore().tableNames()).toEqual(['sectors']);
     });
+
+    describe('readThrough', () => {
+        it('miss → hits the API, write-through, returns fresh (source: api)', async () => {
+            const store = makeStore();
+            let calls = 0;
+            const fetch = () => { calls++; return [{ id: 's1', name: 'A', updatedAt: '2026-01-01' }]; };
+            const res = await store.readThrough('sectors', fetch, { now: NOW });
+            expect(res.source).toBe('api');
+            expect(res.entities).toHaveLength(1);
+            expect(calls).toBe(1);
+        });
+
+        it('fresh → serves the sheet, never calls the API (source: cache, zero token)', async () => {
+            const store = makeStore();
+            await store.upsert('sectors', [{ id: 's1', name: 'A', updatedAt: '2026-01-01' }], { now: NOW });
+            let calls = 0;
+            const res = await store.readThrough('sectors', () => { calls++; return []; }, { now: NOW + 1000 });
+            expect(res.source).toBe('cache');
+            expect(calls).toBe(0);
+            expect(res.entities).toHaveLength(1);
+        });
+
+        it('stale → re-fetches when past TTL', async () => {
+            const store = makeStore();
+            await store.upsert('sectors', [{ id: 's1', name: 'A', updatedAt: '2026-01-01' }], { now: NOW });
+            let calls = 0;
+            const res = await store.readThrough(
+                'sectors',
+                () => { calls++; return [{ id: 's1', name: 'A2', updatedAt: '2026-09-01' }]; },
+                { now: NOW + 7200 * 1000 }, // past the 1h TTL
+            );
+            expect(calls).toBe(1);
+            expect(res.entities[0].name).toBe('A2');
+        });
+
+        it('API failure → serves stale and flags the error (nunca fica sem dado)', async () => {
+            const store = makeStore();
+            await store.upsert('sectors', [{ id: 's1', name: 'A', updatedAt: '2026-01-01' }], { now: NOW });
+            let seen: unknown;
+            const res = await store.readThrough(
+                'sectors',
+                () => { throw new Error('429 saturado'); },
+                { now: NOW + 7200 * 1000, onError: (e) => { seen = e; } },
+            );
+            expect(res.source).toBe('stale');
+            expect(res.entities).toHaveLength(1); // dado antigo preservado
+            expect((seen as Error).message).toBe('429 saturado');
+            expect((await store.syncOf('sectors'))?.status).toBe('error');
+        });
+
+        it('honors a per-table ttlSeconds', async () => {
+            const store = makeStore();
+            await store.readThrough('sectors', () => [{ id: 's1', name: 'A', updatedAt: '2026-01-01' }], { now: NOW, ttlSeconds: 60 });
+            expect(await store.isFresh('sectors', NOW + 59 * 1000)).toBe(true);
+            expect(await store.isFresh('sectors', NOW + 61 * 1000)).toBe(false);
+        });
+    });
 });

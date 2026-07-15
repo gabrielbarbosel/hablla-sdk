@@ -28,7 +28,10 @@ export {
 export type { Matrix, TableStore } from './port';
 export { MemoryTableStore } from './port';
 
-export type { HabllaStoreOptions, UpsertOptions, UpsertResult } from './store';
+export type {
+    HabllaStoreOptions, UpsertOptions, UpsertResult,
+    ReadSource, ReadThroughOptions, ReadThroughResult,
+} from './store';
 export { HabllaStore } from './store';
 
 export {

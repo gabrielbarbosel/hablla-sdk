@@ -11,8 +11,10 @@ class FakeSheet {
     data: unknown[][] = [];
     maxRows = 1000;
     maxCols = 26;
+    hidden = false;
     constructor(public name: string) {}
     getName() { return this.name; }
+    hideSheet() { this.hidden = true; return this; }
     getLastRow() { return this.data.length; }
     getLastColumn() { return this.data[0]?.length ?? 0; }
     getMaxRows() { return this.maxRows; }
@@ -76,6 +78,16 @@ describe('SpreadsheetTableStore', () => {
         await store.write('sectors', [['id', 'name'], ['s1', 'A'], ['s2', 'B']]);
         expect(ss.getSheetByName('sectors')).not.toBeNull();
         expect(await store.read('sectors')).toEqual([['id', 'name'], ['s1', 'A'], ['s2', 'B']]);
+    });
+
+    it('creates data tabs hidden, and does not re-hide on later writes', async () => {
+        const store = new SpreadsheetTableStore();
+        await store.write('sectors', [['id'], ['s1']]);
+        const sheet = ss.getSheetByName('sectors')!;
+        expect(sheet.hidden).toBe(true);
+        sheet.hidden = false; // usuário desocultou pra inspecionar
+        await store.write('sectors', [['id'], ['s1'], ['s2']]);
+        expect(sheet.hidden).toBe(false); // escrita seguinte não re-oculta
     });
 
     it('grows the grid past its 1000-row default', async () => {

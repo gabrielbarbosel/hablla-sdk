@@ -34,6 +34,8 @@ export interface UpsertOptions<E> {
     strategy?: SyncStrategy;
     /** What the source says it holds — enables drift detection. */
     sourceCount?: number;
+    /** Freshness budget for this table, in seconds (persisted in `_sync`). Dimensions vs facts differ. */
+    ttlSeconds?: number;
     /** Custom collision resolver (defaults to the schema's updatedAt rule). */
     resolver?: Resolver<E>;
 }
@@ -43,6 +45,29 @@ export interface UpsertResult<E> {
     entities: E[];
     changed: boolean;
     sync: SyncRecord;
+}
+
+/** Where a {@link HabllaStore.readThrough} result came from. */
+export type ReadSource = 'cache' | 'api' | 'stale';
+
+/** Options for {@link HabllaStore.readThrough}. */
+export interface ReadThroughOptions<E> {
+    /** Wall clock (epoch ms). */
+    now: number;
+    /** Strategy recorded when the fetch runs (default `full`). */
+    strategy?: SyncStrategy;
+    /** Freshness budget in seconds for this table. */
+    ttlSeconds?: number;
+    /** Custom collision resolver for the write-through. */
+    resolver?: Resolver<E>;
+    /** Called with the fetch error before falling back to stale (for logging). */
+    onError?: (err: unknown) => void;
+}
+
+/** Result of a read-through: the entities and where they came from. */
+export interface ReadThroughResult<E> {
+    entities: E[];
+    source: ReadSource;
 }
 
 export class HabllaStore {
@@ -120,7 +145,7 @@ export class HabllaStore {
         if (changed) await this.backend.write(table, matrix);
 
         const strategy = opts.strategy ?? prev?.strategy ?? 'full';
-        const sync = makeSyncRecord({
+        const base: Partial<SyncRecord> & { table: string } = {
             ...(prev ?? {}),
             table,
             strategy,
@@ -137,7 +162,10 @@ export class HabllaStore {
             status: 'ok',
             lastError: null,
             sdkVersion: this.options.sdkVersion ?? prev?.sdkVersion ?? null,
-        });
+        };
+        // Só sobrescreve o ttl quando informado — senão preserva o de `prev` / o default do makeSyncRecord.
+        if (opts.ttlSeconds != null) base.ttlSeconds = opts.ttlSeconds;
+        const sync = makeSyncRecord(base);
         await this.writeSync(sync);
         return { entities: merged, changed, sync };
     }
@@ -161,6 +189,40 @@ export class HabllaStore {
     async isFresh(table: string, nowMs: number): Promise<boolean> {
         const sync = await this.syncOf(table);
         return sync != null && !isStale(sync, nowMs);
+    }
+
+    /**
+     * Read-through: a aba primeiro, a API só em miss/stale. Se a tabela está fresca (pelo `_sync`),
+     * devolve as linhas da planilha — **zero token** (o ponto do storage: matar a saturação no
+     * disparo). Senão chama `fetch` (a API), grava write-through e devolve o resultado fresco. Se
+     * `fetch` falha, marca erro e **serve o stale** ("nunca ficar sem dado, mesmo que mais lento").
+     * Runtime-agnóstico: `fetch` é injetado, então o mesmo método serve GAS/Node/RPO. O `fetch` deve
+     * devolver ENTIDADES no shape do schema (id/updatedAt/colunas) — o mapeamento da API é do caller
+     * (sem adivinhação; ver [[sem-fallbacks-arbitrarios]]).
+     */
+    async readThrough<E = Record<string, unknown>>(
+        table: string,
+        fetch: () => Promise<E[]> | E[],
+        opts: ReadThroughOptions<E>,
+    ): Promise<ReadThroughResult<E>> {
+        if (await this.isFresh(table, opts.now)) {
+            return { entities: await this.all<E>(table), source: 'cache' };
+        }
+        try {
+            const fresh = await fetch();
+            const { entities } = await this.upsert<E>(table, fresh, {
+                now: opts.now,
+                strategy: opts.strategy ?? 'full',
+                sourceCount: fresh.length,
+                ttlSeconds: opts.ttlSeconds,
+                resolver: opts.resolver,
+            });
+            return { entities, source: 'api' };
+        } catch (err) {
+            opts.onError?.(err);
+            await this.markError(table, err instanceof Error ? err.message : String(err));
+            return { entities: await this.all<E>(table), source: 'stale' };
+        }
     }
 
     /** Records that a table's sync failed, without touching its data — read-through can still serve stale. */

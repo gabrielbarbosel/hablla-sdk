@@ -26,6 +26,7 @@ interface GasSheet {
     insertColumnsAfter(afterPosition: number, howMany: number): GasSheet;
     getRange(row: number, column: number, numRows: number, numColumns: number): GasRange;
     clearContents(): GasSheet;
+    hideSheet(): GasSheet;
 }
 
 interface GasRange {
@@ -49,6 +50,10 @@ export interface SpreadsheetTableStoreOptions {
  * Datas: `getValues` devolve `Date` para células que a planilha interpretou como data; a
  * leitura normaliza `Date → ISO` para o que o `parseRow`/JSON enxerga ser estável (o registro
  * completo volta pelo `_raw` de qualquer forma).
+ *
+ * Toda aba que ESTE store cria nasce **oculta** (`hideSheet`): são tabelas de dados/controle
+ * (banco), não superfície pro usuário — só a aba de disparo (do app) fica visível. A visibilidade
+ * é setada só na criação; se alguém desocultar pra inspecionar, escritas seguintes não re-ocultam.
  */
 export class SpreadsheetTableStore implements TableStore {
     constructor(private readonly options: SpreadsheetTableStoreOptions = {}) {}
@@ -73,7 +78,11 @@ export class SpreadsheetTableStore implements TableStore {
 
     async write(table: string, matrix: Matrix): Promise<void> {
         const ss = this.spreadsheet();
-        const sheet = ss.getSheetByName(table) ?? ss.insertSheet(table);
+        let sheet = ss.getSheetByName(table);
+        if (!sheet) {
+            sheet = ss.insertSheet(table);
+            sheet.hideSheet(); // aba de dados nasce oculta; a aba de disparo (do app) fica visível
+        }
         sheet.clearContents();
         if (!matrix.length) return;
         const cols = matrix[0]?.length ?? 0;

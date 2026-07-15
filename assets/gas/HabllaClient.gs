@@ -7446,7 +7446,7 @@
         const changed = !prev || prev.contentHash !== hash;
         if (changed) yield this.backend.write(table, matrix);
         const strategy = (_b = (_a = opts.strategy) != null ? _a : prev == null ? void 0 : prev.strategy) != null ? _b : "full";
-        const sync = makeSyncRecord(__spreadProps(__spreadValues({}, prev != null ? prev : {}), {
+        const base = __spreadProps(__spreadValues({}, prev != null ? prev : {}), {
           table,
           strategy,
           rowCount: merged.length,
@@ -7462,7 +7462,9 @@
           status: "ok",
           lastError: null,
           sdkVersion: (_i = (_h = this.options.sdkVersion) != null ? _h : prev == null ? void 0 : prev.sdkVersion) != null ? _i : null
-        }));
+        });
+        if (opts.ttlSeconds != null) base.ttlSeconds = opts.ttlSeconds;
+        const sync = makeSyncRecord(base);
         yield this.writeSync(sync);
         return { entities: merged, changed, sync };
       });
@@ -7489,6 +7491,38 @@
       return __async(this, null, function* () {
         const sync = yield this.syncOf(table);
         return sync != null && !isStale(sync, nowMs);
+      });
+    }
+    /**
+     * Read-through: a aba primeiro, a API só em miss/stale. Se a tabela está fresca (pelo `_sync`),
+     * devolve as linhas da planilha — **zero token** (o ponto do storage: matar a saturação no
+     * disparo). Senão chama `fetch` (a API), grava write-through e devolve o resultado fresco. Se
+     * `fetch` falha, marca erro e **serve o stale** ("nunca ficar sem dado, mesmo que mais lento").
+     * Runtime-agnóstico: `fetch` é injetado, então o mesmo método serve GAS/Node/RPO. O `fetch` deve
+     * devolver ENTIDADES no shape do schema (id/updatedAt/colunas) — o mapeamento da API é do caller
+     * (sem adivinhação; ver [[sem-fallbacks-arbitrarios]]).
+     */
+    readThrough(table, fetch, opts) {
+      return __async(this, null, function* () {
+        var _a, _b;
+        if (yield this.isFresh(table, opts.now)) {
+          return { entities: yield this.all(table), source: "cache" };
+        }
+        try {
+          const fresh = yield fetch();
+          const { entities } = yield this.upsert(table, fresh, {
+            now: opts.now,
+            strategy: (_a = opts.strategy) != null ? _a : "full",
+            sourceCount: fresh.length,
+            ttlSeconds: opts.ttlSeconds,
+            resolver: opts.resolver
+          });
+          return { entities, source: "api" };
+        } catch (err) {
+          (_b = opts.onError) == null ? void 0 : _b.call(opts, err);
+          yield this.markError(table, err instanceof Error ? err.message : String(err));
+          return { entities: yield this.all(table), source: "stale" };
+        }
       });
     }
     /** Records that a table's sync failed, without touching its data — read-through can still serve stale. */
@@ -7762,12 +7796,16 @@
     }
     write(table, matrix) {
       return __async(this, null, function* () {
-        var _a, _b, _c;
+        var _a, _b;
         const ss = this.spreadsheet();
-        const sheet = (_a = ss.getSheetByName(table)) != null ? _a : ss.insertSheet(table);
+        let sheet = ss.getSheetByName(table);
+        if (!sheet) {
+          sheet = ss.insertSheet(table);
+          sheet.hideSheet();
+        }
         sheet.clearContents();
         if (!matrix.length) return;
-        const cols = (_c = (_b = matrix[0]) == null ? void 0 : _b.length) != null ? _c : 0;
+        const cols = (_b = (_a = matrix[0]) == null ? void 0 : _a.length) != null ? _b : 0;
         if (!cols) return;
         this.ensureGrid(sheet, matrix.length, cols);
         sheet.getRange(1, 1, matrix.length, cols).setValues(padMatrix(matrix, cols));
