@@ -9,6 +9,7 @@ import type { TableSchema } from './schema';
 import type { Matrix, TableStore } from './port';
 import { projectMatrix, parseMatrix, headerFor } from './projection';
 import { upsertAll, type Resolver } from './merge';
+import { dynamicSchema } from './dynamic';
 import {
     type SyncRecord,
     type SyncStrategy,
@@ -168,6 +169,25 @@ export class HabllaStore {
         const sync = makeSyncRecord(base);
         await this.writeSync(sync);
         return { entities: merged, changed, sync };
+    }
+
+    /**
+     * Como {@link upsert}, mas descobre as colunas DOS DADOS ("todos os campos"): monta um schema
+     * dinâmico ({@link dynamicSchema}) com uma coluna por campo achatado, registra-o e faz o upsert.
+     * É o caminho para tabelas-espelho onde se quer a tabela inteira, não um recorte. O `_raw` fica
+     * ligado, então mudanças de coluna entre syncs não perdem nada.
+     */
+    async upsertAuto<E = Record<string, unknown>>(
+        table: string,
+        records: E[],
+        opts: UpsertOptions<E> & { idField?: string; updatedAtField?: string },
+    ): Promise<UpsertResult<E>> {
+        const schema = dynamicSchema<E>(table, records, {
+            idField: opts.idField,
+            updatedAtField: opts.updatedAtField,
+        });
+        this.register(schema as unknown as TableSchema);
+        return this.upsert(table, records, opts);
     }
 
     /** The control row for a table (null when never synced). */

@@ -13,6 +13,9 @@ export { headerFor, projectRow, projectMatrix, parseRow, parseMatrix } from './p
 export type { Resolver } from './merge';
 export { updatedAtResolver, upsertAll, idOf, sortByDesc } from './merge';
 
+export type { DynamicSchemaOptions } from './dynamic';
+export { flatKeys, autoColumns, getPath, dynamicSchema } from './dynamic';
+
 export type { SyncRecord, SyncStrategy, SyncStatus } from './sync';
 export {
     SYNC_SCHEMA,
