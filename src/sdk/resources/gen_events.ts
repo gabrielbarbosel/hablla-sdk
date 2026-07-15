@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { EventTypeCode } from './gen_enums';
 
 /** An event (activity record). */
 export interface Event {
@@ -38,7 +39,7 @@ export class Events extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/events
      * @remarks Documented query: filters, page, limit, order, direction_order, person, user, service, card, organization, start_date, end_date, populate, event_type (extra keys allowed).
      */
-    listEvents(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; user?: string; service?: string; card?: string; organization?: string; start_date?: string; end_date?: string; populate?: string[]; event_type?: string } & Record<string, unknown> } = {}): Promise<Paged<Event>> {
+    listEvents(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; user?: string; service?: string; card?: string; organization?: string; start_date?: string; end_date?: string; populate?: string[]; event_type?: EventTypeCode } & Record<string, unknown> } = {}): Promise<Paged<Event>> {
         return this.http.get('/v1/workspaces/{workspace_id}/events', { query: opts.query });
     }
 

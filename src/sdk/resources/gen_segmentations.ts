@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { SegmentationResultTypeCode, SegmentationTypeCode } from './gen_enums';
 
 /** A segmentation. */
 export interface Segmentation {
@@ -87,7 +88,7 @@ export class Segmentations extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/segmentations
      * @remarks Documented query: filters, page, limit, order, direction_order, name, is_enable, type, result_type (extra keys allowed).
      */
-    listSegmentations(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; is_enable?: boolean; type?: string; result_type?: string } & Record<string, unknown> } = {}): Promise<Paged<Segmentation>> {
+    listSegmentations(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; is_enable?: boolean; type?: SegmentationTypeCode; result_type?: SegmentationResultTypeCode } & Record<string, unknown> } = {}): Promise<Paged<Segmentation>> {
         return this.http.get('/v1/workspaces/{workspace_id}/segmentations', { query: opts.query });
     }
 

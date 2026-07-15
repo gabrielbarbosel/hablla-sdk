@@ -6,7 +6,7 @@ import { GlobalStrategyCache } from '../../runtime/rpo/global-strategy-cache';
 describe('STRATEGY_SEED', () => {
     it('keys are all Bearer and in `${METHOD}:${rawPath}` shape with placeholders', () => {
         const keys = Object.keys(STRATEGY_SEED);
-        expect(keys.length).toBe(9);
+        expect(keys.length).toBe(10);
         for (const key of keys) {
             expect(STRATEGY_SEED[key]).toBe('bearer');
             expect(key).toMatch(/^(GET|POST|PUT|PATCH|DELETE):\/v[12]\/workspaces\/\{workspace_id\}\//);
@@ -18,6 +18,7 @@ describe('STRATEGY_SEED', () => {
         expect(STRATEGY_SEED['POST:/v1/workspaces/{workspace_id}/services/batch']).toBe('bearer');
         expect(STRATEGY_SEED['PUT:/v1/workspaces/{workspace_id}/services/{service_id}/transfer']).toBe('bearer');
         expect(STRATEGY_SEED['POST:/v1/workspaces/{workspace_id}/import']).toBe('bearer');
+        expect(STRATEGY_SEED['POST:/v1/workspaces/{workspace_id}/segmentations']).toBe('bearer');
     });
 
     it('does NOT seed workspace-token endpoints (persons/create-or-update stays default)', () => {

@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { RootPlanTypeCode, RootTypeCode } from './gen_enums';
 
 /** A workspace (root entity). */
 export interface Root {
@@ -49,7 +50,7 @@ export class Root extends Resource {
      * @method GET /v1/workspaces
      * @remarks Documented query: filters, page, limit, order, direction_order, name, search, type, plan_type, owner, partner, is_blocked, is_deleted, pending_plan, auto_invoice, created_at, updated_at (extra keys allowed).
      */
-    getWorkspaces(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; type?: string; plan_type?: string; owner?: string; partner?: string; is_blocked?: boolean; is_deleted?: boolean; pending_plan?: boolean; auto_invoice?: boolean; created_at?: unknown; updated_at?: unknown } & Record<string, unknown> } = {}): Promise<Paged<Root>> {
+    getWorkspaces(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; type?: RootTypeCode; plan_type?: RootPlanTypeCode; owner?: string; partner?: string; is_blocked?: boolean; is_deleted?: boolean; pending_plan?: boolean; auto_invoice?: boolean; created_at?: unknown; updated_at?: unknown } & Record<string, unknown> } = {}): Promise<Paged<Root>> {
         return this.http.get('/v1/workspaces', { query: opts.query });
     }
 

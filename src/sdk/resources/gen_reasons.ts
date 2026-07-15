@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { ReasonTypeCode } from './gen_enums';
 
 /** A reason (e.g. for a card or service outcome). */
 export interface Reason {
@@ -40,7 +41,7 @@ export class Reasons extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/reasons
      * @remarks Documented query: filters, page, limit, order, direction_order, name, sector, type, populate (extra keys allowed).
      */
-    listReasons(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sector?: string; type?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Reason>> {
+    listReasons(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sector?: string; type?: ReasonTypeCode; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Reason>> {
         return this.http.get('/v1/workspaces/{workspace_id}/reasons', { query: opts.query });
     }
 

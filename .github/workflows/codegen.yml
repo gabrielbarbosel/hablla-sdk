@@ -61,9 +61,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The generator entrypoint runs from compiled output (dist/), so build first.
-      - name: Build
-        run: npm run build
+      # The generator entrypoint runs from compiled output (dist/generator/), so
+      # build it first. `build:gen` compiles ONLY the generator (its own tsconfig),
+      # independent of the SDK — the codegen can always run even if a prior run left
+      # the SDK not type-checking, and the generator never ships in the package.
+      - name: Build generator
+        run: npm run build:gen
 
       # Run the generator pipeline. It fetches the studio HTML -> hashed bundle +
       # swagger, webcrack-deobfuscates, extracts the AST, merges + applies

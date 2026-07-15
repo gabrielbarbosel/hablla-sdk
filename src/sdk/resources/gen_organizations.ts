@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { OrganizationStatusCode } from './gen_enums';
 
 /** An organization (company). */
 export interface Organization {
@@ -57,7 +58,7 @@ export class Organizations extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/organizations/{id}/persons
      * @remarks Documented query: page, limit, order, direction_order, search, name, email, phone, tax_id, legal_name, status, updated_at, custom_fields, user, tags, populate (extra keys allowed).
      */
-    getPersons(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; search?: string; name?: string; email?: string; phone?: string; tax_id?: string; legal_name?: string; status?: string; updated_at?: string; custom_fields?: string[]; user?: string; tags?: string[]; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
+    getPersons(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; search?: string; name?: string; email?: string; phone?: string; tax_id?: string; legal_name?: string; status?: OrganizationStatusCode; updated_at?: string; custom_fields?: string[]; user?: string; tags?: string[]; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
         return this.http.get('/v1/workspaces/{workspace_id}/organizations/{id}/persons', { path: { id }, query: opts.query });
     }
 
@@ -165,7 +166,7 @@ export class Organizations extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/organizations
      * @remarks Documented query: filters, page, limit, order, direction_order, search, name, email, phone, tax_id, legal_name, status, updated_at, custom_fields, user, tags, populate (extra keys allowed).
      */
-    listOrganizations(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; search?: string; name?: string; email?: string; phone?: string; tax_id?: string; legal_name?: string; status?: string; updated_at?: string; custom_fields?: string[]; user?: string; tags?: string[]; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
+    listOrganizations(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; search?: string; name?: string; email?: string; phone?: string; tax_id?: string; legal_name?: string; status?: OrganizationStatusCode; updated_at?: string; custom_fields?: string[]; user?: string; tags?: string[]; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
         return this.http.get('/v1/workspaces/{workspace_id}/organizations', { query: opts.query });
     }
 

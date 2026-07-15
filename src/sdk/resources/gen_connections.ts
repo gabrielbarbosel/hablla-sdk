@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { ConnectionChannelCode, ConnectionStatusCode } from './gen_enums';
 
 /** A connection (channel integration). */
 export interface Connection {
@@ -218,7 +219,7 @@ export class Connections extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/connections
      * @remarks Documented query: page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnectionsV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: string; generic_type?: string; types?: string[]; status?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnectionsV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 
@@ -245,7 +246,7 @@ export class Connections extends Resource {
      * @method GET /v2/workspaces/{workspace_id}/connections
      * @remarks Documented query: filters, page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnections(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: string; generic_type?: string; types?: string[]; status?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnections(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
         return this.http.get('/v2/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 }

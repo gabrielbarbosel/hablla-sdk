@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { TransferLogTypeCode } from './gen_enums';
 
 /** A transfer log entry. */
 export interface TransferLog {
@@ -45,7 +46,7 @@ export class TransferLogs extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/transfer-logs/cards
      * @remarks Documented query: page, limit, order, direction_order, flow, reason, user, card, service, description, type, populate (extra keys allowed).
      */
-    getCards(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; flow?: string; reason?: string; user?: string; card?: string; service?: string; description?: string; type?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<TransferLog>> {
+    getCards(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; flow?: string; reason?: string; user?: string; card?: string; service?: string; description?: string; type?: TransferLogTypeCode; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<TransferLog>> {
         return this.http.get('/v1/workspaces/{workspace_id}/transfer-logs/cards', { query: opts.query });
     }
 
@@ -54,7 +55,7 @@ export class TransferLogs extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/transfer-logs/services
      * @remarks Documented query: page, limit, order, direction_order, flow, reason, user, card, service, description, type, populate (extra keys allowed).
      */
-    getServices(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; flow?: string; reason?: string; user?: string; card?: string; service?: string; description?: string; type?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<TransferLog>> {
+    getServices(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; flow?: string; reason?: string; user?: string; card?: string; service?: string; description?: string; type?: TransferLogTypeCode; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<TransferLog>> {
         return this.http.get('/v1/workspaces/{workspace_id}/transfer-logs/services', { query: opts.query });
     }
 }

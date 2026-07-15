@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { TaskStatusCode, TaskTypeCode } from './gen_enums';
 
 /** A task. */
 export interface Task {
@@ -104,7 +105,7 @@ export class Tasks extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/tasks/approvals
      * @remarks Documented query: filters, page, limit, order, direction_order, person, card, service, organization, sector, user, created_by_user, name, description, status, type, start_date, finish_date, no_date, has_start_date, populate, statuses, billable, approval (extra keys allowed).
      */
-    getApprovals(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; card?: string; service?: string; organization?: string; sector?: string; user?: string; created_by_user?: string; name?: string; description?: string; status?: string; type?: string; start_date?: string; finish_date?: string; no_date?: boolean; has_start_date?: boolean; populate?: string[]; statuses?: string[]; billable?: boolean; approval?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Task>> {
+    getApprovals(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; card?: string; service?: string; organization?: string; sector?: string; user?: string; created_by_user?: string; name?: string; description?: string; status?: TaskStatusCode; type?: TaskTypeCode; start_date?: string; finish_date?: string; no_date?: boolean; has_start_date?: boolean; populate?: string[]; statuses?: string[]; billable?: boolean; approval?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Task>> {
         return this.http.get('/v1/workspaces/{workspace_id}/tasks/approvals', { query: opts.query });
     }
 
@@ -113,7 +114,7 @@ export class Tasks extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/tasks
      * @remarks Documented query: filters, page, limit, order, direction_order, person, card, service, organization, sector, user, created_by_user, name, description, status, type, start_date, finish_date, no_date, has_start_date, populate, statuses, billable, approval (extra keys allowed).
      */
-    listTasksV1(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; card?: string; service?: string; organization?: string; sector?: string; user?: string; created_by_user?: string; name?: string; description?: string; status?: string; type?: string; start_date?: string; finish_date?: string; no_date?: boolean; has_start_date?: boolean; populate?: string[]; statuses?: string[]; billable?: boolean; approval?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Task>> {
+    listTasksV1(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; card?: string; service?: string; organization?: string; sector?: string; user?: string; created_by_user?: string; name?: string; description?: string; status?: TaskStatusCode; type?: TaskTypeCode; start_date?: string; finish_date?: string; no_date?: boolean; has_start_date?: boolean; populate?: string[]; statuses?: string[]; billable?: boolean; approval?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Task>> {
         return this.http.get('/v1/workspaces/{workspace_id}/tasks', { query: opts.query });
     }
 
@@ -131,7 +132,7 @@ export class Tasks extends Resource {
      * @method GET /v2/workspaces/{workspace_id}/tasks
      * @remarks Documented query: filters, page, limit, order, direction_order, person, card, service, organization, sector, user, created_by_user, name, description, status, type, start_date, finish_date, no_date, has_start_date, populate, statuses, billable, approval (extra keys allowed).
      */
-    listTasks(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; card?: string; service?: string; organization?: string; sector?: string; user?: string; created_by_user?: string; name?: string; description?: string; status?: string; type?: string; start_date?: string; finish_date?: string; no_date?: boolean; has_start_date?: boolean; populate?: string[]; statuses?: string[]; billable?: boolean; approval?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Task>> {
+    listTasks(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; person?: string; card?: string; service?: string; organization?: string; sector?: string; user?: string; created_by_user?: string; name?: string; description?: string; status?: TaskStatusCode; type?: TaskTypeCode; start_date?: string; finish_date?: string; no_date?: boolean; has_start_date?: boolean; populate?: string[]; statuses?: string[]; billable?: boolean; approval?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Task>> {
         return this.http.get('/v2/workspaces/{workspace_id}/tasks', { query: opts.query });
     }
 }

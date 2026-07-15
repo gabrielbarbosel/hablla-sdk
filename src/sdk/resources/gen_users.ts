@@ -1,4 +1,5 @@
 import { Resource } from './base';
+import type { SectorRoleTypeCode } from './gen_enums';
 
 /** `users` resource (generated from openapi.json). */
 export class Users extends Resource {
@@ -61,7 +62,7 @@ export class Users extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/users
      * @remarks Documented query: filters, page, limit, order, direction_order, name, email, role_type, no_sector, no_person, no_service, permission, search, populate, start_date, end_date, field_date (extra keys allowed).
      */
-    listUsers(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; email?: string; role_type?: string; no_sector?: string; no_person?: string; no_service?: string; permission?: string; search?: string; populate?: string[]; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    listUsers(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; email?: string; role_type?: SectorRoleTypeCode; no_sector?: string; no_person?: string; no_service?: string; permission?: string; search?: string; populate?: string[]; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/users', { query: opts.query });
     }
 }

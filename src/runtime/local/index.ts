@@ -4,6 +4,7 @@ import { HabllaClient } from '../../sdk/client';
 import type { HabllaVariables } from '../../sdk/variables';
 import { AxiosTransport } from './transport';
 import { FileStrategyCache } from './file-strategy-cache';
+import { STRATEGY_SEED } from '../../sdk/cache/strategy-seed';
 
 export interface LocalClientConfig extends HabllaVariables {
     /** JSON file that persists the auth strategy map. Defaults to the OS temp dir. */
@@ -24,7 +25,7 @@ export function createHabllaClient(config: LocalClientConfig): HabllaClient {
         workspaceToken: config.workspaceToken,
         baseUrl: config.baseUrl,
         transport: new AxiosTransport(),
-        strategyCache: new FileStrategyCache(file),
+        strategyCache: new FileStrategyCache(file, STRATEGY_SEED),
     });
 }
 

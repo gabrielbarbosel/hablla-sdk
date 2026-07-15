@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged, MultipartFile, MultipartBody } from '../core/types';
+import type { ServiceChannelCode, ServiceMessageTypeCode, ServiceOriginCode, ServiceStatusCode } from './gen_enums';
 
 /** A service (support/attendance ticket). */
 export interface Service {
@@ -34,7 +35,7 @@ export class Services extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/services/{service_id}/connection/{connection_id}/messages
      * @remarks Documented query: filters, page, limit, order, direction_order, user, body, type, key, populate, message, media_only (extra keys allowed).
      */
-    getAllMediaMessagesByConnection(serviceId: string, connectionId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; type?: string; key?: string; populate?: string[]; message?: string; media_only?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+    getAllMediaMessagesByConnection(serviceId: string, connectionId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; user?: string; body?: string; type?: ServiceMessageTypeCode; key?: string; populate?: string[]; message?: string; media_only?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
         return this.http.get('/v1/workspaces/{workspace_id}/services/{service_id}/connection/{connection_id}/messages', { path: { service_id: serviceId, connection_id: connectionId }, query: opts.query });
     }
 
@@ -124,7 +125,7 @@ export class Services extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/services/{id}/history
      * @remarks Documented query: page, limit, order, retrieve_mode, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key (extra keys allowed).
      */
-    getHistory(id: string, opts: { query?: { page?: string; limit?: number; order?: string; retrieve_mode?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: string; status?: string; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+    getHistory(id: string, opts: { query?: { page?: string; limit?: number; order?: string; retrieve_mode?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: ServiceChannelCode; status?: ServiceStatusCode; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
         return this.http.get('/v1/workspaces/{workspace_id}/services/{id}/history', { path: { id }, query: opts.query });
     }
 
@@ -133,7 +134,7 @@ export class Services extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/services/{id}/history-by-permission
      * @remarks Documented query: page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
      */
-    getHistoryByPermission(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: string; status?: string; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+    getHistoryByPermission(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: ServiceChannelCode; status?: ServiceStatusCode; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
         return this.http.get('/v1/workspaces/{workspace_id}/services/{id}/history-by-permission', { path: { id }, query: opts.query });
     }
 
@@ -196,7 +197,7 @@ export class Services extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/services/{id}/service-times
      * @remarks Documented query: page, limit, order, direction_order, user, person, connection, sector, service, card, type, active, populate, start_date, end_date, field_date (extra keys allowed).
      */
-    getServiceTimes(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; person?: string; connection?: string; sector?: string; service?: string; card?: string; type?: string; active?: string; populate?: string[]; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+    getServiceTimes(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; person?: string; connection?: string; sector?: string; service?: string; card?: string; type?: ServiceOriginCode; active?: string; populate?: string[]; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
         return this.http.get('/v1/workspaces/{workspace_id}/services/{id}/service-times', { path: { id }, query: opts.query });
     }
 
@@ -250,7 +251,7 @@ export class Services extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/services
      * @remarks Documented query: page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
      */
-    listServicesV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: string; status?: string; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+    listServicesV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: ServiceChannelCode; status?: ServiceStatusCode; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
         return this.http.get('/v1/workspaces/{workspace_id}/services', { query: opts.query });
     }
 
@@ -289,7 +290,7 @@ export class Services extends Resource {
      * @method GET /v2/workspaces/{workspace_id}/services
      * @remarks Documented query: filters, page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
      */
-    listServices(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: string; status?: string; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
+    listServices(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; user?: string; finished_by_user?: string; person?: string; connection?: string; sector?: string; reason?: string; card?: string; name?: string; search?: string; type?: ServiceChannelCode; status?: ServiceStatusCode; statuses?: string; csat?: number; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; tags?: string[]; sectors?: string[]; fcr?: boolean; win?: boolean; key?: string; custom_fields?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Service>> {
         return this.http.get('/v2/workspaces/{workspace_id}/services', { query: opts.query });
     }
 }

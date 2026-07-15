@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src/generator",
+    "outDir": "dist/generator",
+    "declaration": false
+  },
+  "include": ["src/generator"],
+  "exclude": ["node_modules", "src/generator/_staging", "src/generator/overrides/resources", "**/*.test.ts"]
+}

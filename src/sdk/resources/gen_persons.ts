@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { PersonCustomerStatusCode } from './gen_enums';
 
 /** A person (contact). */
 export interface Person {
@@ -337,7 +338,7 @@ export class Persons extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/persons
      * @remarks Documented query: page, limit, next, previous, order, direction_order, name, email, phone, search, full_search, start_date, end_date, field_date, updated_at, custom_fields, has_duplicate_keys, is_blocked, customer_status, organization, tags, populate, ssn, users (extra keys allowed).
      */
-    listPersonsV1(opts: { query?: { page?: string; limit?: number; next?: string; previous?: string; order?: string; direction_order?: string; name?: string; email?: string; phone?: string; search?: string; full_search?: boolean; start_date?: string; end_date?: string; field_date?: string; updated_at?: string; custom_fields?: string[]; has_duplicate_keys?: boolean; is_blocked?: boolean; customer_status?: string; organization?: string; tags?: string[]; populate?: string[]; ssn?: string; users?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Person>> {
+    listPersonsV1(opts: { query?: { page?: string; limit?: number; next?: string; previous?: string; order?: string; direction_order?: string; name?: string; email?: string; phone?: string; search?: string; full_search?: boolean; start_date?: string; end_date?: string; field_date?: string; updated_at?: string; custom_fields?: string[]; has_duplicate_keys?: boolean; is_blocked?: boolean; customer_status?: PersonCustomerStatusCode; organization?: string; tags?: string[]; populate?: string[]; ssn?: string; users?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Person>> {
         return this.http.get('/v1/workspaces/{workspace_id}/persons', { query: opts.query });
     }
 
@@ -355,7 +356,7 @@ export class Persons extends Resource {
      * @method GET /v2/workspaces/{workspace_id}/persons
      * @remarks Documented query: filters, page, limit, next, previous, order, direction_order, name, email, phone, search, full_search, start_date, end_date, field_date, updated_at, custom_fields, has_duplicate_keys, is_blocked, customer_status, organization, tags, populate, ssn, users (extra keys allowed).
      */
-    listPersons(opts: { query?: { filters?: string; page?: string; limit?: number; next?: string; previous?: string; order?: string; direction_order?: string; name?: string; email?: string; phone?: string; search?: string; full_search?: boolean; start_date?: string; end_date?: string; field_date?: string; updated_at?: string; custom_fields?: string[]; has_duplicate_keys?: boolean; is_blocked?: boolean; customer_status?: string; organization?: string; tags?: string[]; populate?: string[]; ssn?: string; users?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Person>> {
+    listPersons(opts: { query?: { filters?: string; page?: string; limit?: number; next?: string; previous?: string; order?: string; direction_order?: string; name?: string; email?: string; phone?: string; search?: string; full_search?: boolean; start_date?: string; end_date?: string; field_date?: string; updated_at?: string; custom_fields?: string[]; has_duplicate_keys?: boolean; is_blocked?: boolean; customer_status?: PersonCustomerStatusCode; organization?: string; tags?: string[]; populate?: string[]; ssn?: string; users?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Person>> {
         return this.http.get('/v2/workspaces/{workspace_id}/persons', { query: opts.query });
     }
 }

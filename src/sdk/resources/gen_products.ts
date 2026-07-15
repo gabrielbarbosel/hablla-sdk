@@ -1,4 +1,5 @@
 import { Resource } from './base';
+import type { ProductCurrencyCodeCode } from './gen_enums';
 
 /** `products` resource (generated from openapi.json). */
 export class Products extends Resource {
@@ -34,7 +35,7 @@ export class Products extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/products
      * @remarks Documented query: filters, page, limit, order, direction_order, name, sku, exact_sku, product_group, product_groups, search, updated_at, populate, custom_fields, is_active, currency_code (extra keys allowed).
      */
-    listProducts(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sku?: string; exact_sku?: string; product_group?: string; product_groups?: string[]; search?: string; updated_at?: string; populate?: string[]; custom_fields?: string[]; is_active?: boolean; currency_code?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+    listProducts(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sku?: string; exact_sku?: string; product_group?: string; product_groups?: string[]; search?: string; updated_at?: string; populate?: string[]; custom_fields?: string[]; is_active?: boolean; currency_code?: ProductCurrencyCodeCode } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/products', { query: opts.query });
     }
 

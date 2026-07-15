@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { HTTP_METHODS, HttpMethod, OpenApiOperation, OpenApiSpec } from '../extract';
+import { buildEnumRegistry, emitEnumsFile, enumNameFor, ambiguousEnums, isDescriptiveField, EnumDef } from './enums';
 
 /**
  * Human one-liners for the entity interfaces, keyed by component-schema name.
@@ -97,6 +98,8 @@ interface Param {
     name: string;
     in: string;
     schema?: JsonSchema;
+    /** Generated enum `…Code` type when the param's values match a domain enum; else absent. */
+    enumType?: string;
 }
 
 /** Everything the emitter needs about one operation, pre-resolved. */
@@ -194,10 +197,23 @@ function tsInterfaceType(schema: JsonSchema | undefined): string {
     }
 }
 
-/** Map a query parameter's schema to a TypeScript type. */
-function tsParamType(schema: JsonSchema | undefined): string {
+/** The generated enum `…Code` type for a schema whose enum matches a domain enum, direct or on array items. */
+function enumTypeOf(schema: JsonSchema | undefined, defs: EnumDef[]): string | undefined {
+    if (!schema) return undefined;
+    const values = Array.isArray(schema.enum) ? schema.enum : Array.isArray(schema.items?.enum) ? schema.items!.enum : undefined;
+    if (!values) return undefined;
+    const name = enumNameFor(defs, values);
+    return name ? `${name}Code` : undefined;
+}
+
+/** Map a query parameter's schema to a TypeScript type. A generated enum type, when resolved, wins over the bare primitive. */
+function tsParamType(schema: JsonSchema | undefined, enumType?: string): string {
     if (!schema) return 'unknown';
-    if (schema.type === 'array') return `${tsParamType(schema.items)}[]`;
+    if (schema.type === 'array') {
+        const item = enumType ?? tsParamType(schema.items);
+        return `${item}[]`;
+    }
+    if (enumType) return enumType;
     if (schema.type === 'number' || schema.type === 'integer') return 'number';
     if (schema.type === 'boolean') return 'boolean';
     if (schema.type === 'string') return 'string';
@@ -336,8 +352,9 @@ function multipartField(op: OpenApiOperation): string | undefined {
 }
 
 /** Resolve an operation into the {@link Method} the emitter renders. */
-function buildMethod(http: HttpMethod, pathStr: string, op: OpenApiOperation, tag: string, schemaName?: string): Method {
+function buildMethod(http: HttpMethod, pathStr: string, op: OpenApiOperation, tag: string, schemaName?: string, defs: EnumDef[] = []): Method {
     const params = (op.parameters ?? []) as Param[];
+    for (const param of params) param.enumType = isDescriptiveField(param.name) ? enumTypeOf(param.schema, defs) : undefined;
     // Collapse repeated path-param placeholders to a single argument. A few
     // upstream routes are degenerate — the extract renders more than one
     // placeholder under the same name (`…/flows/{id}` whose workspace segment is
@@ -465,12 +482,12 @@ function remarks(method: Method): string {
     return `     * @remarks Documented query: ${names} (extra keys allowed).`;
 }
 
-/** The `opts: { query?: … } = {}` argument, typed from the query params. */
+/** The `opts: { query?: … } = {}` argument, typed from the query params (enum-typed where resolved). */
 function optsArg(method: Method): string {
     if (method.queryParams.length === 0) {
         return 'opts: { query?: Record<string, unknown> } = {}';
     }
-    const shape = method.queryParams.map((p) => `${p.name}?: ${tsParamType(p.schema)}`).join('; ');
+    const shape = method.queryParams.map((p) => `${p.name}?: ${tsParamType(p.schema, p.enumType)}`).join('; ');
     return `opts: { query?: { ${shape} } & Record<string, unknown> } = {}`;
 }
 
@@ -558,8 +575,11 @@ export function emitResourceFile(group: ResourceGroup): string {
     if (usesPaged) typeImports.push('Paged');
     if (usesMultipart) typeImports.push('MultipartFile', 'MultipartBody');
 
+    const enumTypes = [...new Set(methods.flatMap((m) => m.queryParams.map((p) => p.enumType).filter((t): t is string => Boolean(t))))].sort();
+
     const lines: string[] = ["import { Resource } from './base';"];
     if (typeImports.length) lines.push(`import type { ${typeImports.join(', ')} } from '../core/types';`);
+    if (enumTypes.length) lines.push(`import type { ${enumTypes.join(', ')} } from './gen_enums';`);
     lines.push('');
     if (group.schemaName && group.schema) {
         lines.push(emitInterface(group.schemaName, group.schema));
@@ -574,7 +594,7 @@ export function emitResourceFile(group: ResourceGroup): string {
 }
 
 /** Group every operation in the spec into per-file resources. */
-export function groupResources(spec: OpenApiSpec): ResourceGroup[] {
+export function groupResources(spec: OpenApiSpec, defs: EnumDef[] = []): ResourceGroup[] {
     const schemas = (spec.components?.schemas ?? {}) as Record<string, JsonSchema>;
     // Schemas key their owning tag under `x-tag`, but inconsistently cased
     // (`blocked-words` vs `blockedWords`), so match on the camelCase form — the
@@ -611,7 +631,7 @@ export function groupResources(spec: OpenApiSpec): ResourceGroup[] {
                 group.schemaName = schemaName;
                 group.schema = schemas[schemaName];
             }
-            group.methods.push(buildMethod(http, pathStr, op, tag, schemaName));
+            group.methods.push(buildMethod(http, pathStr, op, tag, schemaName, defs));
         }
     }
 
@@ -655,9 +675,11 @@ export function readResourceOverride(fileKey: string, dir: string = RESOURCE_OVE
  * @param spec The resolved OpenAPI spec.
  * @param outDir Destination directory (created if missing).
  */
-export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; methods: number; overridden: number; sheetMultipart: boolean } {
+export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; methods: number; overridden: number; sheetMultipart: boolean; enums: number; enumsAmbiguous: string[] } {
     fs.mkdirSync(outDir, { recursive: true });
-    const groups = groupResources(spec);
+    const enumDefs = buildEnumRegistry(spec);
+    fs.writeFileSync(path.join(outDir, 'gen_enums.ts'), emitEnumsFile(enumDefs));
+    const groups = groupResources(spec, enumDefs);
     let methods = 0;
     let sheetMultipart = false;
     for (const group of groups) {
@@ -682,7 +704,7 @@ export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; met
         }
     }
 
-    return { files: groups.length, methods, overridden, sheetMultipart };
+    return { files: groups.length, methods, overridden, sheetMultipart, enums: enumDefs.length, enumsAmbiguous: ambiguousEnums(enumDefs).map((d) => d.name) };
 }
 
 /** CLI entry: read the resolved spec and emit resources into a staging dir. */
@@ -696,6 +718,7 @@ function main(): void {
     console.log(`  files          : ${result.files}`);
     console.log(`  methods        : ${result.methods}`);
     console.log(`  overridden     : ${result.overridden} (curated resources reproduced verbatim)`);
+    console.log(`  enums          : ${result.enums}${result.enumsAmbiguous.length ? ` (AMBIGUOUS, need alias: ${result.enumsAmbiguous.join(', ')})` : ''}`);
     console.log(`  campaigns/sheet: ${result.sheetMultipart ? 'multipart OK' : 'NOT multipart'}`);
 }
 

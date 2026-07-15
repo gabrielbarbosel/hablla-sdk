@@ -1,5 +1,6 @@
 import { Resource } from './base';
 import type { Paged } from '../core/types';
+import type { SessionTypeCode } from './gen_enums';
 
 /** A messaging session. */
 export interface Session {
@@ -47,7 +48,7 @@ export class Sessions extends Resource {
      * @method GET /v1/workspaces/{workspace_id}/sessions
      * @remarks Documented query: filters, page, limit, order, direction_order, key, connection, category, user_initiated, two_way_enable, has_error, is_valid, expire_at, type, populate, start_date, end_date, field_date (extra keys allowed).
      */
-    listSessions(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; key?: string; connection?: string; category?: string; user_initiated?: string; two_way_enable?: boolean; has_error?: boolean; is_valid?: boolean; expire_at?: string; type?: string; populate?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<Paged<Session>> {
+    listSessions(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; key?: string; connection?: string; category?: string; user_initiated?: string; two_way_enable?: boolean; has_error?: boolean; is_valid?: boolean; expire_at?: string; type?: SessionTypeCode; populate?: string; start_date?: string; end_date?: string; field_date?: string } & Record<string, unknown> } = {}): Promise<Paged<Session>> {
         return this.http.get('/v1/workspaces/{workspace_id}/sessions', { query: opts.query });
     }
 }

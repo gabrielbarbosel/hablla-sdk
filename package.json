@@ -9,17 +9,20 @@
   "files": [
     "dist",
     "assets",
+    "!dist/generator/**",
     "!assets/**/*.bak.js",
     "!assets/**/*.BACKUP.js"
   ],
   "scripts": {
     "prepare": "npm run build",
     "build": "tsc",
+    "build:gen": "tsc -p tsconfig.generator.json",
     "build:gas": "node tooling/build-gas.js",
     "build:rpo": "node tooling/build-rpo.js",
+    "codegen": "npm run build:gen && node dist/generator/pipeline.js",
     "deploy:rpo": "npm run build:rpo && npm run build && node tooling/deploy-rpo.js",
     "deploy:gas": "npm run build:gas && npm run build && node tooling/deploy-gas.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.generator.json",
     "lint": "eslint .",
     "test": "vitest run"
   },

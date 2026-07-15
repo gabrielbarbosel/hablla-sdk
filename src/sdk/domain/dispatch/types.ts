@@ -1,3 +1,5 @@
+import type { ServiceStatusCode } from '../../resources/gen_enums';
+
 /**
  * Contract for one dispatch run. Built by the caller (the Apps Script bridge) and
  * consumed by {@link Dispatch}. The engine is agnostic: every domain choice (which
@@ -78,6 +80,146 @@ export type DispatchStatus =
     | 'sem_setor'
     | 'variaveis_invalidas'
     | 'erro_envio';
+
+/**
+ * One contact to materialize (bulk-import) and then dispatch to. Only `name` and
+ * `phone` are required; extra columns ride along in the import sheet. `owner` drives
+ * per-contact owner assignment (see {@link MassDispatchSpec.owner}).
+ */
+export interface MassDispatchContact {
+    name: string;
+    /** National number, with or without the DDI — normalized against {@link ddi}. */
+    phone: string;
+    /** Country code prefix. Defaults to the spec's `defaultDdi` (e.g. `55`). */
+    ddi?: string;
+    email?: string;
+    ssn?: string;
+    /** Hablla user id that should own this contact (per-contact owner mode). */
+    owner?: string;
+}
+
+/**
+ * Contract for one mass dispatch: materialize an audience (one `import` per owner
+ * group, O(1) in the number of contacts) and fire a single flow-less WhatsApp
+ * campaign over it. The campaign attendance is born on the person's owner, so no
+ * per-contact settle step is needed.
+ */
+export interface MassDispatchSpec {
+    /** Hablla connection id the template is sent from. */
+    connectionId: string;
+    /** Hablla template id to send. */
+    templateId: string;
+    /**
+     * Owner assignment. `single` imports everyone under one user (O(1), all
+     * attendances land on that user). `perContact` groups by `contact.owner` and
+     * runs one import per group (O(team-size), each attendance born on the right
+     * owner — kills the settle/transfer step).
+     */
+    owner: { mode: 'single'; userId: string } | { mode: 'perContact' };
+    /** Default DDI for contacts that omit it. Defaults to `55`. */
+    defaultDdi?: string;
+    /** Template body variables (literal or expression), applied to the whole campaign. */
+    variables?: string[];
+    /** Server-side pacing. Defaults to a conservative `{ batch_interval: 0.3, batch_size: 5 }`. */
+    dispatchConfig?: { batch_interval: number; batch_size: number };
+    /** Extra campaign `properties` passthrough (e.g. expression flags for variables). */
+    properties?: Record<string, unknown>;
+    /** Import sheet columns. Defaults to `['Name', 'DDI', 'Phone', 'Email', 'SSN']`. */
+    columns?: string[];
+    /** Import tuning. `update_duplicates` defaults to `true`. */
+    importOptions?: { allow_duplicates?: boolean; update_duplicates?: boolean };
+    /** Max time to wait for each import to index before sending. Defaults to 60s. */
+    indexTimeoutMs?: number;
+    /** Human label for the segmentation and campaign. Defaults to a timestamp-free tag. */
+    name?: string;
+    /**
+     * What to do with contacts that already have an open attendance on
+     * {@link connectionId} — the mass equivalent of the legacy dispatcher's
+     * `openAttendance` policy. Off by default. See {@link AttendanceGuard}.
+     */
+    attendanceGuard?: AttendanceGuard;
+}
+
+/**
+ * Pre-send guard against interrupting a live conversation. Before importing, the run
+ * sweeps the open attendances on the dispatch connection (one paged `listServices`
+ * per 50, scoped to the connection so it stays cheap — an attendance on another
+ * channel is a different context) and matches them against the contacts by phone
+ * (9th-digit aware). What it does with the matches is the {@link mode}:
+ *
+ * - `skip` — drop those contacts before import, so they never enter the audience.
+ * - `finish` — bulk-close their open attendance ({@link MassDispatch.settleAttendances},
+ *   one `services.batch` call) and then send.
+ * - `off` — no guard (the default).
+ *
+ * This composes only proven primitives, so it never sends to someone mid-attendance
+ * on a mistaken assumption — the failure mode a guessed audience filter would risk.
+ */
+export interface AttendanceGuard {
+    mode: 'skip' | 'finish' | 'off';
+    /** Attendance statuses that count as "busy". Defaults to `['in_attendance']` (matches the legacy policy). */
+    statuses?: ServiceStatusCode[];
+    /** Restrict the sweep to attendances in these sectors (optional). */
+    sectors?: string[];
+    /** Reason id used to close an attendance when `mode: 'finish'`. */
+    finishReason?: string;
+    /** Sector assigned when `mode: 'finish'` closes an attendance (optional). */
+    finishSector?: string;
+}
+
+/** What the {@link AttendanceGuard} did on a run — surfaced in the result and ledger. */
+export interface AttendanceGuardReport {
+    mode: 'skip' | 'finish' | 'off';
+    /** Open attendances scanned on the connection. */
+    scannedOpen: number;
+    /** Contacts matched to an open attendance. */
+    matched: number;
+    /** Contacts dropped from the audience (`skip` mode). */
+    skipped: number;
+    /** Attendances bulk-closed before sending (`finish` mode). */
+    finished: number;
+    /** True when the sweep hit its page cap and may be incomplete (never silently). */
+    truncated: boolean;
+}
+
+/** A single audience-materialization + campaign, recorded for traceability. */
+export interface MassDispatchLedgerEntry {
+    segmentationId: string;
+    campaignId?: string;
+    connection: string;
+    template: string;
+    /** Contacts pushed through import. */
+    imported: number;
+    /** Audience size the segmentation resolved to at send time. */
+    audienceCount: number;
+    /** Owner id → number of contacts imported under it. */
+    ownerMap: Record<string, number>;
+    status: string;
+    /** What the attendance guard did, when one ran. */
+    guard?: AttendanceGuardReport;
+}
+
+/**
+ * Persistence port (DIP) for the dispatch ledger — the canonical dispatch↔audience
+ * record. A runtime provides the sink (the workspace writes it to a sheet tab via
+ * the store); the SDK stays agnostic. `createdAt` is stamped by the sink, not here,
+ * so the domain layer needs no clock.
+ */
+export interface DispatchLedger {
+    record(entry: MassDispatchLedgerEntry): Promise<void>;
+}
+
+/** What {@link MassDispatch.run} returns. */
+export interface MassDispatchResult {
+    segmentationId: string;
+    campaignId?: string;
+    imported: number;
+    audienceCount: number;
+    ownerMap: Record<string, number>;
+    status: string;
+    /** What the attendance guard did, when one ran. */
+    guard?: AttendanceGuardReport;
+}
 
 /** What {@link Dispatch.run} returns for one contact. `assessor` is the advisor name (observability). */
 export interface DispatchResult {

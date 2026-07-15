@@ -106,6 +106,7 @@ import { Workspaces } from './resources/gen_workspaces';
 import { WorkspacesPlans } from './resources/gen_workspacesPlans';
 import { Wsusers } from './resources/gen_wsusers';
 import { Dispatch } from './domain/dispatch/dispatch';
+import { MassDispatch } from './domain/dispatch/mass-dispatch';
 
 export interface HabllaClientConfig extends HabllaVariables {
     /** HTTP transport, injected by the runtime: axios on Node, host on RPO. */
@@ -224,6 +225,12 @@ export class HabllaClient {
     readonly wsusers: Wsusers;
     /** Agnostic, spec-driven mass-dispatch executor (our logic over Hablla objects). */
     readonly dispatch: Dispatch;
+    /**
+     * Flow-less mass dispatch (import audience + single WhatsApp campaign). Ledger-less
+     * here; construct {@link MassDispatch} directly with a {@link DispatchLedger} to
+     * record dispatches to a durable sink.
+     */
+    readonly massDispatch: MassDispatch;
 
     constructor(config: HabllaClientConfig) {
         const baseUrl = config.baseUrl ?? 'https://api.hablla.com';
@@ -336,5 +343,6 @@ export class HabllaClient {
         this.workspacesPlans = new WorkspacesPlans(this.http);
         this.wsusers = new Wsusers(this.http);
         this.dispatch = new Dispatch(this);
+        this.massDispatch = new MassDispatch(this);
     }
 }

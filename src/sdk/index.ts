@@ -14,4 +14,23 @@ export type { PaginateOptions, PaginateResult } from './core/pagination';
 export { MemoryStrategyCache } from './core/strategy';
 export type { AuthStrategy, StrategyCache } from './core/strategy';
 export { Resource } from './resources/base';
+export * from './resources/gen_enums';
 export * from './store';
+export { Dispatch } from './domain/dispatch/dispatch';
+export { MassDispatch } from './domain/dispatch/mass-dispatch';
+export { buildXlsx } from './domain/dispatch/xlsx';
+export type {
+    DispatchSpec,
+    DispatchPersonSpec,
+    DispatchAdvisor,
+    DerivedEmailRule,
+    DispatchStatus,
+    DispatchResult,
+    MassDispatchContact,
+    MassDispatchSpec,
+    AttendanceGuard,
+    AttendanceGuardReport,
+    MassDispatchLedgerEntry,
+    MassDispatchResult,
+    DispatchLedger,
+} from './domain/dispatch/types';
