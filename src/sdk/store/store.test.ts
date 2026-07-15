@@ -106,4 +106,20 @@ describe('HabllaStore', () => {
         const store = makeStore();
         await expect(store.all('nope')).rejects.toThrow(/não registrada/);
     });
+
+    it('migrate creates each tab (plus _sync) with a header, only once', async () => {
+        const backend = new MemoryTableStore();
+        const store = new HabllaStore(backend, [SECTORS], {});
+        const created = await store.migrate();
+        expect(created).toEqual(['sectors', '_sync']);
+        expect(await backend.read('sectors')).toEqual([['id', 'name', 'updatedAt', '_raw']]);
+        // idempotent — a second run creates nothing and keeps existing data
+        await store.upsert('sectors', [{ id: 's1', name: 'A', updatedAt: '2026-01-01' }], { now: NOW });
+        expect(await store.migrate()).toEqual([]);
+        expect(await store.all('sectors')).toHaveLength(1);
+    });
+
+    it('tableNames lists the registered tables (not _sync)', () => {
+        expect(makeStore().tableNames()).toEqual(['sectors']);
+    });
 });

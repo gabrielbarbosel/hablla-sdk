@@ -7,7 +7,7 @@
  */
 import type { TableSchema } from './schema';
 import type { Matrix, TableStore } from './port';
-import { projectMatrix, parseMatrix } from './projection';
+import { projectMatrix, parseMatrix, headerFor } from './projection';
 import { upsertAll, type Resolver } from './merge';
 import {
     type SyncRecord,
@@ -66,6 +66,30 @@ export class HabllaStore {
         const schema = this.schemas.get(table);
         if (!schema) throw new Error(`HabllaStore: tabela "${table}" não registrada.`);
         return schema as TableSchema<E>;
+    }
+
+    /** Every registered table name (the `_sync` control table is implicit, not listed here). */
+    tableNames(): string[] {
+        return [...this.schemas.keys()];
+    }
+
+    /**
+     * Creates the tab for every registered table (plus `_sync`) when it's missing, seeding it
+     * with just the header row — the "criação/migração das abas". Existing tabs are left untouched
+     * (no data loss). Runtime-agnostic: the backend's `write` is what materializes a tab. Returns
+     * the names of the tables it created.
+     */
+    async migrate(): Promise<string[]> {
+        const created: string[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SYNC_SCHEMA<SyncRecord> vs registered<Record> só se unificam em any; só lemos name/header.
+        const schemas: TableSchema<any>[] = [...this.schemas.values(), SYNC_SCHEMA];
+        for (const schema of schemas) {
+            const existing = await this.backend.read(schema.name);
+            if (existing.length) continue;
+            await this.backend.write(schema.name, [headerFor(schema)]);
+            created.push(schema.name);
+        }
+        return created;
     }
 
     /** All entities currently stored for a table (parsed from its rows; `[]` when empty). */

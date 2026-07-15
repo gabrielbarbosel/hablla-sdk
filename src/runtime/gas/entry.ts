@@ -1,8 +1,10 @@
 import { HabllaClient } from '../../sdk/client';
 import type { HabllaVariables } from '../../sdk/variables';
 import type { AuthStrategy } from '../../sdk/core/strategy';
+import { HabllaStore, STORE_SCHEMAS } from '../../sdk/store';
 import { UrlFetchTransport } from './transport';
 import { PropertiesStrategyCache } from './properties-strategy-cache';
+import { SpreadsheetTableStore } from './spreadsheet-table-store';
 import { SyncPromise, unwrap, drainUnhandledRejections } from './sync-promise';
 
 declare const PropertiesService: {
@@ -205,6 +207,20 @@ function makeGetAll(client: HabllaClient, base: string, workspaceId: string): (p
     };
 }
 
+/**
+ * Store da planilha-como-banco (Fase 2): um {@link HabllaStore} com o catálogo de abas sobre o
+ * {@link SpreadsheetTableStore}. O id da planilha vem de `HABLLA_SHEET_ID` (Script Property);
+ * ausente ⇒ planilha ativa (script container-bound). Construção é barata — nada de I/O até um
+ * read/write. Uso no Code.gs: `runSync(() => Hablla.store.all('sectors'))`,
+ * `runSync(() => Hablla.store.migrate())`.
+ */
+function makeStore(): HabllaStore {
+    let sheetId: string | undefined;
+    try { sheetId = PropertiesService.getScriptProperties().getProperty('HABLLA_SHEET_ID') || undefined; } catch { sheetId = undefined; }
+    const backend = new SpreadsheetTableStore({ spreadsheetId: sheetId });
+    return new HabllaStore(backend, STORE_SCHEMAS);
+}
+
 /** Instancia o client GAS (UrlFetchApp + cache em Script Properties) e expõe os globais. */
 export function installHabllaClient(): HabllaClient {
     const vars = readVariables();
@@ -215,7 +231,13 @@ export function installHabllaClient(): HabllaClient {
     });
     const g = globalThis as unknown as GasGlobal;
     g.hablla = client;
-    g.Hablla = { client, runSync, unwrap, getAll: makeGetAll(client, vars.baseUrl ?? 'https://api.hablla.com', vars.workspaceId) };
+    g.Hablla = {
+        client,
+        runSync,
+        unwrap,
+        getAll: makeGetAll(client, vars.baseUrl ?? 'https://api.hablla.com', vars.workspaceId),
+        store: makeStore(),
+    };
     return client;
 }
 
