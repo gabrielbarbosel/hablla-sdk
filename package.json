@@ -1,6 +1,6 @@
 {
   "name": "hablla",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Typed TypeScript SDK for the Hablla API, generated from the studio bundle and the official swagger.",
   "license": "UNLICENSED",
   "private": true,

@@ -26,6 +26,11 @@ export interface HabllaVariables {
     accessToken?: string;
     /** Epoch-ms expiry of {@link accessToken}. `0`/absent means no warm token. */
     accessTokenExp?: number;
+    /** App-level (not used by the SDK client): the bound spreadsheet id the GAS app
+     *  targets. Injected into `HABLLA_ENV` so a headless/web-app context resolves its
+     *  OWN sheet per environment instead of a hardcoded id. Empty when not deploying
+     *  a sheet-bound app. */
+    sheetId?: string;
 }
 
 /** Names of the variables as environment keys, for documentation and injection. */

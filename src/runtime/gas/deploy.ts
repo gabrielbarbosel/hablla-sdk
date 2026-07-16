@@ -136,6 +136,7 @@ function variablesSource(vars: HabllaVariables): string {
             firebaseApiKey: vars.firebaseApiKey,
             baseUrl: vars.baseUrl ?? 'https://api.hablla.com',
             debug: vars.debug ?? false,
+            sheetId: vars.sheetId ?? '',
             sdkVersion: sdkVersion(),
             // Warm-token slots (parity with RPO). GAS is single-threaded so there is no
             // herd here, but a refresher may still seed these to skip the refresh call.
