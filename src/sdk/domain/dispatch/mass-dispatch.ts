@@ -31,7 +31,8 @@ const GUARD_MAX_PAGES = 200;
  * the live id it resolves and only falls back to this expectation.
  */
 const FIRST_NAME_FIELD = { name: 'Primeiro Nome', stdName: 'cf_primeiro_nome', type: 'string', target: 'person', fallbackId: '6a58642a4d7c0aa11db4d93e' };
-const CUSTOM_FIELD_PAGE_LIMIT = 500;
+const CUSTOM_FIELD_PAGE_LIMIT = 50;
+const CUSTOM_FIELD_MAX_PAGES = 40;
 
 /**
  * Flow-less mass dispatch, composed from Hablla API primitives. The whole audience
@@ -211,12 +212,16 @@ export class MassDispatch {
      * workspace that recreated the field still lands on the right one.
      */
     async ensureFirstNameField(): Promise<{ id: string; stdName: string; type: string }> {
-        const page = await this.client.customFields.listCustomFields({ query: { target: FIRST_NAME_FIELD.target, limit: CUSTOM_FIELD_PAGE_LIMIT } });
-        const existing = (page.results ?? []).find(
-            (field) => field.std_name === FIRST_NAME_FIELD.stdName || field.name === FIRST_NAME_FIELD.name,
-        );
-        if (existing?.id) {
-            return { id: existing.id, stdName: existing.std_name ?? FIRST_NAME_FIELD.stdName, type: existing.type ?? FIRST_NAME_FIELD.type };
+        for (let page = 1; page <= CUSTOM_FIELD_MAX_PAGES; page++) {
+            const res = await this.client.customFields.listCustomFields({ query: { target: FIRST_NAME_FIELD.target, limit: CUSTOM_FIELD_PAGE_LIMIT, page: String(page) } });
+            const rows = res.results ?? [];
+            const existing = rows.find(
+                (field) => field.std_name === FIRST_NAME_FIELD.stdName || field.name === FIRST_NAME_FIELD.name,
+            );
+            if (existing?.id) {
+                return { id: existing.id, stdName: existing.std_name ?? FIRST_NAME_FIELD.stdName, type: existing.type ?? FIRST_NAME_FIELD.type };
+            }
+            if (rows.length < CUSTOM_FIELD_PAGE_LIMIT) break;
         }
         const created = await this.client.customFields.createCustomField({
             name: FIRST_NAME_FIELD.name,
