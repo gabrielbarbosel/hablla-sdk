@@ -1,0 +1,41 @@
+name: ci
+
+# Guardrails for every push/PR to main: the SDK and generator type-check, tests
+# pass, and — critically — the committed environment bundles (RPO isolate classes
+# + GAS blob) match a fresh build. Those bundles are the DEPLOYED artifact; a stale
+# one silently ships old isolate/GAS code, so CI refuses to let one land.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check (SDK + generator)
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Recompile the env bundles from source; if the committed ones differ, they
+      # are stale — fail with the exact fix command instead of shipping old code.
+      - name: Environment bundles are in sync with source
+        run: |
+          npm run build:rpo
+          npm run build:gas
+          if ! git diff --exit-code -- assets/rpo assets/gas; then
+            echo "::error::assets/rpo or assets/gas are stale. Run 'npm run build:rpo && npm run build:gas' and commit the result."
+            exit 1
+          fi

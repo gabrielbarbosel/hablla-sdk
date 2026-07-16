@@ -42,7 +42,18 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Paths that `release.mjs` is allowed to stage into the release commit. */
-const RELEASE_PATHS = ['package.json', 'CHANGELOG.md', 'src/sdk/resources', 'src/generator/openapi.json'];
+const RELEASE_PATHS = ['package.json', 'CHANGELOG.md', 'src/sdk/resources', 'src/generator/openapi.json', 'assets/rpo', 'assets/gas'];
+
+/**
+ * The environment bundles (RPO isolate classes + GAS blob) are the compiled,
+ * DEPLOYED artifact of the SDK source — they must be recompiled from the just-
+ * regenerated resources or a release ships stale isolate/GAS code (the deployed
+ * class keeps running the old surface). Regenerated here so no release can forget.
+ */
+function rebuildEnvBundles() {
+    execFileSync('node', ['tooling/build-rpo.js'], { cwd: REPO_ROOT, stdio: 'inherit' });
+    execFileSync('node', ['tooling/build-gas.js'], { cwd: REPO_ROOT, stdio: 'inherit' });
+}
 
 /**
  * Parse `--key=value` / `--flag` style argv into a plain object.
@@ -164,6 +175,10 @@ function main() {
     }
 
     ensureGitIdentity();
+
+    // Recompile the environment bundles from the freshly regenerated resources so
+    // the release commit ships them in sync (never a stale isolate/GAS blob).
+    rebuildEnvBundles();
 
     // Stage only the generated + versioned surface, never the report or scratch.
     const stageable = RELEASE_PATHS.filter((p) => fs.existsSync(path.join(REPO_ROOT, p)));
