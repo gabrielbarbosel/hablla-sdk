@@ -4,12 +4,16 @@ import type {
     MassDispatchSpec,
     MassDispatchResult,
     MassDispatchLedgerEntry,
+    MassDispatchPersonalization,
+    DispatchPersonalizedConfig,
+    PersonalizedDispatchResult,
+    RawDispatchContact,
     AttendanceGuard,
     AttendanceGuardReport,
     DispatchLedger,
 } from './types';
 import { buildXlsx } from './xlsx';
-import { phoneVariants, toDigits } from '../../utils';
+import { phoneVariants, toDigits, firstName, hashString, distributeOwners } from '../../utils';
 import type { ServiceStatusCode } from '../../resources/gen_enums';
 
 const DEFAULT_COLUMNS = ['Name', 'DDI', 'Phone', 'Email', 'SSN'];
@@ -20,6 +24,14 @@ const POLL_INTERVAL_MS = 2_500;
 const GUARD_BUSY_STATUSES: ServiceStatusCode[] = ['in_attendance'];
 const GUARD_PAGE_SIZE = 50;
 const GUARD_MAX_PAGES = 200;
+
+/**
+ * The "Primeiro Nome" person custom field the first-name personalization writes to.
+ * `fallbackId` is the id observed in the target workspace; the orchestrator prefers
+ * the live id it resolves and only falls back to this expectation.
+ */
+const FIRST_NAME_FIELD = { name: 'Primeiro Nome', stdName: 'cf_primeiro_nome', type: 'string', target: 'person', fallbackId: '6a58642a4d7c0aa11db4d93e' };
+const CUSTOM_FIELD_PAGE_LIMIT = 500;
 
 /**
  * Flow-less mass dispatch, composed from Hablla API primitives. The whole audience
@@ -82,6 +94,137 @@ export class MassDispatch {
         const result: MassDispatchResult = { segmentationId, campaignId, imported, audienceCount, ownerMap, status, guard };
         await this.recordLedger(result, spec);
         return result;
+    }
+
+    /**
+     * High-level, batteries-included dispatch: the single entry point a thin runtime
+     * (the Apps Script bridge) calls. It owns every domain decision so the caller only
+     * hands over raw contacts plus a {@link DispatchPersonalizedConfig}. In order it:
+     *
+     * 1. Suppresses — drops contacts whose phone (9th-digit aware) is in `suppressPhones`.
+     * 2. Distributes owners — `fixo` / `rodizio` / `aleatorio` (deterministic, never
+     *    `Math.random`) sets `contact.owner` for a uniform `perContact` import path.
+     * 3. Pre-computes the first name and ensures the "Primeiro Nome" custom field exists
+     *    (resolving its live id), so body variable 0 is personalized per contact.
+     * 4. Assembles the {@link MassDispatchSpec} and delegates to the agnostic {@link run}.
+     *
+     * @param sleep injectable delay (ms) — forwarded to {@link run} for the isolate.
+     */
+    async dispatchPersonalized(
+        contacts: RawDispatchContact[],
+        config: DispatchPersonalizedConfig,
+        sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    ): Promise<PersonalizedDispatchResult> {
+        if (!config.connectionId) throw new Error('dispatchPersonalized: connectionId is required');
+        if (!config.templateId) throw new Error('dispatchPersonalized: templateId is required');
+
+        const received = contacts.length;
+        const survivors = this.filterSuppressed(contacts, config.suppressPhones ?? [], config.defaultDdi ?? DEFAULT_DDI);
+        const suppressed = received - survivors.length;
+
+        const enriched: MassDispatchContact[] = survivors.map((contact) => ({
+            name: contact.name,
+            phone: contact.phone,
+            ddi: contact.ddi,
+            owner: contact.owner,
+        }));
+
+        this.assignOwners(enriched, config);
+
+        const personalizeFirstName = config.personalizeFirstName ?? true;
+        const varCount = config.templateVarCount ?? (config.variables?.length ?? 0);
+        let personalization: MassDispatchPersonalization[] | undefined;
+        if (personalizeFirstName && varCount >= 1 && enriched.length) {
+            const field = await this.ensureFirstNameField();
+            for (const contact of enriched) {
+                contact.customFields = { ...contact.customFields, [field.id]: firstName(contact.name) };
+            }
+            personalization = [{ field, templateIndex: 0 }];
+        }
+
+        const spec: MassDispatchSpec = {
+            connectionId: config.connectionId,
+            templateId: config.templateId,
+            owner: { mode: 'perContact' },
+            sectorId: config.sectorId,
+            name: config.name,
+            defaultDdi: config.defaultDdi,
+            dispatchConfig: config.dispatchConfig,
+            attendanceGuard: config.attendanceGuard,
+            personalization,
+        };
+        if (varCount >= 1) {
+            spec.variables = Array.from({ length: varCount }, (_, index) => config.variables?.[index] ?? '');
+        }
+
+        if (!enriched.length) {
+            const empty: PersonalizedDispatchResult = { segmentationId: '', imported: 0, audienceCount: 0, ownerMap: {}, status: 'empty_audience', received, suppressed };
+            return empty;
+        }
+
+        const result = await this.run(enriched, spec, sleep);
+        return { ...result, received, suppressed };
+    }
+
+    /**
+     * Drops contacts whose phone matches a suppressed one, comparing on both 9th-digit
+     * shapes (the same variance the attendance guard handles) so a stored number and a
+     * given number that differ only by the extra 9 still count as the same line.
+     */
+    private filterSuppressed(contacts: RawDispatchContact[], suppressPhones: string[], defaultDdi: string): RawDispatchContact[] {
+        if (!suppressPhones.length) return contacts;
+        const blocked = new Set<string>();
+        for (const phone of suppressPhones) {
+            for (const key of this.suppressionKeys(phone, defaultDdi)) blocked.add(key);
+        }
+        return contacts.filter((contact) => !this.suppressionKeys(contact.phone, contact.ddi ?? defaultDdi).some((key) => blocked.has(key)));
+    }
+
+    /** Both 9th-digit shapes of a phone in full (DDI-prefixed) digits, for suppression matching. */
+    private suppressionKeys(phone: unknown, defaultDdi: string): string[] {
+        const digits = toDigits(phone);
+        if (!digits) return [];
+        const full = digits.startsWith(defaultDdi) ? digits : defaultDdi + digits;
+        const variants = phoneVariants(full);
+        return [variants.digits, variants.alternate].filter(Boolean);
+    }
+
+    /**
+     * Sets `contact.owner` for every contact per the distribution strategy. `aleatorio`
+     * is made deterministic by hashing each contact's phone (stable across runs) unless
+     * the caller injects its own `rng`. With no distribution, contacts keep any owner
+     * they arrived with.
+     */
+    private assignOwners(contacts: MassDispatchContact[], config: DispatchPersonalizedConfig): void {
+        const distribution = config.ownerDistribution;
+        if (!distribution || !distribution.owners.length) return;
+        const rng = config.rng ?? ((index: number) => hashString(toDigits(contacts[index]?.phone)));
+        const owners = distributeOwners(contacts.length, distribution.owners, distribution.strategy, rng);
+        contacts.forEach((contact, index) => {
+            if (owners[index]) contact.owner = owners[index];
+        });
+    }
+
+    /**
+     * Resolves the "Primeiro Nome" person custom field, creating it (type `string`) if
+     * it does not exist. Prefers the live id it finds over the hardcoded fallback, so a
+     * workspace that recreated the field still lands on the right one.
+     */
+    async ensureFirstNameField(): Promise<{ id: string; stdName: string; type: string }> {
+        const page = await this.client.customFields.listCustomFields({ query: { target: FIRST_NAME_FIELD.target, limit: CUSTOM_FIELD_PAGE_LIMIT } });
+        const existing = (page.results ?? []).find(
+            (field) => field.std_name === FIRST_NAME_FIELD.stdName || field.name === FIRST_NAME_FIELD.name,
+        );
+        if (existing?.id) {
+            return { id: existing.id, stdName: existing.std_name ?? FIRST_NAME_FIELD.stdName, type: existing.type ?? FIRST_NAME_FIELD.type };
+        }
+        const created = await this.client.customFields.createCustomField({
+            name: FIRST_NAME_FIELD.name,
+            std_name: FIRST_NAME_FIELD.stdName,
+            type: FIRST_NAME_FIELD.type,
+            target: FIRST_NAME_FIELD.target,
+        });
+        return { id: created?.id ?? FIRST_NAME_FIELD.fallbackId, stdName: FIRST_NAME_FIELD.stdName, type: FIRST_NAME_FIELD.type };
     }
 
     /**
@@ -188,14 +331,24 @@ export class MassDispatch {
     /**
      * Bulk-creates/updates the group's contacts under one owner and adds them to the
      * batch segmentation — a single multipart `import` call regardless of group size.
+     * When {@link MassDispatchSpec.personalization} is set, one extra column per binding
+     * (`${stdName}_${type}`) rides along carrying each contact's custom-field value.
      */
     async importContacts(
         contacts: MassDispatchContact[],
         opts: { owner?: string; segmentationId: string; spec: MassDispatchSpec },
     ): Promise<void> {
-        const columns = opts.spec.columns ?? DEFAULT_COLUMNS;
+        const standardColumns = opts.spec.columns ?? DEFAULT_COLUMNS;
         const defaultDdi = opts.spec.defaultDdi ?? DEFAULT_DDI;
-        const rows = contacts.map((contact) => this.contactRow(contact, columns, defaultDdi));
+        const customColumns = (opts.spec.personalization ?? []).map((entry) => ({
+            header: `${entry.field.stdName}_${entry.field.type}`,
+            fieldId: entry.field.id,
+        }));
+        const columns = [...standardColumns, ...customColumns.map((column) => column.header)];
+        const rows = contacts.map((contact) => [
+            ...this.contactRow(contact, standardColumns, defaultDdi),
+            ...customColumns.map((column) => contact.customFields?.[column.fieldId] ?? ''),
+        ]);
         const file = buildXlsx(columns, rows);
 
         const data: Record<string, unknown> = {
@@ -205,6 +358,7 @@ export class MassDispatch {
             add_duplicates_to_segmentation: 'todos',
         };
         if (opts.owner) data.user = opts.owner;
+        if (opts.spec.sectorId) data.sector = opts.spec.sectorId;
 
         await this.client.import.createImport(
             { data: file, filename: 'contacts.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
@@ -213,9 +367,15 @@ export class MassDispatch {
     }
 
     /**
-     * Polls the segmentation counter until it reaches the expected size (imports are
-     * async and take seconds to index). Returns the resolved audience count; if the
-     * timeout elapses it returns whatever indexed so far — the caller decides.
+     * Polls the segmentation's campaign-resolvable audience until it reaches the
+     * expected size. Uses the same audience resolver the campaign does (the alloy
+     * `segmentations/count` endpoint), NOT the segmentation `counter` field: the
+     * `counter` is stale for freshly-imported fixed segmentations (it lags or never
+     * updates), so a campaign created the moment `counter` reports the size still
+     * resolves an empty audience and fails. The alloy count only becomes non-zero
+     * once the members are actually query-resolvable, so it is the correct gate
+     * before {@link sendCampaign}. Returns the resolved count; on timeout it returns
+     * whatever resolved so far and the caller decides.
      */
     async waitForAudience(
         segmentationId: string,
@@ -227,11 +387,29 @@ export class MassDispatch {
         let last = 0;
         for (let attempt = 0; attempt < deadline; attempt++) {
             await sleep(POLL_INTERVAL_MS);
-            const seg = (await this.client.segmentations.getSegmentation(segmentationId)) as { counter?: number };
-            last = seg.counter ?? 0;
+            last = await this.resolveAudienceCount(segmentationId);
             if (last >= expected) return last;
         }
         return last;
+    }
+
+    /**
+     * The campaign-resolvable audience size of a segmentation, via the alloy count
+     * endpoint (the same resolver the campaign query uses). This is the source of
+     * truth for "is the audience ready to dispatch", unlike the segmentation counter.
+     */
+    async resolveAudienceCount(segmentationId: string): Promise<number> {
+        try {
+            const res = (await this.client.http.post('/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/count', {
+                body: { filters: [{ type: 'in_segmentation', segmentation: segmentationId }] },
+            })) as { count?: number };
+            return res?.count ?? 0;
+        } catch {
+            // While a fresh segmentation is still indexing, this endpoint returns a
+            // transient 500 ("Erro ao resolver segmentações"). Treat it as "not ready
+            // yet" (count 0) so the caller keeps polling instead of aborting the run.
+            return 0;
+        }
     }
 
     /**
@@ -257,9 +435,30 @@ export class MassDispatch {
         return this.client.services.batch({ type: opts.action, query: opts.target, action } as never);
     }
 
-    /** Fires the single flow-less WhatsApp campaign over the batch segmentation. */
+    /**
+     * Fires the single flow-less WhatsApp campaign over the batch segmentation, using
+     * the exact v2 body the studio sends. Each template body variable is either a fixed
+     * literal (from {@link MassDispatchSpec.variables}) or, when covered by
+     * {@link MassDispatchSpec.personalization}, the token `{{person.custom_fields.<id>}}`
+     * so the campaign resolves that slot per person. `properties.…examples.body` carries
+     * one `<index>_is_expression: false` per variable (these are field tokens, not
+     * campaign expressions). {@link HabllaClient.campaigns.createCampaign} posts to the
+     * `POST /v2/workspaces/{workspace_id}/campaigns` endpoint the recipe requires.
+     */
     async sendCampaign(opts: { segmentationId: string; spec: MassDispatchSpec }): Promise<unknown> {
         const spec = opts.spec;
+        const personalization = spec.personalization ?? [];
+        const fixed = spec.variables ?? [];
+        const length = personalization.reduce((max, entry) => Math.max(max, entry.templateIndex + 1), fixed.length);
+
+        const bodyVariables: string[] = [];
+        const examples: Record<string, boolean> = {};
+        for (let index = 0; index < length; index++) {
+            const personalized = personalization.find((entry) => entry.templateIndex === index);
+            bodyVariables.push(personalized ? `{{person.custom_fields.${personalized.field.id}}}` : (fixed[index] ?? ''));
+            examples[`${index}_is_expression`] = false;
+        }
+
         const body: Record<string, unknown> = {
             send_type: 'immediate',
             send_mode: 'fractional',
@@ -269,11 +468,12 @@ export class MassDispatch {
             types: ['whatsapp', 'gupshup'],
             connection: spec.connectionId,
             template: spec.templateId,
-            variables: { body: spec.variables ?? [] },
+            arrayFilter: [{ type: 'in_segmentation', segmentation: opts.segmentationId }],
             query: [{ type: 'in_segmentation', segmentation: opts.segmentationId }, { type: 'whatsapp' }],
             query_type: 'person',
+            variables: { body: bodyVariables },
+            properties: spec.properties ?? { variables: { whatsapp: { components: { examples: { body: examples } } } } },
         };
-        if (spec.properties) body.properties = spec.properties;
         return this.client.campaigns.createCampaign(body);
     }
 

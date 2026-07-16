@@ -1,4 +1,5 @@
 import type { ServiceStatusCode } from '../../resources/gen_enums';
+import type { OwnerStrategy } from '../../utils';
 
 /**
  * Contract for one dispatch run. Built by the caller (the Apps Script bridge) and
@@ -96,6 +97,27 @@ export interface MassDispatchContact {
     ssn?: string;
     /** Hablla user id that should own this contact (per-contact owner mode). */
     owner?: string;
+    /**
+     * Pre-computed per-contact custom-field values, keyed by custom-field id. Each
+     * value is written to the import sheet under a `${stdName}_${type}` column (see
+     * {@link MassDispatchSpec.personalization}), so the campaign can reference the
+     * field per person instead of relying on a campaign expression.
+     */
+    customFields?: Record<string, string>;
+}
+
+/**
+ * Binds one template body variable to a person custom field, so the campaign
+ * personalizes that slot per contact. {@link MassDispatch.importContacts} derives the
+ * import column `${field.stdName}_${field.type}` (filled from
+ * {@link MassDispatchContact.customFields}[`field.id`]) and {@link MassDispatch.sendCampaign}
+ * emits the token `{{person.custom_fields.<field.id>}}` at {@link templateIndex}.
+ */
+export interface MassDispatchPersonalization {
+    /** The person custom field carrying the per-contact value (id + std_name + type). */
+    field: { id: string; stdName: string; type: string };
+    /** 0-based index of the template body variable this field fills. */
+    templateIndex: number;
 }
 
 /**
@@ -118,15 +140,35 @@ export interface MassDispatchSpec {
     owner: { mode: 'single'; userId: string } | { mode: 'perContact' };
     /** Default DDI for contacts that omit it. Defaults to `55`. */
     defaultDdi?: string;
-    /** Template body variables (literal or expression), applied to the whole campaign. */
+    /**
+     * Fixed template body variables, in order (one per `{{n}}`). A literal string is
+     * sent as-is with `is_expression: false`. Positions covered by
+     * {@link personalization} are overridden with the person-custom-field token, so
+     * `variables` only needs to carry the non-personalized slots.
+     */
     variables?: string[];
+    /**
+     * Per-contact personalization bindings. The campaign expression evaluator cannot
+     * do string ops (e.g. first name from a full name), so each personalized value is
+     * pre-computed in caller code, imported into a person custom field, and referenced
+     * by the campaign. Each entry maps a template body variable to a custom field; see
+     * {@link MassDispatchPersonalization}.
+     */
+    personalization?: MassDispatchPersonalization[];
+    /** Hablla sector id passed to the import `data` (optional). */
+    sectorId?: string;
     /** Server-side pacing. Defaults to a conservative `{ batch_interval: 0.3, batch_size: 5 }`. */
     dispatchConfig?: { batch_interval: number; batch_size: number };
     /** Extra campaign `properties` passthrough (e.g. expression flags for variables). */
     properties?: Record<string, unknown>;
     /** Import sheet columns. Defaults to `['Name', 'DDI', 'Phone', 'Email', 'SSN']`. */
     columns?: string[];
-    /** Import tuning. `update_duplicates` defaults to `true`. */
+    /**
+     * Import tuning. `update_duplicates` defaults to `true`.
+     * @remarks `update_duplicates` does NOT reliably update an existing person's custom
+     *   fields, so a personalized value may be stale for a contact already in the
+     *   workspace. Fresh persons import their custom fields correctly.
+     */
     importOptions?: { allow_duplicates?: boolean; update_duplicates?: boolean };
     /** Max time to wait for each import to index before sending. Defaults to 60s. */
     indexTimeoutMs?: number;
@@ -207,6 +249,69 @@ export interface MassDispatchLedgerEntry {
  */
 export interface DispatchLedger {
     record(entry: MassDispatchLedgerEntry): Promise<void>;
+}
+
+/**
+ * A raw contact for {@link MassDispatch.dispatchPersonalized}: only name and phone are
+ * required. `owner` may be pre-set; otherwise the orchestrator assigns it via
+ * {@link DispatchPersonalizedConfig.ownerDistribution}.
+ */
+export interface RawDispatchContact {
+    name: string;
+    phone: string;
+    ddi?: string;
+    owner?: string;
+}
+
+/**
+ * High-level, batteries-included contract for {@link MassDispatch.dispatchPersonalized}.
+ * It carries only what a caller (the thin Apps Script bridge) knows — a template, a
+ * team to distribute over, phones to suppress — and the orchestrator does the rest
+ * (suppression, owner distribution, first-name pre-compute, custom-field ensure,
+ * spec assembly) before delegating to the agnostic {@link MassDispatch.run} engine.
+ */
+export interface DispatchPersonalizedConfig {
+    /** Hablla connection id the template is sent from. */
+    connectionId: string;
+    /** Hablla template id to send. */
+    templateId: string;
+    /** Hablla sector id passed to the import (optional). */
+    sectorId?: string;
+    /** Human label for the segmentation and campaign. */
+    name?: string;
+    /** Number of body variables the template expects ({{1}}..{{n}}). */
+    templateVarCount?: number;
+    /**
+     * Fixed values for the non-personalized body variables, by index. Index 0 is
+     * overridden by the first name when {@link personalizeFirstName} is on.
+     */
+    variables?: string[];
+    /** Personalize body variable 0 with each contact's first name. Defaults to `true`. */
+    personalizeFirstName?: boolean;
+    /** How to spread the audience over a team. Omit to keep any owner already on the contact. */
+    ownerDistribution?: { strategy: OwnerStrategy; owners: string[] };
+    /** Phones to skip (already-sent / suppressed). Filtered out before anything else, 9th-digit aware. */
+    suppressPhones?: string[];
+    /** Default DDI for contacts that omit it. Defaults to `55`. */
+    defaultDdi?: string;
+    /** Server-side pacing. Defaults to the engine's conservative default. */
+    dispatchConfig?: { batch_interval: number; batch_size: number };
+    /**
+     * Injected randomness seam for `aleatorio` (slot index → non-negative integer).
+     * The RPO isolate forbids `Math.random`; leave unset to use the default phone-stable
+     * hash (same phone → same owner across runs). See {@link distributeOwners}.
+     */
+    rng?: (index: number) => number;
+    /** Pre-send guard against interrupting a live conversation. See {@link AttendanceGuard}. */
+    attendanceGuard?: AttendanceGuard;
+}
+
+/** What {@link MassDispatch.dispatchPersonalized} adds to {@link MassDispatchResult}: what it filtered. */
+export interface PersonalizedDispatchResult extends MassDispatchResult {
+    /** Contacts received before suppression. */
+    received: number;
+    /** Contacts dropped because their phone was in `suppressPhones`. */
+    suppressed: number;
 }
 
 /** What {@link MassDispatch.run} returns. */

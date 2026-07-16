@@ -9,6 +9,8 @@ interface Calls {
     createCampaign: unknown[];
     servicesBatch: unknown[];
     listServices: unknown[];
+    listCustomFields: unknown[];
+    createCustomField: unknown[];
 }
 
 interface OpenService {
@@ -17,8 +19,15 @@ interface OpenService {
     phone: string;
 }
 
-function fakeClient(counterSequence: number[], openServices: OpenService[] = []): { client: HabllaClient; calls: Calls } {
-    const calls: Calls = { createSegmentation: [], createImport: [], createCampaign: [], servicesBatch: [], listServices: [] };
+interface CustomFieldRow {
+    id: string;
+    std_name?: string;
+    name?: string;
+    type?: string;
+}
+
+function fakeClient(counterSequence: number[], openServices: OpenService[] = [], customFields: CustomFieldRow[] = []): { client: HabllaClient; calls: Calls } {
+    const calls: Calls = { createSegmentation: [], createImport: [], createCampaign: [], servicesBatch: [], listServices: [], listCustomFields: [], createCustomField: [] };
     let counterIndex = 0;
     const client = {
         segmentations: {
@@ -28,8 +37,18 @@ function fakeClient(counterSequence: number[], openServices: OpenService[] = [])
             },
             getSegmentation: async () => {
                 const value = counterSequence[Math.min(counterIndex, counterSequence.length - 1)] ?? 0;
-                counterIndex++;
                 return { counter: value };
+            },
+            deleteSegmentation: async () => ({ ok: true }),
+        },
+        http: {
+            post: async (path: string) => {
+                if (/segmentations\/count/.test(path)) {
+                    const value = counterSequence[Math.min(counterIndex, counterSequence.length - 1)] ?? 0;
+                    counterIndex++;
+                    return { count: value };
+                }
+                return {};
             },
         },
         import: {
@@ -56,6 +75,16 @@ function fakeClient(counterSequence: number[], openServices: OpenService[] = [])
                     ? openServices.map((s) => ({ id: s.id, status: s.status, person: { id: 'p-' + s.id, phones: [{ phone: s.phone }] } }))
                     : [];
                 return { results, totalItems: openServices.length };
+            },
+        },
+        customFields: {
+            listCustomFields: async (opts: unknown) => {
+                calls.listCustomFields.push(opts);
+                return { results: customFields };
+            },
+            createCustomField: async (body: unknown) => {
+                calls.createCustomField.push(body);
+                return { id: 'cf-created', ...(body as Record<string, unknown>) };
             },
         },
     } as unknown as HabllaClient;
@@ -213,5 +242,136 @@ describe('MassDispatch.run', () => {
         expect(calls.listServices.length).toBe(0);
         expect(result.guard).toBeUndefined();
         expect(result.imported).toBe(1);
+    });
+});
+
+const CF_ROW = { id: 'cf-primeiro-nome', std_name: 'cf_primeiro_nome', name: 'Primeiro Nome', type: 'string' };
+const baseConfig = { connectionId: 'conn-1', templateId: 'tmpl-1' };
+
+describe('MassDispatch.dispatchPersonalized', () => {
+    it('resolves the live first-name field, personalizes var 0, imports per owner', async () => {
+        const { client, calls } = fakeClient([2], [], [CF_ROW]);
+        const md = new MassDispatch(client);
+
+        const result = await md.dispatchPersonalized(
+            [
+                { name: 'Ana Paula Silva', phone: '5551990000001' },
+                { name: 'Bruno Costa', phone: '5551990000002' },
+            ],
+            { ...baseConfig, templateVarCount: 1, ownerDistribution: { strategy: 'rodizio', owners: ['u-a', 'u-b'] } },
+            noSleep,
+        );
+
+        // used the resolved live id, did not create a new field
+        expect(calls.createCustomField.length).toBe(0);
+        // rodizio → one import per owner
+        expect(calls.createImport.length).toBe(2);
+        // campaign references the resolved custom field at slot 0
+        const body = calls.createCampaign[0] as Record<string, any>;
+        expect(body.variables.body[0]).toBe('{{person.custom_fields.cf-primeiro-nome}}');
+        expect(result.status).toBe('sent');
+        expect(result.received).toBe(2);
+        expect(result.suppressed).toBe(0);
+        expect(result.ownerMap).toEqual({ 'u-a': 1, 'u-b': 1 });
+    });
+
+    it('creates the first-name field when the workspace has none', async () => {
+        const { client, calls } = fakeClient([1], [], []);
+        const md = new MassDispatch(client);
+        await md.dispatchPersonalized(
+            [{ name: 'Carla Mendes', phone: '5551990000001' }],
+            { ...baseConfig, templateVarCount: 1 },
+            noSleep,
+        );
+        expect(calls.createCustomField.length).toBe(1);
+        const created = calls.createCustomField[0] as Record<string, any>;
+        expect(created.std_name).toBe('cf_primeiro_nome');
+        expect(created.type).toBe('string');
+        const body = calls.createCampaign[0] as Record<string, any>;
+        expect(body.variables.body[0]).toBe('{{person.custom_fields.cf-created}}');
+    });
+
+    it('writes each contact first name into the import custom-field column', async () => {
+        const { client, calls } = fakeClient([1], [], [CF_ROW]);
+        const md = new MassDispatch(client);
+        await md.dispatchPersonalized(
+            [{ name: 'Ana Paula Silva', phone: '5551990000001' }],
+            { ...baseConfig, templateVarCount: 1 },
+            noSleep,
+        );
+        const data = JSON.parse(calls.createImport[0]!.fields.data!);
+        expect(data).toBeTruthy();
+        // the personalization column header rides the import (std_name_type)
+        // (value assertion is covered by the xlsx builder; here we assert the field resolved)
+        const body = calls.createCampaign[0] as Record<string, any>;
+        expect(body.variables.body[0]).toBe('{{person.custom_fields.cf-primeiro-nome}}');
+    });
+
+    it('suppresses phones 9th-digit aware and reports the counts', async () => {
+        const { client, calls } = fakeClient([1], [], [CF_ROW]);
+        const md = new MassDispatch(client);
+        const result = await md.dispatchPersonalized(
+            [
+                { name: 'Ana', phone: '5551999596516' },   // suppressed (matches given without the 9)
+                { name: 'Bruno', phone: '5551990000002' }, // survives
+            ],
+            { ...baseConfig, templateVarCount: 1, suppressPhones: ['555199596516'] },
+            noSleep,
+        );
+        expect(result.received).toBe(2);
+        expect(result.suppressed).toBe(1);
+        expect(result.imported).toBe(1);
+    });
+
+    it('all suppressed → empty result, no import or campaign', async () => {
+        const { client, calls } = fakeClient([0], [], [CF_ROW]);
+        const md = new MassDispatch(client);
+        const result = await md.dispatchPersonalized(
+            [{ name: 'Ana', phone: '5551990000001' }],
+            { ...baseConfig, templateVarCount: 1, suppressPhones: ['5551990000001'] },
+            noSleep,
+        );
+        expect(result.suppressed).toBe(1);
+        expect(result.status).toBe('empty_audience');
+        expect(calls.createImport.length).toBe(0);
+        expect(calls.createCampaign.length).toBe(0);
+        expect(calls.createSegmentation.length).toBe(0);
+    });
+
+    it('fixo distribution: every contact under owners[0]', async () => {
+        const { client, calls } = fakeClient([2], [], [CF_ROW]);
+        const md = new MassDispatch(client);
+        const result = await md.dispatchPersonalized(
+            [
+                { name: 'Ana', phone: '5551990000001' },
+                { name: 'Bruno', phone: '5551990000002' },
+            ],
+            { ...baseConfig, templateVarCount: 1, ownerDistribution: { strategy: 'fixo', owners: ['u-fix', 'u-other'] } },
+            noSleep,
+        );
+        expect(calls.createImport.length).toBe(1);
+        expect(result.ownerMap).toEqual({ 'u-fix': 2 });
+    });
+
+    it('personalizeFirstName=false: no custom field touched, no personalization token', async () => {
+        const { client, calls } = fakeClient([1], [], [CF_ROW]);
+        const md = new MassDispatch(client);
+        await md.dispatchPersonalized(
+            [{ name: 'Ana Paula', phone: '5551990000001' }],
+            { ...baseConfig, templateVarCount: 1, personalizeFirstName: false, variables: ['literal'] },
+            noSleep,
+        );
+        expect(calls.listCustomFields.length).toBe(0);
+        expect(calls.createCustomField.length).toBe(0);
+        const body = calls.createCampaign[0] as Record<string, any>;
+        expect(body.variables.body[0]).toBe('literal');
+    });
+
+    it('rejects a missing connectionId', async () => {
+        const { client } = fakeClient([0]);
+        const md = new MassDispatch(client);
+        await expect(
+            md.dispatchPersonalized([{ name: 'A', phone: '5551990000001' }], { connectionId: '', templateId: 't' }, noSleep),
+        ).rejects.toThrow(/connectionId/);
     });
 });

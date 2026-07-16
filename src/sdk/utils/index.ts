@@ -11,8 +11,10 @@
  */
 
 /** primitives (global) */
-export { toDigits } from './primitives/string';
+export { toDigits, firstName, hashString } from './primitives/string';
 export { collectIndexed } from './primitives/record';
+export { distributeOwners } from './primitives/distribute';
+export type { OwnerStrategy } from './primitives/distribute';
 
 /** formats (specific to a format, still generic) */
 export { phoneVariants, matchesPhone } from './formats/phone';

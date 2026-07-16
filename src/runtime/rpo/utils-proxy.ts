@@ -1,4 +1,4 @@
-import type { PhoneVariants, DeriveEmailRule } from '../../sdk/utils';
+import type { PhoneVariants, DeriveEmailRule, OwnerStrategy } from '../../sdk/utils';
 
 /**
  * RPO-only stand-in for the utils barrel. In the deployed client the utils live in
@@ -19,5 +19,8 @@ export const isEmail = (value: unknown): boolean => bag().isEmail(value);
 export const deriveEmail = (rawValue: unknown, rule: DeriveEmailRule): string | null => bag().deriveEmail(rawValue, rule);
 export const collectIndexed = (record: Record<string, unknown>, prefix: string): unknown[] => bag().collectIndexed(record, prefix);
 export const customFieldKeys = (record: Record<string, unknown>): string[] => bag().customFieldKeys(record);
+export const firstName = (fullName: unknown): string => bag().firstName(fullName);
+export const hashString = (value: unknown): number => bag().hashString(value);
+export const distributeOwners = (count: number, users: readonly string[], mode: OwnerStrategy, rng?: (index: number) => number): string[] => bag().distributeOwners(count, users, mode, rng);
 
-export type { PhoneVariants, DeriveEmailRule } from '../../sdk/utils';
+export type { PhoneVariants, DeriveEmailRule, OwnerStrategy } from '../../sdk/utils';
