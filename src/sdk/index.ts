@@ -16,9 +16,9 @@ export type { AuthStrategy, StrategyCache } from './core/strategy';
 export { Resource } from './resources/base';
 export * from './resources/gen_enums';
 export * from './store';
-export { Dispatch } from './domain/dispatch/dispatch';
-export { MassDispatch } from './domain/dispatch/mass-dispatch';
-export { buildXlsx } from './domain/dispatch/xlsx';
+export { HabllaDomain, Dispatch, MassDispatch, buildXlsx } from './domain';
+export { xlsxToRows, parseSharedStrings, parseWorksheet, pickWorksheetName } from './utils';
+export type { XlsxParts } from './utils';
 export type {
     DispatchSpec,
     DispatchPersonSpec,
@@ -33,4 +33,4 @@ export type {
     MassDispatchLedgerEntry,
     MassDispatchResult,
     DispatchLedger,
-} from './domain/dispatch/types';
+} from './domain';

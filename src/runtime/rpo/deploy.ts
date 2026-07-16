@@ -34,6 +34,7 @@ const CLASS_ORDER = [
     'W_Utils',
     'W_Cache',
     'W_HabllaClient',
+    'W_HabllaDomain',
 ] as const;
 
 interface WorkspaceClass {

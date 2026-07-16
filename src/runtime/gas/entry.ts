@@ -1,7 +1,9 @@
 import { HabllaClient } from '../../sdk/client';
+import { HabllaDomain } from '../../sdk/domain';
 import type { HabllaVariables } from '../../sdk/variables';
 import type { AuthStrategy } from '../../sdk/core/strategy';
 import { HabllaStore, STORE_SCHEMAS } from '../../sdk/store';
+import * as utils from '../../sdk/utils';
 import { UrlFetchTransport } from './transport';
 import { PropertiesStrategyCache } from './properties-strategy-cache';
 import { SpreadsheetTableStore } from './spreadsheet-table-store';
@@ -30,6 +32,7 @@ const SET_TIMEOUT_CAP_MS = 15000;
 interface GasGlobal {
     HABLLA_ENV?: Partial<HabllaVariables>;
     hablla?: HabllaClient;
+    habllaDomain?: HabllaDomain;
     Hablla?: unknown;
     Promise?: unknown;
     setTimeout?: unknown;
@@ -230,13 +233,17 @@ export function installHabllaClient(): HabllaClient {
         strategyCache: new PropertiesStrategyCache(),
     });
     const g = globalThis as unknown as GasGlobal;
+    const domain = new HabllaDomain(client);
     g.hablla = client;
+    g.habllaDomain = domain;
     g.Hablla = {
         client,
+        domain,
         runSync,
         unwrap,
         getAll: makeGetAll(client, vars.baseUrl ?? 'https://api.hablla.com', vars.workspaceId),
         store: makeStore(),
+        utils,
     };
     return client;
 }

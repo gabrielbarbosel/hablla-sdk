@@ -22,3 +22,5 @@ export type { PhoneVariants } from './formats/phone';
 export { isEmail, deriveEmail } from './formats/email';
 export type { DeriveEmailRule } from './formats/email';
 export { customFieldKeys } from './formats/hablla';
+export { xlsxToRows, parseSharedStrings, parseWorksheet, pickWorksheetName } from './formats/xlsx';
+export type { XlsxParts } from './formats/xlsx';

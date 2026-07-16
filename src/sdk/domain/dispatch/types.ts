@@ -326,6 +326,69 @@ export interface MassDispatchResult {
     guard?: AttendanceGuardReport;
 }
 
+/**
+ * One contact for {@link FlowDispatch.dispatchByFlow}. Only `phone` and `name` are
+ * required; the rest feed the fixed/variable/extra columns of the audience sheet the
+ * flow engine reads.
+ */
+export interface FlowDispatchContact {
+    phone: string;
+    name: string;
+    /** código do assessor por linha (coluna fixa `userId`) que o motor do fluxo usa p/ resolver o dono */
+    advisorCode?: string;
+    /** valores das variáveis do template em ordem {{1}}..{{n}}, alinhados a config.variableColumns por índice */
+    variables?: string[];
+    /** colunas extras (email, cf_<id>) por header */
+    extras?: Record<string, string>;
+}
+
+/**
+ * Contract for {@link FlowDispatch.dispatchByFlow}. The caller (the Apps Script bridge)
+ * resolves every consumer-specific value (advisors, custom-field ids, finish reason) and
+ * hands them over already serialized; the domain stays agnostic and only lays them out.
+ */
+export interface FlowDispatchConfig {
+    connectionId: string;
+    templateId: string;
+    sectorId: string;
+    flowId: string;
+    name?: string;
+    /** políticas por-linha que o motor lê (strings opacas p/ o SDK): on_atendimento */
+    onAttendance: string;
+    /** on_sem_cadastro */
+    onMissingContact: string;
+    /** valores das config columns já resolvidos pelo caller (consumer-specific — NÃO resolvidos aqui) */
+    xpFieldId?: string;
+    tag?: string;
+    /** advisors_json já serializado pelo caller */
+    advisorsJson?: string;
+    /** var_need */
+    templateVarCount: number;
+    finishReasonId?: string;
+    /** headers das colunas de variável em ordem (ex.: ['var1','var2']) */
+    variableColumns: string[];
+    /** headers das colunas extras em ordem, após as vars (ex.: ['email','cf_x']) */
+    extraColumns: string[];
+    ownerDistribution?: { strategy: OwnerStrategy; owners: string[] };
+    suppressPhones?: string[];
+    defaultDdi?: string;
+    /** seam de rng p/ 'aleatorio' (isolate-safe); default = hash do telefone */
+    rng?: (index: number) => number;
+}
+
+/** What {@link FlowDispatch.dispatchByFlow} returns. */
+export interface FlowDispatchResult {
+    campaignId?: string;
+    /** linhas enviadas (pós-supressão) */
+    imported: number;
+    /** contatos recebidos antes da supressão */
+    received: number;
+    /** contatos descartados por supressão */
+    suppressed: number;
+    /** owner id → nº de contatos */
+    ownerMap: Record<string, number>;
+}
+
 /** What {@link Dispatch.run} returns for one contact. `assessor` is the advisor name (observability). */
 export interface DispatchResult {
     status: DispatchStatus;

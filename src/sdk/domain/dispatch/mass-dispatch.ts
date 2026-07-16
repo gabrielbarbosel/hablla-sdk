@@ -27,10 +27,10 @@ const GUARD_MAX_PAGES = 200;
 
 /**
  * The "Primeiro Nome" person custom field the first-name personalization writes to.
- * `fallbackId` is the id observed in the target workspace; the orchestrator prefers
- * the live id it resolves and only falls back to this expectation.
+ * The orchestrator resolves the live id per workspace (list, else create); it never
+ * assumes a specific id, so the SDK stays free of any one workspace's object ids.
  */
-const FIRST_NAME_FIELD = { name: 'Primeiro Nome', stdName: 'cf_primeiro_nome', type: 'string', target: 'person', fallbackId: '6a58642a4d7c0aa11db4d93e' };
+const FIRST_NAME_FIELD = { name: 'Primeiro Nome', stdName: 'cf_primeiro_nome', type: 'string', target: 'person' };
 const CUSTOM_FIELD_PAGE_LIMIT = 50;
 const CUSTOM_FIELD_MAX_PAGES = 40;
 
@@ -208,8 +208,9 @@ export class MassDispatch {
 
     /**
      * Resolves the "Primeiro Nome" person custom field, creating it (type `string`) if
-     * it does not exist. Prefers the live id it finds over the hardcoded fallback, so a
-     * workspace that recreated the field still lands on the right one.
+     * it does not exist. Always uses the live id from this workspace; throws if neither
+     * the listing nor the creation yields one, since personalization can't proceed
+     * without a real field id.
      */
     async ensureFirstNameField(): Promise<{ id: string; stdName: string; type: string }> {
         for (let page = 1; page <= CUSTOM_FIELD_MAX_PAGES; page++) {
@@ -229,7 +230,10 @@ export class MassDispatch {
             type: FIRST_NAME_FIELD.type,
             target: FIRST_NAME_FIELD.target,
         });
-        return { id: created?.id ?? FIRST_NAME_FIELD.fallbackId, stdName: FIRST_NAME_FIELD.stdName, type: FIRST_NAME_FIELD.type };
+        if (!created?.id) {
+            throw new Error(`Could not resolve the "${FIRST_NAME_FIELD.name}" custom field id (list and create both returned none); first-name personalization cannot proceed.`);
+        }
+        return { id: created.id, stdName: FIRST_NAME_FIELD.stdName, type: FIRST_NAME_FIELD.type };
     }
 
     /**

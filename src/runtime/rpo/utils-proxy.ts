@@ -1,4 +1,4 @@
-import type { PhoneVariants, DeriveEmailRule, OwnerStrategy } from '../../sdk/utils';
+import type { PhoneVariants, DeriveEmailRule, OwnerStrategy, XlsxParts } from '../../sdk/utils';
 
 /**
  * RPO-only stand-in for the utils barrel. In the deployed client the utils live in
@@ -22,5 +22,9 @@ export const customFieldKeys = (record: Record<string, unknown>): string[] => ba
 export const firstName = (fullName: unknown): string => bag().firstName(fullName);
 export const hashString = (value: unknown): number => bag().hashString(value);
 export const distributeOwners = (count: number, users: readonly string[], mode: OwnerStrategy, rng?: (index: number) => number): string[] => bag().distributeOwners(count, users, mode, rng);
+export const xlsxToRows = (parts: XlsxParts): string[][] => bag().xlsxToRows(parts);
+export const parseSharedStrings = (xml: string): string[] => bag().parseSharedStrings(xml);
+export const parseWorksheet = (xml: string, shared: readonly string[]): string[][] => bag().parseWorksheet(xml, shared);
+export const pickWorksheetName = (names: readonly string[]): string | null => bag().pickWorksheetName(names);
 
-export type { PhoneVariants, DeriveEmailRule, OwnerStrategy } from '../../sdk/utils';
+export type { PhoneVariants, DeriveEmailRule, OwnerStrategy, XlsxParts } from '../../sdk/utils';

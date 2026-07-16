@@ -12,12 +12,14 @@ const ROOT = path.resolve(__dirname, '..');
 // se identifique (auditoria de "o que está vivo" e alvo do pin do consumidor).
 const PKG_VERSION = require(path.join(ROOT, 'package.json')).version;
 const CLIENT_ENTRY = path.join(ROOT, 'src', 'runtime', 'rpo', 'entry.ts');
+const DOMAIN_ENTRY = path.join(ROOT, 'src', 'runtime', 'rpo', 'domain-entry.ts');
 const UTILS_ENTRY = path.join(ROOT, 'src', 'runtime', 'rpo', 'utils-entry.ts');
 const UTILS_PROXY = path.join(ROOT, 'src', 'runtime', 'rpo', 'utils-proxy.ts');
 const UTILS_DIR = path.join(ROOT, 'src', 'sdk', 'utils');
 const CACHE_ENTRY = path.join(ROOT, 'src', 'runtime', 'rpo', 'cache-entry.ts');
 
 const CLIENT_OUT = path.join(ROOT, 'assets', 'rpo', 'W_HabllaClient.js');
+const DOMAIN_OUT = path.join(ROOT, 'assets', 'rpo', 'W_HabllaDomain.js');
 const UTILS_OUT = path.join(ROOT, 'assets', 'rpo', 'W_Utils.js');
 const CACHE_OUT = path.join(ROOT, 'assets', 'rpo', 'W_Cache.js');
 
@@ -89,6 +91,14 @@ async function main() {
     const clientClass = wrap('W_HabllaClient', '__W_HABLLACLIENT_INSTALLED__', clientIife);
     fs.writeFileSync(CLIENT_OUT, clientClass, 'utf8');
     console.log('Gerado', CLIENT_OUT, `(${clientClass.length} bytes)`);
+
+    // A camada de domínio (nossa lógica: dispatch/mass-dispatch) sai FORA do client.
+    // O bundle externaliza o client (importado só como tipo → nunca entra) e as utils
+    // (redirecionadas ao global). Lê globalThis.hablla e publica globalThis.habllaDomain.
+    const domainIife = await bundle(DOMAIN_ENTRY, [redirectUtilsToGlobal]);
+    const domainClass = wrap('W_HabllaDomain', '__W_HABLLADOMAIN_INSTALLED__', domainIife);
+    fs.writeFileSync(DOMAIN_OUT, domainClass, 'utf8');
+    console.log('Gerado', DOMAIN_OUT, `(${domainClass.length} bytes)`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

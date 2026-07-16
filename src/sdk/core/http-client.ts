@@ -29,6 +29,12 @@ export interface RequestOptions {
     body?: unknown;
     headers?: Record<string, string>;
     contentType?: string;
+    /**
+     * Fixa a estratégia de auth desta chamada (autoritativa): pula o probe
+     * workspace-first, o fallback 401/403 e a gravação no cache. Usado por POSTs que só
+     * funcionam em Bearer (ex.: campaigns/sheet).
+     */
+    strategy?: AuthStrategy;
 }
 
 export interface HttpClientConfig {
@@ -150,11 +156,15 @@ export class HabllaHttpClient {
         const serialize = opts.queryFormat === 'json' ? serializeQueryJson : serializeQuery;
         const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serialize(opts.query);
         const cacheKey = `${method}:${rawPath}`;
-        const primary = await this.auth.resolveStrategy(cacheKey);
+        const forced = opts.strategy;
+        const primary = forced ?? await this.auth.resolveStrategy(cacheKey);
 
         const idempotent = method === 'GET' || method === 'HEAD';
         let res = await this.send<T>(method, url, opts, primary);
-        if (res.status < 300) {
+        if (forced) {
+            // Autoritativo: exatamente 1 send com a estratégia fixa — sem probe, sem
+            // fallback 401/403 e sem gravar no cache (não polui o strategy map).
+        } else if (res.status < 300) {
             await this.auth.recordStrategy(cacheKey, primary);
         } else if (res.status === 401 || res.status === 403) {
             const alternate: AuthStrategy = primary === 'workspace' ? 'bearer' : 'workspace';
