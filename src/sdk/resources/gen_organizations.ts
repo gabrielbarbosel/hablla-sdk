@@ -31,7 +31,7 @@ export class Organizations extends Resource {
      * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove
      * @remarks Any query params may be sent (none documented).
      */
-    remove(organizationId: string, body: Partial<Organization>, opts: { query?: Record<string, unknown> } = {}): Promise<Organization> {
+    removePinnedPerson(organizationId: string, body: Partial<Organization>, opts: { query?: Record<string, unknown> } = {}): Promise<Organization> {
         return this.http.patch('/v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove', { path: { organization_id: organizationId }, body, query: opts.query });
     }
 

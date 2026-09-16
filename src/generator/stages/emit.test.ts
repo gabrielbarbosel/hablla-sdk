@@ -1,7 +1,11 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { describe, it, expect } from 'vitest';
 
 import type { OpenApiSpec } from '../extract';
-import { groupResources } from './emit';
+import { readPublishedMethodNames } from './diff';
+import { emitAll, groupResources } from './emit';
 
 const HISTORY_PATH = '/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/history';
 const NEIGHBOUR_PATH = '/v1/workspaces/{workspace_id}/reports/alloy-reports/workspace-users/history';
@@ -42,5 +46,42 @@ describe('groupResources method naming', () => {
         const names = namesByPath(reportsSpec([[HISTORY_PATH, 'getPlanHistory'], [NEIGHBOUR_PATH, 'getUserHistory']]), published);
         expect(new Set(Object.values(names)).size).toBe(2);
         expect(names[HISTORY_PATH]).toBe('getHistory');
+    });
+});
+
+const GENERATOR_DIR = path.resolve(__dirname, '..');
+const RESOURCES_DIR = path.resolve(GENERATOR_DIR, '..', 'sdk', 'resources');
+const PIN_PERSON_REMOVE = 'PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove';
+
+/** Emit the committed spec into a scratch directory, pinning the given published names. */
+function emitCommittedSpec(publishedNames: Map<string, Map<string, string>>): string {
+    const spec = JSON.parse(fs.readFileSync(path.join(GENERATOR_DIR, 'openapi.json'), 'utf8')) as OpenApiSpec;
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hablla-emit-'));
+    emitAll(spec, outDir, publishedNames);
+    return outDir;
+}
+
+describe('regenerating the committed SDK', () => {
+    it('reproduces every committed resource file byte for byte', () => {
+        const outDir = emitCommittedSpec(readPublishedMethodNames(RESOURCES_DIR));
+        try {
+            const committed = fs.readdirSync(RESOURCES_DIR).filter((file) => file.startsWith('gen_')).sort();
+            expect(fs.readdirSync(outDir).filter((file) => file.startsWith('gen_')).sort()).toEqual(committed);
+            for (const file of committed) expect(fs.readFileSync(path.join(outDir, file), 'utf8')).toBe(fs.readFileSync(path.join(RESOURCES_DIR, file), 'utf8'));
+        } finally {
+            fs.rmSync(outDir, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps organizations.removePinnedPerson only because it is published', () => {
+        const pinned = readPublishedMethodNames(RESOURCES_DIR);
+        expect(pinned.get('organizations')?.get(PIN_PERSON_REMOVE)).toBe('removePinnedPerson');
+
+        const outDir = emitCommittedSpec(new Map());
+        try {
+            expect(readPublishedMethodNames(outDir).get('organizations')?.get(PIN_PERSON_REMOVE)).not.toBe('removePinnedPerson');
+        } finally {
+            fs.rmSync(outDir, { recursive: true, force: true });
+        }
     });
 });

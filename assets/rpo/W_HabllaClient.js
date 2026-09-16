@@ -3373,7 +3373,7 @@ class W_HabllaClient {
      * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove
      * @remarks Any query params may be sent (none documented).
      */
-    remove(organizationId, body, opts = {}) {
+    removePinnedPerson(organizationId, body, opts = {}) {
       return this.http.patch("/v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove", { path: { organization_id: organizationId }, body, query: opts.query });
     }
     /**
