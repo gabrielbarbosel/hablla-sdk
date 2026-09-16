@@ -10,14 +10,19 @@
  *             as a pull request.
  *   publish — on `main` only, for additive/changed runs: commit
  *             {@link RELEASE_PATHS}, create the annotated tag and push.
+ *   tag     — on `main` only, after any push: create and push the annotated tag
+ *             of the `package.json` version on the commit that introduced it,
+ *             unless the remote already has it. This is how a merged breaking
+ *             pull request gets its tag.
  *   paths   — print {@link RELEASE_PATHS}, one per line (the PR step stages the same set).
  *
- * Every decision is a pure function of the report and the current version — no
- * LLM, no network, no randomness.
+ * Every decision is a pure function of the report, the current version and the
+ * git history — no LLM, no randomness.
  *
  * Usage:
  *   node scripts/release.mjs prepare [--report=generation-report.json]
  *   node scripts/release.mjs publish [--report=generation-report.json]
+ *   node scripts/release.mjs tag
  *   node scripts/release.mjs paths
  */
 
@@ -99,6 +104,19 @@ export function applyBump(version, bump) {
 export function withLockVersion(lock, version) {
     if (!lock.packages?.['']) throw new Error('package-lock.json has no root package entry');
     return { ...lock, version, packages: { ...lock.packages, '': { ...lock.packages[''], version } } };
+}
+
+/**
+ * The commit that introduced a version: the oldest revision of the newest-first
+ * run of `package.json` revisions that all carry it.
+ * @param {{ sha: string, version: string }[]} revisions `package.json` revisions, newest first.
+ * @param {string} version The version to locate.
+ * @returns {string} The commit sha.
+ */
+export function findVersionCommit(revisions, version) {
+    if (revisions[0]?.version !== version) throw new Error(`the latest package.json revision does not carry version ${version}`);
+    const firstOlderVersion = revisions.findIndex((revision) => revision.version !== version);
+    return revisions[firstOlderVersion === -1 ? revisions.length - 1 : firstOlderVersion - 1].sha;
 }
 
 /** Title line every CHANGELOG starts with. */
@@ -192,11 +210,16 @@ function prepare(reportPath) {
     console.log(`[release] prepared ${report.classification}: ${currentVersion} -> ${nextVersion} (${bump})`);
 }
 
+/** Fail unless the checkout is on the release branch. */
+function requireReleaseBranch() {
+    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+    if (branch !== RELEASE_BRANCH) throw new Error(`releases are published from ${RELEASE_BRANCH} only (current: ${branch})`);
+}
+
 /** Commit the prepared release, tag it and push; only from the release branch. */
 function publish(reportPath) {
     const report = requireReport(reportPath, PUBLISHABLE);
-    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
-    if (branch !== RELEASE_BRANCH) throw new Error(`releases are published from ${RELEASE_BRANCH} only (current: ${branch})`);
+    requireReleaseBranch();
 
     const tag = `v${readJson('package.json').version}`;
     requireFreshTag(tag);
@@ -211,14 +234,37 @@ function publish(reportPath) {
     console.log(`[release] pushed commit + ${tag}.`);
 }
 
+/** `package.json` revisions along the release branch's first-parent line, newest first. */
+function packageJsonRevisions() {
+    const commits = git(['log', '--first-parent', '--format=%H', '--', 'package.json']).split('\n').filter(Boolean);
+    return commits.map((sha) => ({ sha, version: JSON.parse(git(['show', `${sha}:package.json`])).version }));
+}
+
+/** Tag the current version on the commit that introduced it, when the remote does not have the tag yet. */
+function tagCurrentVersion() {
+    requireReleaseBranch();
+    const version = readJson('package.json').version;
+    const tag = `v${version}`;
+    if (git(['ls-remote', '--tags', 'origin', `refs/tags/${tag}`])) {
+        console.log(`[release] ${tag} already exists on origin; nothing to tag.`);
+        return;
+    }
+    const commit = findVersionCommit(packageJsonRevisions(), version);
+    ensureGitIdentity();
+    git(['tag', '-a', tag, '-m', `${tag} (release)`, commit]);
+    git(['push', 'origin', `refs/tags/${tag}`]);
+    console.log(`[release] pushed ${tag} on ${commit}.`);
+}
+
 /** CLI entry. */
 function main() {
     const { command, flags } = parseCommandLine(process.argv.slice(2), ['report']);
     const reportPath = path.resolve(REPO_ROOT, flags.report ?? 'generation-report.json');
     if (command === 'prepare') prepare(reportPath);
     else if (command === 'publish') publish(reportPath);
+    else if (command === 'tag') tagCurrentVersion();
     else if (command === 'paths') process.stdout.write(`${RELEASE_PATHS.join('\n')}\n`);
-    else throw new Error(`unknown command: ${command} (expected prepare | publish | paths)`);
+    else throw new Error(`unknown command: ${command} (expected prepare | publish | tag | paths)`);
 }
 
 if (isEntryPoint(import.meta.url)) {

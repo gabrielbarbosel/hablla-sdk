@@ -13,6 +13,11 @@
 # issue labelled codegen+failure, or comments on the one already open. Releases
 # and PRs only happen on main. Every text (CHANGELOG, PR body, issue) is rendered
 # deterministically from the report by scripts/codegen-summary.mjs.
+#
+# Every push to main that touches package.json runs the tag job instead: it tags
+# the package.json version (vX.Y.Z, annotated) on the commit that introduced it
+# when origin does not have that tag yet. That is how a merged breaking PR gets
+# released; re-runs and already-tagged versions change nothing.
 # ---------------------------------------------------------------------------
 name: codegen
 
@@ -20,22 +25,45 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: [package.json]
 
 permissions:
   contents: write
   pull-requests: write
   issues: write
 
-concurrency:
-  group: codegen
-  cancel-in-progress: false
-
 env:
   REPORT: generation-report.json
 
 jobs:
-  codegen:
+  tag:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: codegen-tag
+      cancel-in-progress: false
+    steps:
+      - name: Checkout (full history, tags included)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Tag the package.json version when missing
+        run: node scripts/release.mjs tag
+
+  codegen:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: codegen
+      cancel-in-progress: false
     steps:
       - name: Checkout (full history, tags included)
         id: checkout
