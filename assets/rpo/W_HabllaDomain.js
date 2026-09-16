@@ -969,6 +969,7 @@ class W_HabllaDomain {
       throw new Error("W_HabllaDomain: globalThis.hablla ausente — W_HabllaClient precisa rodar antes.");
     }
     const domain = new HabllaDomain(client);
+    client.dispatch = domain.dispatch;
     g.habllaDomain = domain;
     return domain;
   }

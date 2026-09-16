@@ -1,8 +1,16 @@
 import type { HabllaClient } from '../../sdk/client';
 import { HabllaDomain } from '../../sdk/domain';
+import type { Dispatch } from '../../sdk/domain';
+
+/**
+ * The client as flow code nodes written for SDK v0.1.x see it: the client itself
+ * carried the per-contact dispatcher (`hablla.dispatch.run`), removed from the pure
+ * client in v0.2.0.
+ */
+type LegacyHabllaClient = HabllaClient & { dispatch?: Dispatch };
 
 interface RpoGlobal {
-    hablla?: HabllaClient;
+    hablla?: LegacyHabllaClient;
     habllaDomain?: HabllaDomain;
 }
 
@@ -16,6 +24,12 @@ interface RpoGlobal {
  * `globalThis.HABLLA_UTILS` by the build, exactly as in the client bundle. The deploy
  * order (`W_HabllaClient` before `W_HabllaDomain`) guarantees `globalThis.hablla` is
  * already set when this runs.
+ *
+ * Compatibility facade: `hablla.dispatch` is re-exposed as the very same
+ * {@link Dispatch} instance as `habllaDomain.dispatch`, so live code nodes calling
+ * `hablla.dispatch.run(input, spec)` keep working across the v0.1.x → v0.2.x deploy
+ * (`Dispatch.run` is unchanged since v0.1.5). It lives in the RPO runtime only — the
+ * SDK client stays pure. Remove it once no live code node references `hablla.dispatch`.
  */
 export function installHabllaDomain(): HabllaDomain {
     const g = globalThis as unknown as RpoGlobal;
@@ -24,6 +38,7 @@ export function installHabllaDomain(): HabllaDomain {
         throw new Error('W_HabllaDomain: globalThis.hablla ausente — W_HabllaClient precisa rodar antes.');
     }
     const domain = new HabllaDomain(client);
+    client.dispatch = domain.dispatch;
     g.habllaDomain = domain;
     return domain;
 }
