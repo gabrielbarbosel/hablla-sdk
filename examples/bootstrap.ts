@@ -4,7 +4,7 @@
  * literals) and use the same object for BOTH the local client and the RPO deploy.
  * The `hablla` package never reads your environment; it only receives values.
  */
-import { createHabllaClient, deployToRpo, type HabllaVariables } from 'hablla';
+import { createHabllaClient, deployToRpo, extractHabllaReferences, type HabllaVariables } from 'hablla';
 
 const vars: HabllaVariables = {
     workspaceId: process.env.HABLLA_WORKSPACE_ID ?? '',
@@ -20,9 +20,11 @@ export async function listSomePersons() {
     return hablla.persons.listPersons({ query: { limit: 10 } });
 }
 
-// 2) Deploy the RPO with the SAME variables (preview first, then upload).
-export async function deploy() {
-    const plan = await deployToRpo(vars, { dryRun: true });
+// 2) Deploy the RPO with the SAME variables (preview first, then upload), refusing
+//    bundles that drop a hablla member the live flow code nodes still use.
+export async function deploy(liveCodeNodeSources: string[]) {
+    const liveClientMembers = liveCodeNodeSources.flatMap(extractHabllaReferences);
+    const plan = await deployToRpo(vars, { dryRun: true, liveClientMembers });
     console.log('RPO deploy plan:', plan);
-    // await deployToRpo(vars); // uncomment to actually upload + publish
+    // await deployToRpo(vars, { liveClientMembers }); // uncomment to actually upload + publish
 }
