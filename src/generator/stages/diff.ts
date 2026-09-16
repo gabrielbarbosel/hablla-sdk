@@ -10,14 +10,18 @@
  * /v2/...`) qualified by the resource that exposes it (the same route may live on
  * two classes), and its "signature" is the emitted method declaration line
  * (`name(args): Promise<T>`). Besides endpoints, the diff tracks every exported
- * symbol and every enum value, so a change that only touches `gen_enums.ts` or an
- * interface is never lost. Everything is read straight out of the `.ts` source —
- * no TypeScript program needed — so the diff is a pure function of the two file
+ * symbol, every enum value and every exported interface member (parsed through
+ * the AST), so a change that only touches `gen_enums.ts` or an interface is never
+ * lost. Everything is read straight out of the `.ts` source — no TypeScript
+ * program needed — so the diff is a pure function of the two file
  * trees and re-running on the same trees yields the same result.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+
+import { parse } from '@babel/parser';
+import type { Node, TSTypeElement } from '@babel/types';
 
 import { GuardResult } from './guard';
 
@@ -36,6 +40,14 @@ export interface ChangedSignature {
     after: string;
 }
 
+/** An interface member whose declaration differs between the current tree and the staged tree. */
+export interface ChangedMember {
+    /** `file#Interface.member`. */
+    member: string;
+    before: string;
+    after: string;
+}
+
 /** The public-surface delta between two resource trees. */
 export interface ResourceDiff {
     /** Endpoints (`VERB /path (resource)`) only present in the staged tree. */
@@ -50,6 +62,10 @@ export interface ResourceDiff {
     removedExports: string[];
     /** Enum values (`Enum.value`) that vanished from an enum that still exists. */
     removedEnumValues: string[];
+    /** Members (`file#Interface.member`) that vanished from an exported interface that still exists. */
+    removedMembers: string[];
+    /** Members whose declaration changed: type, optionality or modifiers. */
+    retypedMembers: ChangedMember[];
     addedFiles: string[];
     removedFiles: string[];
     /** Files present in both trees whose content differs. */
@@ -58,7 +74,7 @@ export interface ResourceDiff {
 
 /** A diff with no change at all, for reports written before a diff could be computed. */
 export function emptyDiff(): ResourceDiff {
-    return { addedEndpoints: [], removedEndpoints: [], changedSignatures: [], extendedSignatures: [], removedExports: [], removedEnumValues: [], addedFiles: [], removedFiles: [], changedFiles: [] };
+    return { addedEndpoints: [], removedEndpoints: [], changedSignatures: [], extendedSignatures: [], removedExports: [], removedEnumValues: [], removedMembers: [], retypedMembers: [], addedFiles: [], removedFiles: [], changedFiles: [] };
 }
 
 /** The release classifications, in descending severity. */
@@ -157,6 +173,45 @@ export function parseEnumValues(source: string): Map<string, string[]> {
         enums.set(block[1]!, [...block[2]!.matchAll(/code: '([^']*)'/g)].map((value) => value[1]!));
     }
     return enums;
+}
+
+/** A declaration's source text with whitespace collapsed and the trailing member separator dropped. */
+function declarationText(source: string, node: Node): string {
+    return source.slice(node.start!, node.end!).replace(/\s+/g, ' ').replace(/[;,]$/, '').trim();
+}
+
+/** The name a member is addressed by: its key, or its whole declaration when it has none (index and call signatures). */
+function memberName(source: string, member: TSTypeElement): string {
+    if ('key' in member && !member.computed) {
+        if (member.key.type === 'Identifier') return member.key.name;
+        if (member.key.type === 'StringLiteral') return member.key.value;
+    }
+    return declarationText(source, member);
+}
+
+/**
+ * Parse the members of every exported interface of a source file, through the AST.
+ * @param source The `.ts` source of one generated file.
+ * @returns interface name -> (member name -> its normalized declaration, e.g. `status?: OrganizationStatusCode`).
+ */
+export function parseInterfaceMembers(source: string): Map<string, Map<string, string>> {
+    const interfaces = new Map<string, Map<string, string>>();
+    for (const statement of parse(source, { sourceType: 'module', plugins: ['typescript'] }).program.body) {
+        if (statement.type !== 'ExportNamedDeclaration' || statement.declaration?.type !== 'TSInterfaceDeclaration') continue;
+        const members = new Map<string, string>();
+        for (const member of statement.declaration.body.body) members.set(memberName(source, member), declarationText(source, member));
+        interfaces.set(statement.declaration.id.name, members);
+    }
+    return interfaces;
+}
+
+/** `file#Interface` -> members across every `gen_*.ts` of a tree. */
+function interfaceMembers(dir: string): Map<string, Map<string, string>> {
+    const byInterface = new Map<string, Map<string, string>>();
+    for (const file of listGenFiles(dir)) {
+        for (const [name, members] of parseInterfaceMembers(readNormalized(dir, file))) byInterface.set(`${file}#${name}`, members);
+    }
+    return byInterface;
 }
 
 /** Enum name -> values of a tree's `gen_enums.ts` (empty when absent). */
@@ -281,6 +336,20 @@ export function diffResources(stagingDir: string, currentDir: string): ResourceD
         for (const value of values) if (!kept.includes(value)) removedEnumValues.push(`${name}.${value}`);
     }
 
+    const stagingInterfaces = interfaceMembers(stagingDir);
+    const removedMembers: string[] = [];
+    const retypedMembers: ChangedMember[] = [];
+    for (const [owner, members] of interfaceMembers(currentDir)) {
+        const kept = stagingInterfaces.get(owner);
+        if (!kept) continue;
+        for (const [name, before] of members) {
+            const after = kept.get(name);
+            const member = `${owner}.${name}`;
+            if (after === undefined) removedMembers.push(member);
+            else if (after !== before) retypedMembers.push({ member, before, after });
+        }
+    }
+
     const stagingFiles = listGenFiles(stagingDir);
     const currentFiles = listGenFiles(currentDir);
     const currentSet = new Set(currentFiles);
@@ -294,6 +363,8 @@ export function diffResources(stagingDir: string, currentDir: string): ResourceD
         extendedSignatures: extendedSignatures.sort(bySignatureEndpoint),
         removedExports: removedExports.sort(),
         removedEnumValues: removedEnumValues.sort(),
+        removedMembers: removedMembers.sort(),
+        retypedMembers: retypedMembers.sort((x, y) => (x.member < y.member ? -1 : 1)),
         addedFiles: stagingFiles.filter((file) => !currentSet.has(file)),
         removedFiles: currentFiles.filter((file) => !stagingSet.has(file)),
         changedFiles: stagingFiles.filter((file) => currentSet.has(file) && readNormalized(stagingDir, file) !== readNormalized(currentDir, file)),
@@ -305,19 +376,22 @@ export function diffResources(stagingDir: string, currentDir: string): ResourceD
  *
  * - `failure`  — a guard tripped; nothing may be promoted.
  * - `breaking` — a consumer's code can stop compiling: an endpoint, exported
- *   symbol or enum value vanished, or a signature changed incompatibly.
+ *   symbol, enum value or interface member vanished, an interface member's
+ *   declaration changed (type, optionality, modifiers), or a signature changed
+ *   incompatibly.
  * - `additive` — new surface only: endpoints, resource files, or optional query
  *   keys on existing signatures.
- * - `changed`  — generated content differs with no endpoint change (new enum
- *   values or types, interface fields, docs). Never dropped as `noop`: it is
- *   released like an additive change (a patch bump).
+ * - `changed`  — generated content differs with nothing above (new enum values,
+ *   new interface members, docs, type aliases other than the enum-derived ones,
+ *   which are not analysed). Never dropped as `noop`: it is released like an
+ *   additive change (a patch bump).
  * - `noop`     — the staged tree is identical to the live one.
  * @param guards The guard verdict.
  * @param diff The resource diff.
  */
 export function classify(guards: GuardResult, diff: ResourceDiff): Classification {
     if (!guards.ok) return 'failure';
-    if (diff.removedEndpoints.length || diff.changedSignatures.length || diff.removedExports.length || diff.removedEnumValues.length) return 'breaking';
+    if (diff.removedEndpoints.length || diff.changedSignatures.length || diff.removedExports.length || diff.removedEnumValues.length || diff.removedMembers.length || diff.retypedMembers.length) return 'breaking';
     if (diff.addedEndpoints.length || diff.addedFiles.length || diff.extendedSignatures.length) return 'additive';
     if (diff.changedFiles.length || diff.removedFiles.length) return 'changed';
     return 'noop';

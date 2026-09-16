@@ -49,12 +49,13 @@ function section(title, bullets) {
 }
 
 /**
- * Bullets for signature pairs, showing both declarations.
- * @param {{ endpoint: string, before: string, after: string }[]} signatures
+ * Bullets for before/after pairs, showing both declarations under their subject.
+ * @param {{ before: string, after: string }[]} changes
+ * @param {(change: object) => string} subjectOf The endpoint or member a change is about.
  * @returns {string[]}
  */
-function signatureBullets(signatures) {
-    return signatures.map(({ endpoint, before, after }) => `\`${endpoint}\`\n  - before: \`${before}\`\n  - after: \`${after}\``);
+function beforeAfterBullets(changes, subjectOf) {
+    return changes.map((change) => `\`${subjectOf(change)}\`\n  - before: \`${change.before}\`\n  - after: \`${change.after}\``);
 }
 
 /**
@@ -81,11 +82,13 @@ export function renderChangeSummary(report) {
         '',
         ...section('Guard reasons', report.guards.reasons),
         ...section('Removed endpoints', diff.removedEndpoints.map(code)),
-        ...section('Incompatible signature changes', signatureBullets(diff.changedSignatures)),
+        ...section('Incompatible signature changes', beforeAfterBullets(diff.changedSignatures, (change) => change.endpoint)),
         ...section('Removed exports', diff.removedExports.map(code)),
         ...section('Removed enum values', diff.removedEnumValues.map(code)),
+        ...section('Removed interface members', diff.removedMembers.map(code)),
+        ...section('Retyped interface members', beforeAfterBullets(diff.retypedMembers, (change) => change.member)),
         ...section('Added endpoints', diff.addedEndpoints.map(code)),
-        ...section('Extended signatures (new optional query keys)', signatureBullets(diff.extendedSignatures)),
+        ...section('Extended signatures (new optional query keys)', beforeAfterBullets(diff.extendedSignatures, (change) => change.endpoint)),
         ...section('Files', [
             ...diff.addedFiles.map((file) => `added ${code(file)}`),
             ...diff.removedFiles.map((file) => `removed ${code(file)}`),

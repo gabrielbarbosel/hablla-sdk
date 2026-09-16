@@ -14,6 +14,8 @@ function reportWith(classification, diff = {}, reasons = []) {
             extendedSignatures: [],
             removedExports: [],
             removedEnumValues: [],
+            removedMembers: [],
+            retypedMembers: [],
             addedFiles: [],
             removedFiles: [],
             changedFiles: [],
@@ -58,6 +60,17 @@ describe('renderChangeSummary', () => {
             changedSignatures: [{ endpoint: 'GET /v1/tags (tags)', before: 'listTags(): Promise<A>', after: 'listTags(): Promise<B>' }],
         }));
         expect(summary).toContain('- `GET /v1/tags (tags)`\n  - before: `listTags(): Promise<A>`\n  - after: `listTags(): Promise<B>`');
+    });
+
+    it('lists removed and retyped interface members with the breaking sections', () => {
+        const summary = renderChangeSummary(reportWith('breaking', {
+            addedEndpoints: ['GET /a (x)'],
+            removedMembers: ['gen_tags.ts#Tag.color'],
+            retypedMembers: [{ member: 'gen_tags.ts#Tag.status', before: 'status?: string', after: 'status?: TagStatusCode' }],
+        }));
+        expect(summary).toContain('### Removed interface members\n\n- `gen_tags.ts#Tag.color`');
+        expect(summary).toContain('- `gen_tags.ts#Tag.status`\n  - before: `status?: string`\n  - after: `status?: TagStatusCode`');
+        expect(summary.indexOf('### Retyped interface members')).toBeLessThan(summary.indexOf('### Added endpoints'));
     });
 
     it('is deterministic for the same report', () => {

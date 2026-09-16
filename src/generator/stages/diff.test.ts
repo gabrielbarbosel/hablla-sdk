@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, it, expect } from 'vitest';
 
-import { classify, diffResources, emptyDiff, isCompatibleExtension, parseEnumValues, readPublishedMethodNames, ResourceDiff } from './diff';
+import { classify, diffResources, emptyDiff, isCompatibleExtension, parseEnumValues, parseInterfaceMembers, readPublishedMethodNames, ResourceDiff } from './diff';
 import type { GuardResult } from './guard';
 
 const GUARDS_OK: GuardResult = { ok: true, anomaly: false, reasons: [], parseOk: true, uploads: 7 };
@@ -29,6 +29,11 @@ function enums(values: Record<string, string[]>): string {
     return Object.entries(values)
         .map(([name, codes]) => `export const ${name} = [\n${codes.map((code) => `    { code: '${code}' },`).join('\n')}\n] as const;\nexport type ${name}Code = (typeof ${name})[number]['code'];`)
         .join('\n\n');
+}
+
+/** A generated file exporting the `Tag` interface with the given member declarations. */
+function tagInterface(members: string[]): string {
+    return `export interface Tag {\n${members.map((member) => `    ${member}`).join('\n')}\n    [key: string]: unknown;\n}\n`;
 }
 
 const LIST_TAGS = "listTags(opts: { query?: { name?: string } & Record<string, unknown> } = {}): Promise<Paged<Tag>>";
@@ -114,6 +119,36 @@ describe('diffResources + classify', () => {
         expect(classify(GUARDS_OK, additive)).toBe('additive');
     });
 
+    it('classifies a removed interface member as breaking', () => {
+        const current = dirWith({ 'gen_tags.ts': tagInterface(['id: string;', 'color?: string;']) });
+        const staged = dirWith({ 'gen_tags.ts': tagInterface(['id: string;']) });
+        const diff = diffResources(staged, current);
+        expect(diff.removedMembers).toEqual(['gen_tags.ts#Tag.color']);
+        expect(diff.retypedMembers).toEqual([]);
+        expect(classify(GUARDS_OK, diff)).toBe('breaking');
+    });
+
+    it.each([
+        ['narrowed', 'status?: string;', 'status?: TagStatusCode;', 'status?: string', 'status?: TagStatusCode'],
+        ['made required', 'status?: string;', 'status: string;', 'status?: string', 'status: string'],
+        ['made optional', 'status: string;', 'status?: string;', 'status: string', 'status?: string'],
+    ])('classifies a member %s as breaking', (_label, beforeMember, afterMember, before, after) => {
+        const current = dirWith({ 'gen_tags.ts': tagInterface(['id: string;', beforeMember]) });
+        const staged = dirWith({ 'gen_tags.ts': tagInterface(['id: string;', afterMember]) });
+        const diff = diffResources(staged, current);
+        expect(diff.retypedMembers).toEqual([{ member: 'gen_tags.ts#Tag.status', before, after }]);
+        expect(classify(GUARDS_OK, diff)).toBe('breaking');
+    });
+
+    it('classifies a new interface member as changed', () => {
+        const current = dirWith({ 'gen_tags.ts': tagInterface(['id: string;']) });
+        const staged = dirWith({ 'gen_tags.ts': tagInterface(['id: string;', 'color?: string;']) });
+        const diff = diffResources(staged, current);
+        expect(diff.removedMembers).toEqual([]);
+        expect(diff.retypedMembers).toEqual([]);
+        expect(classify(GUARDS_OK, diff)).toBe('changed');
+    });
+
     it('lets a tripped guard win over any diff', () => {
         expect(classify({ ...GUARDS_OK, ok: false, anomaly: true }, emptyDiff())).toBe('failure');
     });
@@ -128,6 +163,24 @@ describe('readPublishedMethodNames', () => {
         const names = readPublishedMethodNames(dir);
         expect(names.get('root')?.get('GET /v1/workspaces')).toBe('getWorkspaces');
         expect(names.get('workspaces')?.get('GET /v1/workspaces')).toBe('listWorkspaces');
+    });
+});
+
+describe('parseInterfaceMembers', () => {
+    it('keys members by name, ignores doc-comments and non-exported interfaces', () => {
+        const source = [
+            'interface Hidden {\n    x: string;\n}',
+            "export interface Card {\n    /** Card id. */\n    id: string;\n    readonly 'due-date'?: string | null;\n    tags?: Array<{ id: string; name?: string }>;\n    [key: string]: unknown;\n}",
+            'export class Cards {}',
+        ].join('\n\n');
+        expect(parseInterfaceMembers(source)).toEqual(new Map([
+            ['Card', new Map([
+                ['id', 'id: string'],
+                ['due-date', "readonly 'due-date'?: string | null"],
+                ['tags', 'tags?: Array<{ id: string; name?: string }>'],
+                ['[key: string]: unknown', '[key: string]: unknown'],
+            ])],
+        ]));
     });
 });
 
