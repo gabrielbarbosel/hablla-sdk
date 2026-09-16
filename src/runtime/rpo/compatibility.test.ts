@@ -77,9 +77,56 @@ describe('extractHabllaReferences', () => {
         expect(extractHabllaReferences(source)).toEqual(['auth', 'persons.list', 'services.update']);
     });
 
-    it('ignores a local binding that shadows the global', () => {
+    it('reaches the global through self, window, top-level this and literal computed keys', () => {
+        expect(extractHabllaReferences('return globalThis["hablla"].a.b();')).toEqual(['a.b']);
+        expect(extractHabllaReferences('const g = globalThis; return g[`hablla`].a.b();')).toEqual(['a.b']);
+        expect(extractHabllaReferences('self.hablla.persons.list(); window.hablla.services.get();')).toEqual(['persons.list', 'services.get']);
+        expect(extractHabllaReferences('return this.hablla["persons"].update();')).toEqual(['persons.update']);
+    });
+
+    it('follows aliases of a member of the global down to the full path', () => {
+        const source = `
+            const p = hablla.persons;
+            p.removedMethod();
+            const d = globalThis.hablla.dispatch;
+            let run;
+            run = d.run;
+            return await run(input);
+        `;
+        expect(extractHabllaReferences(source)).toEqual(['dispatch.run', 'persons.removedMethod']);
+    });
+
+    it('resolves an alias in the scope it was written in, and discards nullish alternatives', () => {
+        const source = `
+            const h = hablla;
+            function call(hablla) { return h.persons.list(); }
+            const client = globalThis.hablla ?? null;
+            return client.services.get();
+        `;
+        expect(extractHabllaReferences(source)).toEqual(['persons.list', 'services.get']);
+    });
+
+    it('accepts presence tests on the global without recording them', () => {
+        const source = `
+            const h = globalThis.hablla;
+            if (!h) throw new Error("no client");
+            if (h === undefined || hablla !== h) return null;
+            const ready = hablla ? true : false;
+            hablla && hablla.persons.list();
+            return hablla.services.get();
+        `;
+        expect(extractHabllaReferences(source)).toEqual(['persons.list', 'services.get']);
+    });
+
+    it('ignores the member an assignment writes, keeping what it needs to exist', () => {
+        expect(extractHabllaReferences('hablla.cache = {}; globalThis.hablla.persons.lastQuery = q;')).toEqual(['persons']);
+    });
+
+    it('ignores local bindings that shadow the global, in any scope', () => {
         const source = `
             function run(hablla) { return hablla.anything.here(); }
+            try { work(); } catch (hablla) { hablla.message.trim(); }
+            { const hablla = { a: { b() {} } }; hablla.a.b(); }
             const other = { hablla: 1 };
             return run(other);
         `;
@@ -87,10 +134,18 @@ describe('extractHabllaReferences', () => {
     });
 
     it('fails loudly on usages it cannot verify', () => {
-        expect(() => extractHabllaReferences('return hablla[name].run();')).toThrow(/cannot be verified/);
-        expect(() => extractHabllaReferences('const { dispatch } = hablla; return dispatch.run();')).toThrow(/cannot be verified/);
-        expect(() => extractHabllaReferences('return helper(hablla);')).toThrow(/cannot be verified/);
-        expect(() => extractHabllaReferences('return globalThis.hablla;')).toThrow(/cannot be verified/);
+        const unverifiable = [
+            'return hablla[name].run();',
+            'return hablla.persons[method]();',
+            'return globalThis[key].persons.list();',
+            'const { dispatch } = hablla; return dispatch.run();',
+            'const { run } = hablla.dispatch; return run();',
+            'return helper(hablla);',
+            'return globalThis.hablla;',
+            'var h = hablla; var h = 1; return h.a.b();',
+            'function f() { return this.hablla.persons.list(); }',
+        ];
+        for (const source of unverifiable) expect(() => extractHabllaReferences(source), source).toThrow(/cannot be verified/);
     });
 
     it('rejects source that does not parse', () => {

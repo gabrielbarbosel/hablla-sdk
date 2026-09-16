@@ -1,28 +1,35 @@
 import { parse, type ParserOptions } from '@babel/parser';
-import type { Expression, Node } from '@babel/types';
+import type { Node } from '@babel/types';
 
 /**
  * Static compatibility analysis between the RPO bundles about to be published and
  * the live workspace code (flow code nodes) that consumes `globalThis.hablla`.
  *
  * Both sides are read through a Babel AST, never by text matching: comments and
- * strings mentioning `hablla` are ignored, aliases (`const h = globalThis.hablla`)
- * are followed, and any usage the analysis cannot pin down fails loudly instead of
- * being skipped. Members are addressed as dotted paths relative to the global, down
- * to two levels (`dispatch`, `dispatch.run`).
+ * strings mentioning `hablla` are ignored, lexical scopes are honored (a local
+ * `hablla` shadows the global), aliases of the global and of its members are
+ * followed, and any usage the analysis cannot pin down fails loudly instead of being
+ * skipped. Members are addressed as dotted paths relative to the global, down to two
+ * levels (`dispatch`, `dispatch.run`).
  */
 
 /** Name of the global the RPO client bundle publishes. */
 export const HABLLA_GLOBAL = 'hablla';
 
-/** Identifiers that denote the host global object inside the RPO sandbox. */
-const GLOBAL_OBJECT_NAMES: ReadonlySet<string> = new Set(['globalThis', 'global']);
+/** Free identifiers that denote the host global object. */
+const GLOBAL_OBJECT_NAMES: ReadonlySet<string> = new Set(['globalThis', 'global', 'self', 'window']);
 
 /** Deepest member path recorded under the global (`resource.method`). */
 const MEMBER_PATH_DEPTH = 2;
 
-/** Upper bound on identifier-alias hops, so a cyclic alias chain cannot recurse forever. */
-const MAX_ALIAS_HOPS = 32;
+/** Upper bound on the superclass chain walked per class, so a cyclic `extends` cannot loop forever. */
+const MAX_CLASS_LINEAGE_DEPTH = 32;
+
+/** Equality operators whose operands are only compared, never used as a value. */
+const EQUALITY_OPERATORS: ReadonlySet<string> = new Set(['===', '!==', '==', '!=']);
+
+/** Assignment operators that may store their right-hand side into the target. */
+const VALUE_STORING_OPERATORS: ReadonlySet<string> = new Set(['=', '||=', '&&=', '??=']);
 
 /** AST keys that hold positions, comments or metadata rather than child nodes. */
 const NON_CHILD_KEYS: ReadonlySet<string> = new Set([
@@ -40,12 +47,40 @@ const CODE_NODE_PARSER: ParserOptions = {
 /** Parser options for a published RPO class body (module-level `await new X().execute()`). */
 const BUNDLE_PARSER: ParserOptions = { sourceType: 'module' };
 
+/** One statically known value stored into a binding, with the scope chain its expression is evaluated in. */
+interface BindingValue {
+    expression: Node;
+    chain: ScopeChain;
+}
+
 /**
- * Lexical bindings of one function (or the program): name → initializer expression,
- * or `null` when the binding has no statically known value (parameter, pattern,
- * declaration, or a name declared more than once in the same function).
+ * One lexical scope: every name it declares → the values ever stored into it
+ * (`null` for a value that is not statically known, such as a parameter).
  */
-type Scope = ReadonlyMap<string, Expression | null>;
+interface Scope {
+    bindings: Map<string, (BindingValue | null)[]>;
+    /** Whether `this` inside this scope is not the global object (non-arrow functions, class bodies). */
+    bindsThis: boolean;
+}
+
+type ScopeChain = readonly Scope[];
+
+/**
+ * What an expression evaluates to, as far as `globalThis.hablla` is concerned:
+ * - `unrelated`: provably neither the global object nor `hablla`;
+ * - `unknown`: a value the analysis cannot see (a parameter), unrelated unless mixed with a related one;
+ * - `nullish`: `null`/`undefined`, an alternative that cannot carry members;
+ * - `globalObject` / `hablla`: the global object, or `hablla` followed by a member path;
+ * - `unverifiable`: possibly related, but not pinned down (dynamic key, ambiguous binding).
+ */
+type Resolution =
+    | { kind: 'unrelated' | 'unknown' | 'nullish' | 'globalObject' | 'unverifiable' }
+    | { kind: 'hablla'; path: readonly string[] };
+
+type HabllaResolution = Extract<Resolution, { kind: 'hablla' }>;
+
+/** How a node's value is consumed by its parent. */
+type Usage = 'value' | 'discarded' | 'presenceTest' | 'memberObject' | 'alias' | 'assignmentTarget' | 'destructured';
 
 /** Statically recovered shape of one class in a bundle. */
 interface ClassShape {
@@ -61,6 +96,19 @@ type FunctionNode = Extract<
     Node,
     { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' | 'ClassMethod' | 'ClassPrivateMethod' | 'ObjectMethod' }
 >;
+
+/**
+ * Visits one node with its parent, the key it hangs from, the current scope chain and
+ * the state its parent returned; returns the state for its children, or `null` to
+ * skip them.
+ */
+type Visitor<T> = (node: Node, parent: Node | null, key: string, chain: ScopeChain, state: T) => T | null;
+
+const UNRELATED: Resolution = { kind: 'unrelated' };
+const UNKNOWN: Resolution = { kind: 'unknown' };
+const NULLISH: Resolution = { kind: 'nullish' };
+const GLOBAL_OBJECT: Resolution = { kind: 'globalObject' };
+const UNVERIFIABLE: Resolution = { kind: 'unverifiable' };
 
 /**
  * Parses JavaScript with the given options, naming the source in the error.
@@ -93,10 +141,17 @@ function isMemberNode(node: Node): node is MemberNode {
     return node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression';
 }
 
-/** Keys of `node` that are binding or label positions, not expressions to analyze. */
+function isPattern(node: Node): boolean {
+    return node.type === 'ObjectPattern' || node.type === 'ArrayPattern';
+}
+
+/** Keys of `node` that are binding, label or name positions, not expressions to analyze. */
 function nonExpressionKeys(node: Node): ReadonlySet<string> {
     switch (node.type) {
         case 'VariableDeclarator':
+        case 'ClassDeclaration':
+        case 'ClassExpression':
+        case 'PrivateName':
             return new Set(['id']);
         case 'CatchClause':
             return new Set(['param']);
@@ -104,14 +159,14 @@ function nonExpressionKeys(node: Node): ReadonlySet<string> {
         case 'BreakStatement':
         case 'ContinueStatement':
             return new Set(['label']);
-        case 'ClassDeclaration':
-        case 'ClassExpression':
-            return new Set(['id']);
+        case 'MetaProperty':
+            return new Set(['meta', 'property']);
         case 'MemberExpression':
         case 'OptionalMemberExpression':
             return node.computed ? new Set() : new Set(['property']);
         case 'ObjectProperty':
         case 'ClassProperty':
+        case 'ClassAccessorProperty':
             return node.computed ? new Set() : new Set(['key']);
         default:
             if (isFunctionNode(node)) {
@@ -123,13 +178,14 @@ function nonExpressionKeys(node: Node): ReadonlySet<string> {
     }
 }
 
-/** The direct child nodes of `node`, skipping metadata and the given keys. */
-function childNodes(node: Node, skip: ReadonlySet<string> = new Set()): Node[] {
-    const children: Node[] = [];
+/** The direct children of `node` with the key each hangs from, skipping metadata and binding positions. */
+function childEntries(node: Node): [string, Node][] {
+    const skip = nonExpressionKeys(node);
+    const children: [string, Node][] = [];
     for (const [key, value] of Object.entries(node)) {
         if (NON_CHILD_KEYS.has(key) || skip.has(key)) continue;
-        if (Array.isArray(value)) children.push(...value.filter(isNode));
-        else if (isNode(value)) children.push(value);
+        if (Array.isArray(value)) value.filter(isNode).forEach((child) => children.push([key, child]));
+        else if (isNode(value)) children.push([key, value]);
     }
     return children;
 }
@@ -152,135 +208,327 @@ function patternNames(pattern: Node): string[] {
     }
 }
 
-/**
- * Builds the scope of one function body or program: parameters, `var`/`let`/`const`
- * declarators, and function/class declarations, without entering nested functions.
- * Block scopes are folded into the function; a repeated name becomes ambiguous (`null`).
- */
-function buildScope(root: Node, params: readonly Node[]): Scope {
-    const scope = new Map<string, Expression | null>();
-    const bind = (name: string, init: Expression | null): void => {
-        scope.set(name, scope.has(name) ? null : init);
-    };
-    for (const param of params) patternNames(param).forEach((name) => bind(name, null));
-
-    (function collect(node: Node): void {
-        if (node.type === 'VariableDeclarator') {
-            if (node.id.type === 'Identifier') bind(node.id.name, node.init ?? null);
-            else patternNames(node.id).forEach((name) => bind(name, null));
-        } else if ((node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') && node.id) {
-            bind(node.id.name, null);
-        }
-        if (node !== root && isFunctionNode(node)) return;
-        childNodes(node).forEach(collect);
-    })(root);
-    return scope;
+/** Whether `node` introduces a lexical scope (a function body block belongs to its function). */
+function opensScope(node: Node, parent: Node | null): boolean {
+    switch (node.type) {
+        case 'Program':
+        case 'CatchClause':
+        case 'ForStatement':
+        case 'ForInStatement':
+        case 'ForOfStatement':
+        case 'SwitchStatement':
+        case 'StaticBlock':
+        case 'ClassBody':
+            return true;
+        case 'BlockStatement':
+            return !(parent && isFunctionNode(parent));
+        default:
+            return isFunctionNode(node);
+    }
 }
 
-/** Innermost binding of `name`, or `undefined` when it is a free (global) identifier. */
-function lookup(scopes: readonly Scope[], name: string): Expression | null | undefined {
-    for (let i = scopes.length - 1; i >= 0; i--) {
-        if (scopes[i]!.has(name)) return scopes[i]!.get(name);
+/** Names declared by `let`/`const`/`function`/`class` statements directly in a statement list. */
+function lexicalNames(statements: readonly Node[]): string[] {
+    return statements.flatMap((statement) => {
+        if (statement.type === 'VariableDeclaration' && statement.kind !== 'var') return statement.declarations.flatMap((d) => patternNames(d.id));
+        if ((statement.type === 'FunctionDeclaration' || statement.type === 'ClassDeclaration') && statement.id) return [statement.id.name];
+        return [];
+    });
+}
+
+/** Names declared by `var` anywhere under `root`, without entering nested functions. */
+function hoistedVarNames(root: Node): string[] {
+    const names: string[] = [];
+    (function collect(node: Node): void {
+        if (node !== root && isFunctionNode(node)) return;
+        if (node.type === 'VariableDeclaration' && node.kind === 'var') names.push(...node.declarations.flatMap((d) => patternNames(d.id)));
+        childEntries(node).forEach(([, child]) => collect(child));
+    })(root);
+    return names;
+}
+
+/** Every name a scope-opening node declares. */
+function declaredNames(node: Node): string[] {
+    if (isFunctionNode(node)) {
+        const ownName = node.type === 'FunctionExpression' && node.id ? [node.id.name] : [];
+        const bodyStatements = node.body.type === 'BlockStatement' ? node.body.body : [];
+        return [...ownName, ...node.params.flatMap(patternNames), ...hoistedVarNames(node), ...lexicalNames(bodyStatements)];
+    }
+    switch (node.type) {
+        case 'Program':
+            return [...hoistedVarNames(node), ...lexicalNames(node.body)];
+        case 'BlockStatement':
+        case 'StaticBlock':
+            return lexicalNames(node.body);
+        case 'SwitchStatement':
+            return lexicalNames(node.cases.flatMap((switchCase) => switchCase.consequent));
+        case 'CatchClause':
+            return node.param ? patternNames(node.param) : [];
+        case 'ForStatement':
+            return node.init?.type === 'VariableDeclaration' && node.init.kind !== 'var' ? lexicalNames([node.init]) : [];
+        case 'ForInStatement':
+        case 'ForOfStatement':
+            return node.left.type === 'VariableDeclaration' && node.left.kind !== 'var' ? lexicalNames([node.left]) : [];
+        default:
+            return [];
+    }
+}
+
+function createScope(node: Node): Scope {
+    return {
+        bindings: new Map(declaredNames(node).map((name) => [name, []])),
+        bindsThis: node.type === 'ClassBody' || (isFunctionNode(node) && node.type !== 'ArrowFunctionExpression'),
+    };
+}
+
+/** The value list of the innermost binding of `name`, or `undefined` when it is a free (global) identifier. */
+function findBinding(chain: ScopeChain, name: string): (BindingValue | null)[] | undefined {
+    for (let i = chain.length - 1; i >= 0; i--) {
+        const values = chain[i]!.bindings.get(name);
+        if (values) return values;
     }
     return undefined;
 }
 
+/** Walks the AST depth-first, pushing the scope `scopeOf` assigns to each scope-opening node. */
+function walk<T>(root: Node, scopeOf: (node: Node, parent: Node | null) => Scope | undefined, visit: Visitor<T>, initial: T): void {
+    const chain: Scope[] = [];
+    (function step(node: Node, parent: Node | null, key: string, state: T): void {
+        const scope = scopeOf(node, parent);
+        if (scope) chain.push(scope);
+        const childState = visit(node, parent, key, chain, state);
+        if (childState !== null) childEntries(node).forEach(([childKey, child]) => step(child, node, childKey, childState));
+        if (scope) chain.pop();
+    })(root, null, '', initial);
+}
+
+/** Records every value stored into a binding of the current chain (unknown values as `null`). */
+function recordBindingValues(node: Node, chain: ScopeChain): void {
+    const store = (name: string, expression: Node | null): void => {
+        findBinding(chain, name)?.push(expression ? { expression, chain: [...chain] } : null);
+    };
+    const storeUnknown = (target: Node): void => patternNames(target).forEach((name) => store(name, null));
+
+    if (isFunctionNode(node)) {
+        node.params.forEach(storeUnknown);
+        if ((node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') && node.id) store(node.id.name, null);
+    } else if (node.type === 'ClassDeclaration' && node.id) {
+        store(node.id.name, null);
+    } else if (node.type === 'CatchClause' && node.param) {
+        storeUnknown(node.param);
+    } else if (node.type === 'VariableDeclarator') {
+        if (node.id.type === 'Identifier') {
+            if (node.init) store(node.id.name, node.init);
+        } else {
+            storeUnknown(node.id);
+        }
+    } else if (node.type === 'AssignmentExpression') {
+        if (node.left.type === 'Identifier') store(node.left.name, VALUE_STORING_OPERATORS.has(node.operator) ? node.right : null);
+        else if (isPattern(node.left)) storeUnknown(node.left);
+    } else if (node.type === 'UpdateExpression' && node.argument.type === 'Identifier') {
+        store(node.argument.name, null);
+    } else if (node.type === 'ForInStatement' || node.type === 'ForOfStatement') {
+        const targets = node.left.type === 'VariableDeclaration' ? node.left.declarations.map((d) => d.id) : [node.left];
+        targets.forEach(storeUnknown);
+    }
+}
+
 /**
- * Walks the AST keeping the lexical scope stack. `visit` returns the child nodes to
- * descend into (or `null` for the default children), letting callers prune subtrees
- * they fully handled.
+ * Builds every scope of a program with the values stored into its bindings, so that a
+ * later walk can resolve any identifier, wherever the assignment to it happens.
  */
-function walkWithScopes(program: Node, visit: (node: Node, scopes: readonly Scope[]) => Node[] | null): void {
-    const scopes: Scope[] = [];
-    (function walk(node: Node): void {
-        const opensScope = node.type === 'Program' || isFunctionNode(node);
-        if (opensScope) scopes.push(buildScope(node, isFunctionNode(node) ? node.params : []));
-        const children = visit(node, scopes) ?? childNodes(node, nonExpressionKeys(node));
-        children.forEach(walk);
-        if (opensScope) scopes.pop();
-    })(program);
+function analyzeScopes(program: Node): ReadonlyMap<Node, Scope> {
+    const scopes = new Map<Node, Scope>();
+    walk<null | true>(
+        program,
+        (node, parent) => {
+            if (!opensScope(node, parent)) return undefined;
+            const scope = createScope(node);
+            scopes.set(node, scope);
+            return scope;
+        },
+        (node, _parent, _key, chain) => {
+            recordBindingValues(node, chain);
+            return true;
+        },
+        true,
+    );
+    return scopes;
 }
 
-/** Resolves a bound identifier to its initializer, following alias chains. */
-function resolveIdentifier(scopes: readonly Scope[], expression: Node, hops: number): Node | null {
-    if (expression.type !== 'Identifier' || hops > MAX_ALIAS_HOPS) return expression;
-    const binding = lookup(scopes, expression.name);
-    if (binding === undefined) return expression;
-    return binding === null ? null : resolveIdentifier(scopes, binding, hops + 1);
+/** The statically known name a member expression reads (`a.b`, `a["b"]`, ``a[`b`]``), or `null`. */
+function propertyName(member: MemberNode): string | null {
+    const property = member.property;
+    if (!member.computed) return property.type === 'Identifier' ? property.name : null;
+    if (property.type === 'StringLiteral') return property.value;
+    if (property.type === 'TemplateLiteral' && property.expressions.length === 0) return property.quasis[0]?.value.cooked ?? null;
+    return null;
 }
 
-/** Whether `expression` denotes the sandbox global object (`globalThis`, `global`, or an alias/ternary of them). */
-function isGlobalObject(scopes: readonly Scope[], expression: Node, hops = 0): boolean {
-    const resolved = resolveIdentifier(scopes, expression, hops);
-    if (!resolved) return false;
-    if (resolved.type === 'Identifier') return GLOBAL_OBJECT_NAMES.has(resolved.name) && lookup(scopes, resolved.name) === undefined;
-    if (resolved.type === 'ConditionalExpression') {
-        return isGlobalObject(scopes, resolved.consequent, hops + 1) && isGlobalObject(scopes, resolved.alternate, hops + 1);
+function isRelated(resolution: Resolution): boolean {
+    return resolution.kind === 'globalObject' || resolution.kind === 'hablla' || resolution.kind === 'unverifiable';
+}
+
+function sameTarget(a: Resolution, b: Resolution): boolean {
+    if (a.kind === 'hablla' && b.kind === 'hablla') return a.path.join('.') === b.path.join('.');
+    return a.kind === b.kind;
+}
+
+/**
+ * Merges the possible values of one expression: a single related target when every
+ * alternative agrees on it, `unverifiable` when related and other values are mixed.
+ */
+function combine(alternatives: readonly Resolution[]): Resolution {
+    const candidates = alternatives.filter((resolution) => resolution.kind !== 'nullish');
+    const related = candidates.filter(isRelated);
+    if (related.length === 0) return UNRELATED;
+    const [first] = related;
+    return candidates.every((candidate) => sameTarget(candidate, first!)) ? first! : UNVERIFIABLE;
+}
+
+/**
+ * Resolves what an expression evaluates to with respect to the global object and
+ * `hablla`, following bindings through the scope chain each value was written in.
+ * @param resolving Binding values currently being resolved, so a cyclic alias reads as unknown.
+ */
+function resolve(expression: Node, chain: ScopeChain, resolving: Set<Node> = new Set()): Resolution {
+    switch (expression.type) {
+        case 'Identifier':
+            return resolveIdentifier(expression.name, chain, resolving);
+        case 'ThisExpression':
+            return chain.some((scope) => scope.bindsThis) ? UNKNOWN : GLOBAL_OBJECT;
+        case 'MemberExpression':
+        case 'OptionalMemberExpression':
+            return resolveMember(expression, chain, resolving);
+        case 'ConditionalExpression':
+            return combine([resolve(expression.consequent, chain, resolving), resolve(expression.alternate, chain, resolving)]);
+        case 'LogicalExpression':
+            return expression.operator === '&&'
+                ? resolve(expression.right, chain, resolving)
+                : combine([resolve(expression.left, chain, resolving), resolve(expression.right, chain, resolving)]);
+        case 'AssignmentExpression':
+            return expression.operator === '=' ? resolve(expression.right, chain, resolving) : UNRELATED;
+        case 'SequenceExpression':
+            return resolve(expression.expressions[expression.expressions.length - 1]!, chain, resolving);
+        case 'NullLiteral':
+            return NULLISH;
+        case 'UnaryExpression':
+            return expression.operator === 'void' ? NULLISH : UNRELATED;
+        default:
+            return UNRELATED;
     }
-    return false;
 }
 
-function staticPropertyName(member: MemberNode): string | null {
-    return !member.computed && member.property.type === 'Identifier' ? member.property.name : null;
-}
-
-/** Whether `expression` evaluates to the `hablla` global (bare, via the global object, or through an alias). */
-function isHabllaGlobal(scopes: readonly Scope[], expression: Node, hops = 0): boolean {
-    if (expression.type === 'Identifier') {
-        const binding = lookup(scopes, expression.name);
-        if (binding === undefined) return expression.name === HABLLA_GLOBAL;
-        return binding !== null && hops < MAX_ALIAS_HOPS && isHabllaGlobal(scopes, binding, hops + 1);
+function resolveIdentifier(name: string, chain: ScopeChain, resolving: Set<Node>): Resolution {
+    const values = findBinding(chain, name);
+    if (values === undefined) {
+        if (name === HABLLA_GLOBAL) return { kind: 'hablla', path: [] };
+        if (name === 'undefined') return NULLISH;
+        return GLOBAL_OBJECT_NAMES.has(name) ? GLOBAL_OBJECT : UNRELATED;
     }
-    return isMemberNode(expression) && staticPropertyName(expression) === HABLLA_GLOBAL && isGlobalObject(scopes, expression.object, hops);
+    return combine(
+        values.map((value) => {
+            if (!value || resolving.has(value.expression)) return UNKNOWN;
+            resolving.add(value.expression);
+            const resolution = resolve(value.expression, value.chain, resolving);
+            resolving.delete(value.expression);
+            return resolution;
+        }),
+    );
 }
 
-/** A member chain split into its innermost non-member base and the member nodes from inner to outer. */
-function flattenMemberChain(outermost: MemberNode): { base: Node; members: MemberNode[] } {
-    const members: MemberNode[] = [];
-    let current: Node = outermost;
-    while (isMemberNode(current)) {
-        members.unshift(current);
-        current = current.object;
+function resolveMember(member: MemberNode, chain: ScopeChain, resolving: Set<Node>): Resolution {
+    const name = propertyName(member);
+    const object = resolve(member.object, chain, resolving);
+    if (object.kind === 'unknown' && member.object.type === 'ThisExpression') return name === HABLLA_GLOBAL ? UNVERIFIABLE : UNRELATED;
+    if (object.kind === 'unverifiable') return UNVERIFIABLE;
+    if (object.kind === 'globalObject') {
+        if (name === null) return UNVERIFIABLE;
+        return name === HABLLA_GLOBAL ? { kind: 'hablla', path: [] } : UNRELATED;
     }
-    return { base: current, members };
+    if (object.kind === 'hablla') return name === null ? UNVERIFIABLE : { kind: 'hablla', path: [...object.path, name] };
+    return UNRELATED;
+}
+
+/** How the value of the child at `key` of `parent` is consumed, given how `parent` itself is consumed. */
+function usageOf(parent: Node, key: string, parentUsage: Usage): Usage {
+    switch (parent.type) {
+        case 'MemberExpression':
+        case 'OptionalMemberExpression':
+            return key === 'object' ? 'memberObject' : 'value';
+        case 'VariableDeclarator':
+            return parent.id.type === 'Identifier' ? 'alias' : 'destructured';
+        case 'AssignmentExpression':
+            if (key === 'left') return parent.operator === '=' ? 'assignmentTarget' : 'value';
+            if (parent.left.type === 'Identifier') return 'alias';
+            return isPattern(parent.left) ? 'destructured' : 'value';
+        case 'UnaryExpression':
+            return parent.operator === 'typeof' || parent.operator === '!' ? 'presenceTest' : 'value';
+        case 'BinaryExpression':
+            return EQUALITY_OPERATORS.has(parent.operator) ? 'presenceTest' : 'value';
+        case 'LogicalExpression':
+            return parent.operator === '&&' && key === 'left' ? 'presenceTest' : parentUsage;
+        case 'ConditionalExpression':
+            return key === 'test' ? 'presenceTest' : parentUsage;
+        case 'ExpressionStatement':
+            return 'discarded';
+        case 'IfStatement':
+        case 'WhileStatement':
+        case 'DoWhileStatement':
+        case 'ForStatement':
+            return key === 'test' ? 'presenceTest' : 'value';
+        default:
+            return 'value';
+    }
+}
+
+function truncatedPath(path: readonly string[]): string | null {
+    return path.length === 0 ? null : path.slice(0, MEMBER_PATH_DEPTH).join('.');
 }
 
 /**
  * Extracts every member of `globalThis.hablla` a piece of live code (e.g. a flow code
- * node) uses, as sorted, de-duplicated dotted paths up to two levels deep
+ * node) reads, as sorted, de-duplicated dotted paths up to two levels deep
  * (`hablla.dispatch.run(...)` → `dispatch.run`). Accepts top-level `return`/`await`.
+ *
+ * Followed: the global object (`globalThis`, `global`, `self`, `window`, top-level
+ * `this`, literal keys such as `globalThis["hablla"]`), aliases of the global and of its
+ * members (`const p = hablla.persons; p.list()`), and optional chaining. Ignored: local
+ * bindings that shadow `hablla`, presence tests on it (`typeof`, `!`, `&&`, `===`,
+ * conditions), and the member written by an assignment (`hablla.x = …` needs nothing,
+ * `hablla.a.b = …` needs `a`).
  * @param source The JavaScript source to analyze.
  * @returns The referenced member paths.
  * @throws When the source does not parse, or uses the global in a way that cannot be
- *   verified statically (computed member, destructuring, passing it around).
+ *   verified statically (dynamic key, destructuring, an ambiguous binding, passing it around).
  */
 export function extractHabllaReferences(source: string): string[] {
     const program = parseJavaScript(source, CODE_NODE_PARSER, 'Live code');
+    const scopes = analyzeScopes(program);
     const paths = new Set<string>();
+    const record = (path: string | null): void => {
+        if (path) paths.add(path);
+    };
 
-    walkWithScopes(program, (node, scopes) => {
-        if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init && isHabllaGlobal(scopes, node.init)) {
-            return [];
-        }
-        if (node.type === 'UnaryExpression' && node.operator === 'typeof' && isHabllaGlobal(scopes, node.argument)) {
-            return [];
-        }
-        if (isMemberNode(node)) {
-            const { base, members } = flattenMemberChain(node);
-            const rootIndex = [base, ...members].findIndex((candidate) => isHabllaGlobal(scopes, candidate));
-            if (rootIndex >= 0) {
-                const accessed = members.slice(rootIndex, rootIndex + MEMBER_PATH_DEPTH);
-                if (accessed.length === 0) throw unverifiableUsage(node);
-                const names = accessed.map(staticPropertyName);
-                if (names.includes(null)) throw unverifiableUsage(node);
-                paths.add(names.join('.'));
-                return members.filter((member) => member.computed).map((member) => member.property);
-            }
-            return null;
-        }
-        if (isHabllaGlobal(scopes, node)) throw unverifiableUsage(node);
-        return null;
-    });
+    walk<Usage>(
+        program,
+        (node) => scopes.get(node),
+        (node, parent, key, chain, parentUsage) => {
+            const usage = parent ? usageOf(parent, key, parentUsage) : 'value';
+            if (usage === 'memberObject' || usage === 'alias') return usage;
+            if (usage === 'assignmentTarget' && !isMemberNode(node)) return null;
+
+            const resolution = resolve(node, chain);
+            if (!isRelated(resolution) || usage === 'presenceTest' || usage === 'discarded') return usage;
+            if (usage === 'destructured' || resolution.kind !== 'hablla') throw unverifiableUsage(node);
+            const { path } = resolution as HabllaResolution;
+            if (usage === 'assignmentTarget') record(truncatedPath(path.slice(0, -1)));
+            else if (path.length === 0) throw unverifiableUsage(node);
+            else record(truncatedPath(path));
+            return usage;
+        },
+        'value',
+    );
 
     return [...paths].sort();
 }
@@ -301,7 +549,7 @@ function collectClasses(program: Node): Map<string, ClassShape> {
         if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init?.type === 'ClassExpression') {
             classes.set(node.id.name, shapeOf(node.init));
         }
-        childNodes(node).forEach(collect);
+        childEntries(node).forEach(([, child]) => collect(child));
     })(program);
     return classes;
 }
@@ -335,21 +583,25 @@ function collectThisAssignments(body: Node, shape: ClassShape): void {
     (function collect(node: Node): void {
         if (node !== body && isFunctionNode(node) && node.type !== 'ArrowFunctionExpression') return;
         if (node.type === 'AssignmentExpression' && isMemberNode(node.left) && node.left.object.type === 'ThisExpression') {
-            const name = staticPropertyName(node.left);
+            const name = propertyName(node.left);
             if (name) {
                 shape.members.add(name);
                 const fieldClass = instantiatedClass(node.right);
                 if (fieldClass) shape.fieldClasses.set(name, fieldClass);
             }
         }
-        childNodes(node).forEach(collect);
+        childEntries(node).forEach(([, child]) => collect(child));
     })(body);
 }
 
 /** Resolves `name` up the superclass chain of a bundle's classes. */
 function classLineage(classes: ReadonlyMap<string, ClassShape>, name: string): ClassShape[] {
     const lineage: ClassShape[] = [];
-    for (let current = classes.get(name); current && lineage.length <= MAX_ALIAS_HOPS; current = current.superName ? classes.get(current.superName) : undefined) {
+    for (
+        let current = classes.get(name);
+        current && lineage.length < MAX_CLASS_LINEAGE_DEPTH;
+        current = current.superName ? classes.get(current.superName) : undefined
+    ) {
         lineage.push(current);
     }
     return lineage;
@@ -363,18 +615,23 @@ function fieldClassOf(classes: ReadonlyMap<string, ClassShape>, name: string, me
     return classLineage(classes, name).find((shape) => shape.fieldClasses.has(member))?.fieldClasses.get(member) ?? null;
 }
 
-/** The class an expression evaluates to an instance of, when statically known. */
-function classOfExpression(classes: ReadonlyMap<string, ClassShape>, scopes: readonly Scope[], expression: Node, hops = 0): string | null {
-    if (hops > MAX_ALIAS_HOPS) return null;
+/**
+ * The class an expression evaluates to an instance of, when statically known.
+ * @param resolving Binding values currently being resolved, so a cyclic alias reads as unknown.
+ */
+function classOfExpression(classes: ReadonlyMap<string, ClassShape>, chain: ScopeChain, expression: Node, resolving: Set<Node> = new Set()): string | null {
     const direct = instantiatedClass(expression);
     if (direct) return classes.has(direct) ? direct : null;
     if (expression.type === 'Identifier') {
-        const binding = lookup(scopes, expression.name);
-        return binding ? classOfExpression(classes, scopes, binding, hops + 1) : null;
+        const values = findBinding(chain, expression.name);
+        const value = values?.length === 1 ? values[0] : null;
+        if (!value || resolving.has(value.expression)) return null;
+        resolving.add(value.expression);
+        return classOfExpression(classes, value.chain, value.expression, resolving);
     }
     if (isMemberNode(expression)) {
-        const owner = classOfExpression(classes, scopes, expression.object, hops + 1);
-        const member = staticPropertyName(expression);
+        const owner = classOfExpression(classes, chain, expression.object, resolving);
+        const member = propertyName(expression);
         return owner && member ? fieldClassOf(classes, owner, member) : null;
     }
     return null;
@@ -390,11 +647,15 @@ function instancePaths(classes: ReadonlyMap<string, ClassShape>, className: stri
     });
 }
 
+function isHabllaAt(resolution: Resolution, depth: number): boolean {
+    return resolution.kind === 'hablla' && resolution.path.length === depth;
+}
+
 /**
  * Lists the member paths of `globalThis.hablla` that a set of RPO bundles exposes once
  * they all run: the members of the instance assigned to the global (two levels deep)
  * plus any member attached to it afterwards (a compatibility facade).
- * @param bundles The class bodies to publish, keyed by class name.
+ * @param bundles The class bodies, keyed by class name.
  * @returns The sorted, de-duplicated member paths.
  * @throws When a bundle does not parse, when no bundle publishes the global, or when
  *   the instance assigned to it cannot be resolved to a class.
@@ -406,21 +667,29 @@ export function listHabllaSurface(bundles: Readonly<Record<string, string>>): st
     for (const [name, source] of Object.entries(bundles)) {
         const program = parseJavaScript(source, BUNDLE_PARSER, name);
         const classes = collectClasses(program);
-        walkWithScopes(program, (node, scopes) => {
-            if (node.type !== 'AssignmentExpression' || !isMemberNode(node.left)) return null;
-            const member = staticPropertyName(node.left);
-            if (isHabllaGlobal(scopes, node.left)) {
-                const rootClass = classOfExpression(classes, scopes, node.right);
-                if (!rootClass) throw new Error(`${name} assigns globalThis.${HABLLA_GLOBAL} a value whose class cannot be resolved`);
-                instancePaths(classes, rootClass, '').forEach((path) => paths.add(path));
-                published = true;
-            } else if (member && isHabllaGlobal(scopes, node.left.object)) {
-                paths.add(member);
-                const attachedClass = classOfExpression(classes, scopes, node.right);
-                if (attachedClass) instancePaths(classes, attachedClass, member).forEach((path) => paths.add(path));
-            }
-            return null;
-        });
+        const scopes = analyzeScopes(program);
+        walk<true>(
+            program,
+            (node) => scopes.get(node),
+            (node, _parent, _key, chain) => {
+                if (node.type !== 'AssignmentExpression' || node.operator !== '=' || !isMemberNode(node.left)) return true;
+                if (isHabllaAt(resolve(node.left, chain), 0)) {
+                    const rootClass = classOfExpression(classes, chain, node.right);
+                    if (!rootClass) throw new Error(`${name} assigns globalThis.${HABLLA_GLOBAL} a value whose class cannot be resolved`);
+                    instancePaths(classes, rootClass, '').forEach((path) => paths.add(path));
+                    published = true;
+                    return true;
+                }
+                const member = propertyName(node.left);
+                if (member && isHabllaAt(resolve(node.left.object, chain), 0)) {
+                    paths.add(member);
+                    const attachedClass = classOfExpression(classes, chain, node.right);
+                    if (attachedClass) instancePaths(classes, attachedClass, member).forEach((path) => paths.add(path));
+                }
+                return true;
+            },
+            true,
+        );
     }
 
     if (!published) throw new Error(`No bundle publishes globalThis.${HABLLA_GLOBAL}`);
