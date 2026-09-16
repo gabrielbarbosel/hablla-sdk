@@ -4,8 +4,10 @@
  * Materializes the staged resource tree onto the live `src/sdk/resources`:
  * copies every `_staging/gen_*.ts` over its counterpart and deletes any
  * `gen_*.ts` in the live tree that no longer exists in staging (an endpoint
- * group that was dropped upstream). Only `gen_*.ts` files are touched — the
- * hand-written `base.ts` and any non-generated infrastructure are left alone.
+ * group that was dropped upstream), then replaces `src/sdk/client.ts` with the
+ * staged client derived from that same file set. Only `gen_*.ts` files and the
+ * client are touched — the hand-written `base.ts` and any non-generated
+ * infrastructure are left alone.
  *
  * Promotion is the caller's decision: it runs for every classification EXCEPT
  * `failure`, where the current resources must be preserved untouched.
@@ -14,12 +16,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { CLIENT_FILE } from './client';
+
 /** Summary of what {@link promoteResources} changed on disk. */
 export interface PromoteResult {
     /** `gen_*.ts` files copied from staging onto the live tree. */
     copied: string[];
     /** `gen_*.ts` files removed from the live tree (gone from staging). */
     removed: string[];
+    /** Whether `client.ts` changed on disk. */
+    clientUpdated: boolean;
 }
 
 /** List `gen_*.ts` basenames in a directory (empty when the dir is absent). */
@@ -29,12 +35,13 @@ function listGenFiles(dir: string): string[] {
 }
 
 /**
- * Copy the staged tree onto the live resources and prune dropped files.
- * @param stagingDir The freshly emitted `_staging` directory.
+ * Copy the staged tree onto the live resources, prune dropped files and replace the client.
+ * @param stagingDir The freshly emitted `_staging` directory (must contain `client.ts`).
  * @param currentDir The live `src/sdk/resources` directory (created if missing).
- * @returns What was copied and removed.
+ * @param clientPath The live `src/sdk/client.ts`.
+ * @returns What was copied, removed and whether the client changed.
  */
-export function promoteResources(stagingDir: string, currentDir: string): PromoteResult {
+export function promoteResources(stagingDir: string, currentDir: string, clientPath: string): PromoteResult {
     fs.mkdirSync(currentDir, { recursive: true });
     const stagingFiles = listGenFiles(stagingDir);
     const currentFiles = listGenFiles(currentDir);
@@ -53,5 +60,9 @@ export function promoteResources(stagingDir: string, currentDir: string): Promot
         removed.push(file);
     }
 
-    return { copied: copied.sort(), removed: removed.sort() };
+    const stagedClient = fs.readFileSync(path.join(stagingDir, CLIENT_FILE), 'utf8');
+    const clientUpdated = !fs.existsSync(clientPath) || fs.readFileSync(clientPath, 'utf8') !== stagedClient;
+    if (clientUpdated) fs.writeFileSync(clientPath, stagedClient);
+
+    return { copied: copied.sort(), removed: removed.sort(), clientUpdated };
 }

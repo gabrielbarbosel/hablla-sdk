@@ -58,6 +58,9 @@ export const DEFAULT_OUTPUT = path.resolve(REPO_ROOT, 'src', 'generator', 'opena
 /** Staging directory the emit stage writes candidate resources into. */
 export const DEFAULT_STAGING_DIR = path.resolve(REPO_ROOT, 'src', 'generator', '_staging');
 
+/** Live SDK client, derived from the resources and promoted with them. */
+export const DEFAULT_CLIENT_PATH = path.resolve(REPO_ROOT, 'src', 'sdk', 'client.ts');
+
 /** Live SDK resources directory — promotion's target. */
 export const DEFAULT_RESOURCES_DIR = path.resolve(REPO_ROOT, 'src', 'sdk', 'resources');
 
@@ -242,18 +245,17 @@ export interface CodegenPipelineOptions extends ExtractPipelineOptions {
     stagingDir?: string;
     /** The live resources tree to diff/promote against (defaults to {@link DEFAULT_RESOURCES_DIR}). */
     resourcesDir?: string;
+    /** The live client replaced on promotion (defaults to {@link DEFAULT_CLIENT_PATH}). */
+    clientPath?: string;
     /** Where to write the run report (defaults to {@link DEFAULT_REPORT_PATH}). */
     reportPath?: string;
     /** When false, compute + report but never write to the resources tree. */
     promote?: boolean;
 }
 
-/** Remove every `gen_*.ts` in a staging dir so it reflects exactly this run. */
+/** Empty the staging dir so it reflects exactly this run (it only ever holds emit output). */
 function cleanStaging(stagingDir: string): void {
-    if (!fs.existsSync(stagingDir)) return;
-    for (const file of fs.readdirSync(stagingDir)) {
-        if (file.startsWith('gen_') && file.endsWith('.ts')) fs.rmSync(path.join(stagingDir, file));
-    }
+    fs.rmSync(stagingDir, { recursive: true, force: true });
 }
 
 /**
@@ -270,6 +272,7 @@ export async function runCodegenPipeline(options: CodegenPipelineOptions = {}) {
     const log = options.log ?? ((m: string) => console.log(m));
     const stagingDir = options.stagingDir ?? DEFAULT_STAGING_DIR;
     const resourcesDir = options.resourcesDir ?? DEFAULT_RESOURCES_DIR;
+    const clientPath = options.clientPath ?? DEFAULT_CLIENT_PATH;
     const reportPath = options.reportPath ?? DEFAULT_REPORT_PATH;
     const outputPath = options.outputPath ?? DEFAULT_OUTPUT;
 
@@ -313,8 +316,8 @@ export async function runCodegenPipeline(options: CodegenPipelineOptions = {}) {
     } else if (options.promote === false) {
         log('[promote] SKIPPED (promote disabled)');
     } else {
-        promotion = promoteResources(stagingDir, resourcesDir);
-        log(`[promote] copied ${promotion.copied.length}, removed ${promotion.removed.length}`);
+        promotion = promoteResources(stagingDir, resourcesDir, clientPath);
+        log(`[promote] copied ${promotion.copied.length}, removed ${promotion.removed.length}, client ${promotion.clientUpdated ? 'updated' : 'unchanged'}`);
     }
 
     // 7. REPORT.

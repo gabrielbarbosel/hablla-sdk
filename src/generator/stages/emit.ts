@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { HTTP_METHODS, HttpMethod, OpenApiOperation, OpenApiSpec } from '../extract';
+import { CLIENT_FILE, emitClientFile, readResourceBindings } from './client';
 import { buildEnumRegistry, emitEnumsFile, enumNameFor, isDescriptiveField, EnumDef } from './enums';
 
 /**
@@ -670,7 +671,8 @@ export function readResourceOverride(fileKey: string, dir: string = RESOURCE_OVE
 /**
  * Emit every resource file for a spec into `outDir`, one `gen_<file>.ts` per
  * resource. A resource with a curated override (see {@link RESOURCE_OVERRIDE_DIR})
- * is copied verbatim; all others are generated. Returns a summary for
+ * is copied verbatim; all others are generated. The `client.ts` that wires them
+ * is derived last, from the final file set. Returns a summary for
  * logging/assertions.
  * @param spec The resolved OpenAPI spec.
  * @param outDir Destination directory (created if missing).
@@ -703,6 +705,8 @@ export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; met
             overridden++;
         }
     }
+
+    fs.writeFileSync(path.join(outDir, CLIENT_FILE), emitClientFile(readResourceBindings(outDir)));
 
     return { files: groups.length, methods, overridden, sheetMultipart, enums: enumRegistry.defs.length, enumIssues: enumRegistry.issues };
 }
