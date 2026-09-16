@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import axios from 'axios';
 import { assertClassBody, assertClientCompatibility, CLASS_ORDER, deployToRpo, resolveDeployTargets, type WorkspaceClass } from './deploy';
 
@@ -20,6 +20,10 @@ function listing(names: readonly string[]): void {
 
 beforeEach(() => {
     vi.resetAllMocks();
+});
+
+afterEach(() => {
+    vi.useRealTimers();
 });
 
 describe('assertClassBody', () => {
@@ -48,6 +52,11 @@ describe('resolveDeployTargets', () => {
         const classes = workspaceClasses(CLASS_ORDER.filter((name) => name !== 'W_HabllaDomain' && name !== 'W_Cache'));
         classes.push({ name: 'W_Cache' });
         expect(() => resolveDeployTargets(classes)).toThrow('Required classes missing from the workspace (or without id): W_Cache, W_HabllaDomain');
+    });
+
+    it('refuses a class to deploy listed more than once, before resolving any id', () => {
+        const classes = workspaceClasses([...CLASS_ORDER, 'W_Cache', 'W_Utils', 'Unrelated', 'Unrelated']);
+        expect(() => resolveDeployTargets(classes)).toThrow('Classes to deploy appear more than once in the workspace: W_Utils, W_Cache');
     });
 
     it('refuses an empty workspace', () => {
@@ -79,6 +88,7 @@ describe('deployToRpo', () => {
     it('refuses an incompatible deploy before any network call', async () => {
         await expect(deployToRpo(VARS, { liveClientMembers: ['dispatch.run', 'massDispatch.run'] })).rejects.toThrow(/hablla.massDispatch.run/);
         expect(http.post).not.toHaveBeenCalled();
+        expect(http.get).not.toHaveBeenCalled();
         expect(http.put).not.toHaveBeenCalled();
     });
 
@@ -113,11 +123,10 @@ describe('deployToRpo', () => {
         http.put.mockResolvedValueOnce({ status: 200, data: {} }).mockResolvedValue({ status: 500, data: {} });
 
         const deploy = expect(deployToRpo(VARS, { liveClientMembers: 'unchecked' })).rejects.toThrow(
-            /PUT W_PolyfillBuffer failed \(PUT failed \(500\)\); drafts already written: W_PolyfillCore/,
+            /PUT W_PolyfillBuffer failed \(PUT failed \(500\)\); drafts already written: W_PolyfillCore; W_PolyfillBuffer may also have been drafted/,
         );
         await vi.runAllTimersAsync();
         await deploy;
         expect(http.post).toHaveBeenCalledTimes(1);
-        vi.useRealTimers();
     });
 });

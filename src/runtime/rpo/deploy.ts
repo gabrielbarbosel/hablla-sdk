@@ -184,22 +184,33 @@ export function assertClientCompatibility(
 /**
  * Resolves every class to deploy against the workspace listing, in deploy order.
  * @param workspaceClasses Every class currently in the workspace.
- * @throws When the workspace is empty, or when any class to deploy is missing or has no
- *   id — all of them reported at once, before anything is written.
+ * @throws When the workspace is empty, when a class to deploy appears more than once, or
+ *   when any class to deploy is missing or has no id — each kind reported all at once,
+ *   before anything is written.
  */
 export function resolveDeployTargets(workspaceClasses: readonly WorkspaceClass[]): DeployTarget[] {
     if (workspaceClasses.length === 0) {
         throw new Error('GET /classes returned no classes — refusing to deploy against an empty workspace');
     }
-    const idByName = new Map(workspaceClasses.map((workspaceClass) => [workspaceClass.name, workspaceClass.id ?? workspaceClass._id]));
-    const missing = CLASS_ORDER.filter((name) => !idByName.get(name));
+    const matchesByName = new Map<string, WorkspaceClass[]>(CLASS_ORDER.map((name) => [name, []]));
+    workspaceClasses.forEach((workspaceClass) => matchesByName.get(workspaceClass.name)?.push(workspaceClass));
+
+    const duplicated = CLASS_ORDER.filter((name) => matchesByName.get(name)!.length > 1);
+    if (duplicated.length > 0) {
+        throw new Error(`Classes to deploy appear more than once in the workspace: ${duplicated.join(', ')} — aborting before any write`);
+    }
+    const missing = CLASS_ORDER.filter((name) => !classId(matchesByName.get(name)![0]));
     if (missing.length > 0) {
         throw new Error(`Required classes missing from the workspace (or without id): ${missing.join(', ')} — aborting before any write`);
     }
     return CLASS_ORDER.map((name) => {
-        const workspaceClass = workspaceClasses.find((candidate) => candidate.name === name)!;
-        return { name, id: idByName.get(name)!, workspaceClass };
+        const workspaceClass = matchesByName.get(name)![0]!;
+        return { name, id: classId(workspaceClass)!, workspaceClass };
     });
+}
+
+function classId(workspaceClass: WorkspaceClass | undefined): string | undefined {
+    return workspaceClass?.id ?? workspaceClass?._id;
 }
 
 /**
@@ -311,8 +322,8 @@ export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions): P
         } catch (err) {
             const drafted = results.map((item) => item.name).join(', ') || 'none';
             throw new Error(
-                `PUT ${target.name} failed (${(err as Error).message}); drafts already written: ${drafted}. ` +
-                    'Nothing was published — discard those drafts before any /classes/publish.',
+                `PUT ${target.name} failed (${(err as Error).message}); drafts already written: ${drafted}; ` +
+                    `${target.name} may also have been drafted. Nothing was published — discard those drafts before any /classes/publish.`,
             );
         }
     }
