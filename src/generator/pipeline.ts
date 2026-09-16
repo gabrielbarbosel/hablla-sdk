@@ -28,7 +28,7 @@ import {
 import { applyOverrides, isMultipartOperation, OverrideResult } from './overrides';
 import { emitAll } from './stages/emit';
 import { evaluateGuards } from './stages/guard';
-import { classify, countEndpoints, diffResources, endpointDropPct } from './stages/diff';
+import { classify, countEndpoints, diffResources, emptyDiff, endpointDropPct, readPublishedMethodNames } from './stages/diff';
 import { promoteResources, PromoteResult } from './stages/promote';
 import { buildReport, writeReport } from './stages/report';
 
@@ -282,7 +282,7 @@ export async function runCodegenPipeline(options: CodegenPipelineOptions = {}) {
     // 2. EMIT -> _staging (clean first so dropped resources leave no stale file).
     log('[emit] emitting candidate resources to staging...');
     cleanStaging(stagingDir);
-    const emit = emitAll(extract.spec, stagingDir);
+    const emit = emitAll(extract.spec, stagingDir, readPublishedMethodNames(resourcesDir));
     log(`[emit] ${emit.files} groups, ${emit.methods} generated methods, ${emit.overridden} curated verbatim`);
 
     // 3. GUARDS / CANARY (A11): abort promotion on an anomalous extraction.
@@ -373,13 +373,7 @@ function writeFailureReport(reportPath: string, error: unknown): void {
             apiClientFound: false,
             workspaceAlias: 0,
         },
-        diff: {
-            addedEndpoints: [],
-            removedEndpoints: [],
-            changedSignatures: [],
-            addedFiles: [],
-            changedFiles: [],
-        },
+        diff: emptyDiff(),
         promotion: null,
     });
 }

@@ -25,6 +25,7 @@ import * as path from 'path';
 
 import { HTTP_METHODS, HttpMethod, OpenApiOperation, OpenApiSpec } from '../extract';
 import { CLIENT_FILE, emitClientFile, readResourceBindings } from './client';
+import { readPublishedMethodNames } from './diff';
 import { buildEnumRegistry, emitEnumsFile, enumNameFor, isDescriptiveField, EnumDef } from './enums';
 
 /**
@@ -106,6 +107,8 @@ interface Param {
 /** Everything the emitter needs about one operation, pre-resolved. */
 interface Method {
     name: string;
+    /** True when {@link name} is the published name of an existing endpoint, which no collision may rename. */
+    pinned: boolean;
     /**
      * The operation's class-unique `x-sdk-method` (the real bundle function
      * name). Used to break heuristic name collisions deterministically — see
@@ -130,6 +133,9 @@ interface Method {
      */
     configGet?: boolean;
 }
+
+/** Published method names per resource key, as read by `readPublishedMethodNames`. */
+type PublishedNames = Map<string, Map<string, string>>;
 
 /** Split a kebab/snake/space string into its words. */
 function words(input: string): string[] {
@@ -378,6 +384,7 @@ function buildMethod(http: HttpMethod, pathStr: string, op: OpenApiOperation, ta
 
     return {
         name: methodName(http, pathStr, tag, schemaName),
+        pinned: false,
         xSdkMethod: (op['x-sdk-method'] as string | undefined) ?? '',
         http,
         path: pathStr,
@@ -412,27 +419,50 @@ function applyVersionSuffixes(methods: Method[]): void {
 }
 
 /**
+ * Keep every already-published endpoint under the name consumers call it by
+ * (roadmap A10). Heuristic names depend on the neighbouring endpoints (a new
+ * `…/workspace-users/history` collides with `…/plans/history`), so without
+ * pinning an unrelated addition would rename a published method and turn an
+ * additive regen into a breaking one. A deliberate rename is made by editing the
+ * published method name before the run.
+ * @param methods One class's methods, with heuristic names.
+ * @param publishedNames `VERB /path` -> name in this class's live resource file.
+ */
+function applyPublishedNames(methods: Method[], publishedNames: Map<string, string>): void {
+    for (const m of methods) {
+        const published = publishedNames.get(`${m.http.toUpperCase()} ${m.path}`);
+        if (!published) continue;
+        m.name = published;
+        m.pinned = true;
+    }
+}
+
+/**
  * Guarantee no two methods in a class share a name (the TS2393 blocker). The
  * heuristic {@link methodName} can collide when a resource exposes both a
  * collection-level and an item-level action that read the same way — e.g.
  * `POST …/flows-executions/retry` and `POST …/flows-executions/{id}/retry` both
- * derive `retry`. Rather than re-derive every name by heuristic (which would
- * needlessly rename the non-colliding majority away from the hand-verified
- * resources), only the colliding methods are renamed, and they adopt their
- * `x-sdk-method` — the real bundle function name, which the extract stage
- * guarantees is unique within the class. A final deterministic pass (a
- * `By{PathParam}` suffix, then a numeric index) is a belt-and-braces guarantee
- * for the — currently non-existent — case where `x-sdk-method` is absent or
- * itself clashes with a sibling.
+ * derive `retry`. Pinned (published) names always win; only the colliding
+ * unpinned methods are renamed, and they adopt their `x-sdk-method` — the real
+ * bundle function name, which the extract stage guarantees is unique within the
+ * class. A final deterministic pass (a `By{PathParam}` suffix, then a numeric
+ * index) covers an absent or clashing `x-sdk-method`, and two pinned methods
+ * regrouped into the same class, where the later one yields.
  */
 function dedupeMethodNames(methods: Method[]): void {
     const counts = new Map<string, number>();
     for (const m of methods) counts.set(m.name, (counts.get(m.name) ?? 0) + 1);
     for (const m of methods) {
-        if ((counts.get(m.name) ?? 0) > 1 && m.xSdkMethod) m.name = m.xSdkMethod;
+        if (!m.pinned && (counts.get(m.name) ?? 0) > 1 && m.xSdkMethod) m.name = m.xSdkMethod;
     }
     const used = new Set<string>();
     for (const m of methods) {
+        if (!m.pinned) continue;
+        if (used.has(m.name)) m.pinned = false;
+        else used.add(m.name);
+    }
+    for (const m of methods) {
+        if (m.pinned) continue;
         if (!used.has(m.name)) {
             used.add(m.name);
             continue;
@@ -594,8 +624,13 @@ export function emitResourceFile(group: ResourceGroup): string {
     return lines.join('\n');
 }
 
-/** Group every operation in the spec into per-file resources. */
-export function groupResources(spec: OpenApiSpec, defs: EnumDef[] = []): ResourceGroup[] {
+/**
+ * Group every operation in the spec into per-file resources and name their methods.
+ * @param spec The resolved spec.
+ * @param defs The enum registry used to type query params.
+ * @param publishedNames resource key -> (`VERB /path` -> published method name), pinned over the heuristic.
+ */
+export function groupResources(spec: OpenApiSpec, defs: EnumDef[] = [], publishedNames: PublishedNames = new Map()): ResourceGroup[] {
     const schemas = (spec.components?.schemas ?? {}) as Record<string, JsonSchema>;
     // Schemas key their owning tag under `x-tag`, but inconsistently cased
     // (`blocked-words` vs `blockedWords`), so match on the camelCase form — the
@@ -636,8 +671,9 @@ export function groupResources(spec: OpenApiSpec, defs: EnumDef[] = []): Resourc
         }
     }
 
-    for (const group of groups.values()) {
+    for (const [fileKey, group] of groups) {
         applyVersionSuffixes(group.methods);
+        applyPublishedNames(group.methods, publishedNames.get(fileKey) ?? new Map());
         dedupeMethodNames(group.methods);
     }
     return [...groups.values()];
@@ -676,12 +712,13 @@ export function readResourceOverride(fileKey: string, dir: string = RESOURCE_OVE
  * logging/assertions.
  * @param spec The resolved OpenAPI spec.
  * @param outDir Destination directory (created if missing).
+ * @param publishedNames resource key -> (`VERB /path` -> method name) already published (see {@link applyPublishedNames}).
  */
-export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; methods: number; overridden: number; sheetMultipart: boolean; enums: number; enumIssues: string[] } {
+export function emitAll(spec: OpenApiSpec, outDir: string, publishedNames: PublishedNames = new Map()): { files: number; methods: number; overridden: number; sheetMultipart: boolean; enums: number; enumIssues: string[] } {
     fs.mkdirSync(outDir, { recursive: true });
     const enumRegistry = buildEnumRegistry(spec);
     fs.writeFileSync(path.join(outDir, 'gen_enums.ts'), emitEnumsFile(enumRegistry.defs));
-    const groups = groupResources(spec, enumRegistry.defs);
+    const groups = groupResources(spec, enumRegistry.defs, publishedNames);
     let methods = 0;
     let sheetMultipart = false;
     for (const group of groups) {
@@ -716,8 +753,9 @@ function main(): void {
     const repoRoot = path.resolve(__dirname, '..', '..', '..');
     const specPath = path.resolve(repoRoot, 'src', 'generator', 'openapi.json');
     const outDir = path.resolve(repoRoot, 'src', 'generator', '_staging');
+    const resourcesDir = path.resolve(repoRoot, 'src', 'sdk', 'resources');
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf8')) as OpenApiSpec;
-    const result = emitAll(spec, outDir);
+    const result = emitAll(spec, outDir, readPublishedMethodNames(resourcesDir));
     console.log('[emit] DONE');
     console.log(`  files          : ${result.files}`);
     console.log(`  methods        : ${result.methods}`);
