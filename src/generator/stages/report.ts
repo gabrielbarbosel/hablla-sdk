@@ -2,10 +2,9 @@
  * Generator stage: REPORT.
  *
  * Serializes the outcome of one codegen run into `generation-report.json`, the
- * hand-off contract consumed by `scripts/release.mjs` (which reads
- * `classification` + `diff.{addedEndpoints,removedEndpoints,changedSignatures}`
- * to pick a semver bump) and by the upstream CI job that routes `breaking` to a
- * PR and `failure` to an issue.
+ * hand-off contract consumed by `scripts/codegen-summary.mjs` (the outcome the
+ * workflow routes on, the CHANGELOG/PR/issue text) and `scripts/release.mjs`
+ * (which picks the semver bump from `classification`).
  *
  * The report is a pure serialization of already-computed values — no side
  * effects beyond the single `writeFileSync` — so the whole pipeline is
