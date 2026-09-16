@@ -24,7 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { HTTP_METHODS, HttpMethod, OpenApiOperation, OpenApiSpec } from '../extract';
-import { buildEnumRegistry, emitEnumsFile, enumNameFor, ambiguousEnums, isDescriptiveField, EnumDef } from './enums';
+import { buildEnumRegistry, emitEnumsFile, enumNameFor, isDescriptiveField, EnumDef } from './enums';
 
 /**
  * Human one-liners for the entity interfaces, keyed by component-schema name.
@@ -675,11 +675,11 @@ export function readResourceOverride(fileKey: string, dir: string = RESOURCE_OVE
  * @param spec The resolved OpenAPI spec.
  * @param outDir Destination directory (created if missing).
  */
-export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; methods: number; overridden: number; sheetMultipart: boolean; enums: number; enumsAmbiguous: string[] } {
+export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; methods: number; overridden: number; sheetMultipart: boolean; enums: number; enumIssues: string[] } {
     fs.mkdirSync(outDir, { recursive: true });
-    const enumDefs = buildEnumRegistry(spec);
-    fs.writeFileSync(path.join(outDir, 'gen_enums.ts'), emitEnumsFile(enumDefs));
-    const groups = groupResources(spec, enumDefs);
+    const enumRegistry = buildEnumRegistry(spec);
+    fs.writeFileSync(path.join(outDir, 'gen_enums.ts'), emitEnumsFile(enumRegistry.defs));
+    const groups = groupResources(spec, enumRegistry.defs);
     let methods = 0;
     let sheetMultipart = false;
     for (const group of groups) {
@@ -704,7 +704,7 @@ export function emitAll(spec: OpenApiSpec, outDir: string): { files: number; met
         }
     }
 
-    return { files: groups.length, methods, overridden, sheetMultipart, enums: enumDefs.length, enumsAmbiguous: ambiguousEnums(enumDefs).map((d) => d.name) };
+    return { files: groups.length, methods, overridden, sheetMultipart, enums: enumRegistry.defs.length, enumIssues: enumRegistry.issues };
 }
 
 /** CLI entry: read the resolved spec and emit resources into a staging dir. */
@@ -718,7 +718,7 @@ function main(): void {
     console.log(`  files          : ${result.files}`);
     console.log(`  methods        : ${result.methods}`);
     console.log(`  overridden     : ${result.overridden} (curated resources reproduced verbatim)`);
-    console.log(`  enums          : ${result.enums}${result.enumsAmbiguous.length ? ` (AMBIGUOUS, need alias: ${result.enumsAmbiguous.join(', ')})` : ''}`);
+    console.log(`  enums          : ${result.enums}${result.enumIssues.length ? ` (ISSUES: ${result.enumIssues.join('; ')})` : ''}`);
     console.log(`  campaigns/sheet: ${result.sheetMultipart ? 'multipart OK' : 'NOT multipart'}`);
 }
 

@@ -16,7 +16,7 @@
 
 import type { OpenApiSpec } from '../extract';
 import { HTTP_METHODS } from '../extract';
-import { ENUM_ALIASES } from '../overrides/enum-aliases';
+import { ENUM_ALIASES, EnumAlias } from '../overrides/enum-aliases';
 
 /** A minimal schema view — only the fields enum extraction reads. */
 interface EnumSchema {
@@ -36,6 +36,9 @@ interface EnumOwner {
 
 /** How an enum got its name: the descriptive owner field, a curated alias, or an unresolved collision. */
 export type EnumNameSource = 'field' | 'alias' | 'ambiguous';
+
+/** Harvested value-sets keyed by their sorted-joined values. */
+type ValueSetMap = Map<string, { values: string[]; owners: Map<string, EnumOwner> }>;
 
 /** A resolved enum ready to emit and to type params with. */
 export interface EnumDef {
@@ -124,7 +127,7 @@ function enumOf(schema: EnumSchema | undefined): string[] | undefined {
 }
 
 /** Accumulate one occurrence into the value-set map. */
-function record(map: Map<string, { values: string[]; owners: Map<string, EnumOwner> }>, values: string[], resource: string, field: string): void {
+function record(map: ValueSetMap, values: string[], resource: string, field: string): void {
     const key = [...values].sort().join('|');
     let entry = map.get(key);
     if (!entry) {
@@ -149,13 +152,59 @@ function chooseOwner(owners: EnumOwner[]): EnumOwner {
     })[0]!;
 }
 
+/** The enum registry plus every naming problem that must stop the run. */
+export interface EnumRegistry {
+    defs: EnumDef[];
+    /** Human-readable naming problems (ambiguous enums, stale or conflicting aliases); empty when healthy. */
+    issues: string[];
+}
+
+/** Outcome of matching the curated aliases against the harvested value-sets. */
+interface AliasResolution {
+    /** Value-set key -> curated name. */
+    namesByKey: Map<string, string>;
+    issues: string[];
+}
+
+/**
+ * Match each curated alias to the single value-set that shares one of its owners
+ * and contains all of its values. Zero matches (a value was removed or the enum
+ * vanished) and several matches (the signature no longer discriminates) are
+ * issues, never a silent guess.
+ */
+function resolveAliases(map: ValueSetMap, aliases: EnumAlias[]): AliasResolution {
+    const namesByKey = new Map<string, string>();
+    const issues: string[] = [];
+    for (const alias of aliases) {
+        const matches = [...map.entries()].filter(([, entry]) => {
+            const sharesOwner = alias.owners.some((owner) => entry.owners.has(owner));
+            return sharesOwner && alias.values.every((value) => entry.values.includes(value));
+        });
+        if (matches.length !== 1) {
+            issues.push(`enum alias ${alias.name} matched ${matches.length} value-sets (expected exactly 1)`);
+            continue;
+        }
+        const [key] = matches[0]!;
+        const claimedBy = namesByKey.get(key);
+        if (claimedBy) {
+            issues.push(`enum aliases ${claimedBy} and ${alias.name} claim the same value-set`);
+            continue;
+        }
+        namesByKey.set(key, alias.name);
+    }
+    return { namesByKey, issues };
+}
+
 /**
  * Build the domain-enum registry from a resolved spec: dedup by value-set, drop
- * sort/date pseudo-enums, name each after its most descriptive owner field, and
- * resolve name collisions deterministically.
+ * sort/date pseudo-enums, name each after its most descriptive owner field (or
+ * its curated alias), and resolve name collisions deterministically. Anything
+ * that cannot be named with confidence lands in {@link EnumRegistry.issues}.
+ * @param spec The resolved spec.
+ * @param aliases Curated names (defaults to {@link ENUM_ALIASES}).
  */
-export function buildEnumRegistry(spec: OpenApiSpec): EnumDef[] {
-    const map = new Map<string, { values: string[]; owners: Map<string, EnumOwner> }>();
+export function buildEnumRegistry(spec: OpenApiSpec, aliases: EnumAlias[] = ENUM_ALIASES): EnumRegistry {
+    const map: ValueSetMap = new Map();
 
     for (const [, item] of Object.entries(spec.paths ?? {})) {
         for (const http of HTTP_METHODS) {
@@ -184,9 +233,10 @@ export function buildEnumRegistry(spec: OpenApiSpec): EnumDef[] {
     // excluded from the count — an alias claims that meaning and frees the field
     // name for whatever single value-set is left (so `connections.type` still
     // yields `ConnectionType` once its channel meaning is aliased away).
+    const aliasResolution = resolveAliases(map, aliases);
     const valueSetsPerField = new Map<string, Set<string>>();
     for (const [key, entry] of map) {
-        if (isPseudoEnum(entry.values) || ENUM_ALIASES[key]) continue;
+        if (isPseudoEnum(entry.values) || aliasResolution.namesByKey.has(key)) continue;
         for (const owner of entry.owners.values()) {
             const field = `${owner.resource}.${owner.field}`;
             (valueSetsPerField.get(field) ?? valueSetsPerField.set(field, new Set()).get(field)!).add(key);
@@ -198,7 +248,7 @@ export function buildEnumRegistry(spec: OpenApiSpec): EnumDef[] {
         if (isPseudoEnum(entry.values)) continue;
         const owners = [...entry.owners.values()];
 
-        const alias = ENUM_ALIASES[key];
+        const alias = aliasResolution.namesByKey.get(key);
         if (alias) {
             defs.push({ name: alias, values: entry.values, key, owners, source: 'alias' });
             continue;
@@ -216,12 +266,9 @@ export function buildEnumRegistry(spec: OpenApiSpec): EnumDef[] {
         });
     }
 
-    return resolveCollisions(defs);
-}
-
-/** Enums the spec could not name and no alias covers — the report surfaces these instead of trusting a guessed name. */
-export function ambiguousEnums(defs: EnumDef[]): EnumDef[] {
-    return defs.filter((def) => def.source === 'ambiguous');
+    const resolved = resolveCollisions(defs);
+    const ambiguous = resolved.filter((def) => def.source === 'ambiguous').map((def) => `enum ${def.name} is ambiguous (${def.key}); add an alias`);
+    return { defs: resolved, issues: [...aliasResolution.issues, ...ambiguous] };
 }
 
 /** Suffix colliding names with their owning resource, then an index — deterministic. */

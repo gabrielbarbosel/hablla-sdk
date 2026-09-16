@@ -25,6 +25,8 @@ export interface GuardMetrics {
     apiClientFound: boolean;
     /** How many resolved routes are workspace-scoped (carry `{workspace_id}`). */
     workspaceAliasCount: number;
+    /** Enum naming problems from the emit stage (ambiguous enums, stale aliases); a public name must never be guessed. */
+    enumIssues: string[];
 }
 
 /** Tunable trip points for {@link evaluateGuards}. */
@@ -90,6 +92,8 @@ export function evaluateGuards(
     if (metrics.workspaceAliasCount < thresholds.minWorkspaceAlias) {
         reasons.push(`{workspace} alias resolved only ${metrics.workspaceAliasCount} time(s) (< ${thresholds.minWorkspaceAlias})`);
     }
+
+    reasons.push(...metrics.enumIssues);
 
     const ok = reasons.length === 0;
     return {

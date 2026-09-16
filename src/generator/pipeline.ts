@@ -289,6 +289,7 @@ export async function runCodegenPipeline(options: CodegenPipelineOptions = {}) {
         multipartCount: extract.multipartCount,
         apiClientFound: extract.apiClientFound,
         workspaceAliasCount: extract.workspaceAliasCount,
+        enumIssues: emit.enumIssues,
     });
     if (guards.ok) {
         log('[guard] all invariants held');
