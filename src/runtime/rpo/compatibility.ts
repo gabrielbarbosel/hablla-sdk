@@ -705,3 +705,31 @@ export function findMissingMembers(required: readonly string[], surface: readonl
     const exposed = new Set(surface);
     return [...new Set(required)].filter((path) => !exposed.has(path)).sort();
 }
+
+/** Outcome of comparing the published runtime with the one about to replace it, against live code. */
+export interface SurfaceRegression {
+    /** Live members the published runtime exposes and the next one drops: a deploy must be refused. */
+    dropped: string[];
+    /** Live members already missing from the published runtime and still missing from the next: a warning, not a blocker. */
+    alreadyMissing: string[];
+}
+
+/**
+ * Compares two runtimes against the live code in regression mode: only what the next
+ * runtime breaks blocks, while references already broken today are reported apart.
+ * @param required Paths the live code uses (see {@link extractHabllaReferences}).
+ * @param publishedSurface Paths the currently published bundles expose (see {@link listHabllaSurface}).
+ * @param nextSurface Paths the bundles about to be deployed expose.
+ */
+export function findSurfaceRegression(
+    required: readonly string[],
+    publishedSurface: readonly string[],
+    nextSurface: readonly string[],
+): SurfaceRegression {
+    const missingFromNext = findMissingMembers(required, nextSurface);
+    const published = new Set(publishedSurface);
+    return {
+        dropped: missingFromNext.filter((path) => published.has(path)),
+        alreadyMissing: missingFromNext.filter((path) => !published.has(path)),
+    };
+}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { extractHabllaReferences, findMissingMembers, listHabllaSurface } from './compatibility';
+import { extractHabllaReferences, findMissingMembers, findSurfaceRegression, listHabllaSurface } from './compatibility';
 
 const ASSETS = path.join(__dirname, '..', '..', '..', 'assets', 'rpo');
 
@@ -193,5 +193,25 @@ describe('listHabllaSurface', () => {
 describe('findMissingMembers', () => {
     it('returns the sorted, de-duplicated required paths absent from the surface', () => {
         expect(findMissingMembers(['dispatch.run', 'b.x', 'b.x', 'persons.list'], ['persons', 'persons.list'])).toEqual(['b.x', 'dispatch.run']);
+    });
+});
+
+describe('findSurfaceRegression', () => {
+    it('blocks only what the published runtime exposes and the next one drops', () => {
+        const required = ['persons.list', 'dispatch.run', 'legacy.gone', 'services.get', 'services.get'];
+        const published = ['persons.list', 'dispatch.run', 'services.get'];
+        const next = ['persons.list', 'services.get'];
+        expect(findSurfaceRegression(required, published, next)).toEqual({ dropped: ['dispatch.run'], alreadyMissing: ['legacy.gone'] });
+    });
+
+    it('reports nothing for a reference the next runtime restores', () => {
+        expect(findSurfaceRegression(['legacy.back'], [], ['legacy.back'])).toEqual({ dropped: [], alreadyMissing: [] });
+    });
+
+    it('compares the real client-only runtime with client plus domain', () => {
+        const client = listHabllaSurface({ W_HabllaClient: asset('W_HabllaClient') });
+        const withDomain = listHabllaSurface({ W_HabllaClient: asset('W_HabllaClient'), W_HabllaDomain: asset('W_HabllaDomain') });
+        expect(findSurfaceRegression(['dispatch.run', 'persons.addEmails'], withDomain, client).dropped).toEqual(['dispatch.run']);
+        expect(findSurfaceRegression(['dispatch.run', 'persons.addEmails'], client, withDomain)).toEqual({ dropped: [], alreadyMissing: [] });
     });
 });

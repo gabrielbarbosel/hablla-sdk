@@ -13,18 +13,23 @@ const vars: HabllaVariables = {
     workspaceToken: process.env.HABLLA_WORKSPACE_TOKEN,
 };
 
-// 1) Use it locally.
+/** The local client, built from the same variables the RPO deploy receives. */
 export const hablla = createHabllaClient(vars);
 
 export async function listSomePersons() {
     return hablla.persons.listPersons({ query: { limit: 10 } });
 }
 
-// 2) Deploy the RPO with the SAME variables (preview first, then upload), refusing
-//    bundles that drop a hablla member the live flow code nodes still use.
-export async function deploy(liveCodeNodeSources: string[]) {
+/**
+ * Previews the RPO deploy with the SAME variables as the local client. In regression
+ * mode it refuses bundles that drop a `hablla` member the live flow code nodes use and
+ * the published runtime still exposes; members already missing today come back in
+ * `alreadyMissingMembers`. Upload + publish with the same call without `dryRun`.
+ * @param liveCodeNodeSources Source of every live flow code node.
+ * @param publishedBundles Class bodies currently published in the workspace, by class name.
+ */
+export async function deploy(liveCodeNodeSources: string[], publishedBundles: Record<string, string>) {
     const liveClientMembers = liveCodeNodeSources.flatMap(extractHabllaReferences);
-    const plan = await deployToRpo(vars, { dryRun: true, liveClientMembers });
+    const plan = await deployToRpo(vars, { dryRun: true, compatibility: { mode: 'regression', liveClientMembers, publishedBundles } });
     console.log('RPO deploy plan:', plan);
-    // await deployToRpo(vars, { liveClientMembers }); // uncomment to actually upload + publish
 }

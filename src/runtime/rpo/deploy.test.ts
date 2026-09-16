@@ -66,27 +66,41 @@ describe('resolveDeployTargets', () => {
 
 describe('assertClientCompatibility', () => {
     const client = `class W_C { async execute() { var P = class { list() {} }; var C = class { constructor() { this.persons = new P(); } }; globalThis.hablla = new C(); } }`;
+    const publishedClient = `class W_C { async execute() { var P = class { list() {} get() {} }; var C = class { constructor() { this.persons = new P(); } }; globalThis.hablla = new C(); } }`;
 
     it('passes when every live member is exposed, or when explicitly unchecked', () => {
-        expect(() => assertClientCompatibility({ W_C: client }, ['persons.list'])).not.toThrow();
-        expect(() => assertClientCompatibility({ W_C: client }, 'unchecked')).not.toThrow();
+        expect(assertClientCompatibility({ W_C: client }, { mode: 'strict', liveClientMembers: ['persons.list'] })).toEqual([]);
+        expect(assertClientCompatibility({ W_C: client }, { mode: 'unchecked' })).toEqual([]);
     });
 
     it('refuses when a live member is not exposed', () => {
-        expect(() => assertClientCompatibility({ W_C: client }, ['persons.list', 'dispatch.run'])).toThrow(/do not expose hablla.dispatch.run/);
+        expect(() => assertClientCompatibility({ W_C: client }, { mode: 'strict', liveClientMembers: ['persons.list', 'dispatch.run'] })).toThrow(
+            /do not expose hablla.dispatch.run/,
+        );
+    });
+
+    it('in regression mode, refuses only a member the published runtime exposes and reports the ones it already lacks', () => {
+        const check = { mode: 'regression', liveClientMembers: ['persons.list', 'dispatch.run'], publishedBundles: { W_C: publishedClient } } as const;
+        expect(assertClientCompatibility({ W_C: client }, check)).toEqual(['dispatch.run']);
+        expect(() => assertClientCompatibility({ W_C: client }, { ...check, liveClientMembers: ['persons.get', 'dispatch.run'] })).toThrow(
+            /drop hablla.persons.get, exposed by the published runtime/,
+        );
     });
 });
 
 describe('deployToRpo', () => {
     it('validates offline and returns the plan on a dry run without any network call', async () => {
-        const plan = await deployToRpo(VARS, { dryRun: true, liveClientMembers: ['dispatch.run', 'persons.addEmails'] });
-        expect(plan.map((item) => item.name)).toEqual([...CLASS_ORDER]);
+        const plan = await deployToRpo(VARS, { dryRun: true, compatibility: { mode: 'strict', liveClientMembers: ['dispatch.run', 'persons.addEmails'] } });
+        expect(plan.items.map((item) => item.name)).toEqual([...CLASS_ORDER]);
+        expect(plan.alreadyMissingMembers).toEqual([]);
         expect(http.post).not.toHaveBeenCalled();
         expect(http.get).not.toHaveBeenCalled();
     });
 
     it('refuses an incompatible deploy before any network call', async () => {
-        await expect(deployToRpo(VARS, { liveClientMembers: ['dispatch.run', 'massDispatch.run'] })).rejects.toThrow(/hablla.massDispatch.run/);
+        await expect(deployToRpo(VARS, { compatibility: { mode: 'strict', liveClientMembers: ['dispatch.run', 'massDispatch.run'] } })).rejects.toThrow(
+            /hablla.massDispatch.run/,
+        );
         expect(http.post).not.toHaveBeenCalled();
         expect(http.get).not.toHaveBeenCalled();
         expect(http.put).not.toHaveBeenCalled();
@@ -96,7 +110,7 @@ describe('deployToRpo', () => {
         http.post.mockResolvedValueOnce(TOKEN_RESPONSE);
         listing(CLASS_ORDER.filter((name) => name !== 'W_HabllaDomain'));
 
-        await expect(deployToRpo(VARS, { liveClientMembers: 'unchecked' })).rejects.toThrow(/W_HabllaDomain/);
+        await expect(deployToRpo(VARS, { compatibility: { mode: 'unchecked' } })).rejects.toThrow(/W_HabllaDomain/);
         expect(http.put).not.toHaveBeenCalled();
         expect(http.post).toHaveBeenCalledTimes(1);
     });
@@ -106,9 +120,9 @@ describe('deployToRpo', () => {
         listing(CLASS_ORDER);
         http.put.mockResolvedValue({ status: 200, data: {} });
 
-        const results = await deployToRpo(VARS, { liveClientMembers: ['dispatch.run'] });
+        const report = await deployToRpo(VARS, { compatibility: { mode: 'strict', liveClientMembers: ['dispatch.run'] } });
 
-        expect(results.map((item) => item.status)).toEqual(CLASS_ORDER.map(() => 200));
+        expect(report.items.map((item) => item.status)).toEqual(CLASS_ORDER.map(() => 200));
         expect(http.put.mock.calls.map(([url]) => url)).toEqual(CLASS_ORDER.map((name) => `https://api.hablla.com/v1/workspaces/ws/classes/id-${name}`));
         const variablesBody = http.put.mock.calls[CLASS_ORDER.indexOf('W_Variables')]![1] as { js_code: string; is_public: boolean };
         expect(variablesBody.js_code).toContain('"accessToken": "bearer"');
@@ -122,7 +136,7 @@ describe('deployToRpo', () => {
         listing(CLASS_ORDER);
         http.put.mockResolvedValueOnce({ status: 200, data: {} }).mockResolvedValue({ status: 500, data: {} });
 
-        const deploy = expect(deployToRpo(VARS, { liveClientMembers: 'unchecked' })).rejects.toThrow(
+        const deploy = expect(deployToRpo(VARS, { compatibility: { mode: 'unchecked' } })).rejects.toThrow(
             /PUT W_PolyfillBuffer failed \(PUT failed \(500\)\); drafts already written: W_PolyfillCore; W_PolyfillBuffer may also have been drafted/,
         );
         await vi.runAllTimersAsync();

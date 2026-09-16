@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios, { AxiosRequestConfig } from 'axios';
 import type { HabllaVariables } from '../../sdk/variables';
-import { findMissingMembers, listHabllaSurface, parseJavaScript } from './compatibility';
+import { findMissingMembers, findSurfaceRegression, listHabllaSurface, parseJavaScript } from './compatibility';
 
 const PACKAGE_ROOT = path.join(__dirname, '..', '..', '..');
 
@@ -59,16 +59,32 @@ export interface DeployItem {
     skipped?: string;
 }
 
+/**
+ * How the deploy verifies the bundles against the live workspace code that consumes
+ * `globalThis.hablla`. `liveClientMembers` are dotted member paths, extracted from the
+ * flow code nodes with `extractHabllaReferences`.
+ * - `strict`: refused when the bundles to publish do not expose every live member.
+ * - `regression`: refused only when a live member the published runtime exposes is
+ *   dropped; live members the published runtime already lacks are reported instead.
+ *   `publishedBundles` are the class bodies currently live in the workspace, by name.
+ * - `unchecked`: no verification — an explicit, reviewable opt-out, never a default.
+ */
+export type ClientCompatibilityCheck =
+    | { mode: 'strict'; liveClientMembers: readonly string[] }
+    | { mode: 'regression'; liveClientMembers: readonly string[]; publishedBundles: Readonly<Record<string, string>> }
+    | { mode: 'unchecked' };
+
 export interface DeployOptions {
     /** When true, validates everything offline and returns the plan without uploading anything. */
     dryRun?: boolean;
-    /**
-     * Members of `globalThis.hablla` the live workspace code relies on, as dotted paths
-     * (extract them from the flow code nodes with `extractHabllaReferences`). The deploy
-     * is refused when the bundles to publish do not expose one of them. `'unchecked'`
-     * skips the verification — an explicit, reviewable opt-out, never a default.
-     */
-    liveClientMembers: readonly string[] | 'unchecked';
+    compatibility: ClientCompatibilityCheck;
+}
+
+export interface DeployReport {
+    /** One entry per class, in deploy order: the plan on a dry run, the PUT outcomes otherwise. */
+    items: DeployItem[];
+    /** Live members already missing from the published runtime (regression mode only); they did not block the deploy. */
+    alreadyMissingMembers: string[];
 }
 
 /** A workspace class resolved as the target of one deploy PUT. */
@@ -164,20 +180,41 @@ function prepareClassBodies(vars: HabllaVariables): Record<RpoClassName, string>
     return bodies;
 }
 
+function memberList(paths: readonly string[]): string {
+    return paths.map((path) => `hablla.${path}`).join(', ');
+}
+
 /**
- * Refuses a deploy whose bundles would drop a `globalThis.hablla` member the live code uses.
+ * Refuses a deploy whose bundles would break a `globalThis.hablla` member the live code uses.
  * @param bodies The class bodies to publish, keyed by class name.
- * @param liveClientMembers The member paths the live code uses, or `'unchecked'`.
- * @throws When a required member is not exposed by the bundles.
+ * @param check The verification to run (see {@link ClientCompatibilityCheck}).
+ * @returns The live members already missing from the published runtime (regression mode), which do not block.
+ * @throws When the check refuses the bundles.
  */
-export function assertClientCompatibility(
-    bodies: Readonly<Record<string, string>>,
-    liveClientMembers: DeployOptions['liveClientMembers'],
-): void {
-    if (liveClientMembers === 'unchecked') return;
-    const missing = findMissingMembers(liveClientMembers, listHabllaSurface(bodies));
-    if (missing.length > 0) {
-        throw new Error(`The bundles to deploy do not expose hablla.${missing.join(', hablla.')}, used by live code — refusing to deploy`);
+export function assertClientCompatibility(bodies: Readonly<Record<string, string>>, check: ClientCompatibilityCheck): string[] {
+    switch (check.mode) {
+        case 'unchecked':
+            return [];
+        case 'strict': {
+            const missing = findMissingMembers(check.liveClientMembers, listHabllaSurface(bodies));
+            if (missing.length > 0) {
+                throw new Error(`The bundles to deploy do not expose ${memberList(missing)}, used by live code — refusing to deploy`);
+            }
+            return [];
+        }
+        case 'regression': {
+            const { dropped, alreadyMissing } = findSurfaceRegression(
+                check.liveClientMembers,
+                listHabllaSurface(check.publishedBundles),
+                listHabllaSurface(bodies),
+            );
+            if (dropped.length > 0) {
+                throw new Error(
+                    `The bundles to deploy drop ${memberList(dropped)}, exposed by the published runtime and used by live code — refusing to deploy`,
+                );
+            }
+            return alreadyMissing;
+        }
     }
 }
 
@@ -291,17 +328,16 @@ async function listAllClasses(base: string, headers: Record<string, string>): Pr
  * the caller — the same object used to instantiate the local client.
  *
  * Every check runs before the first write: bundle integrity and version, compatibility
- * with the live code ({@link DeployOptions.liveClientMembers}), and the presence of every
+ * with the live code ({@link DeployOptions.compatibility}), and the presence of every
  * target class in the workspace. The RPO is a single, shared runtime and publishing is
  * workspace-wide, so a half-written deploy must never leave drafts behind a validation
  * that could have failed earlier. Pass `dryRun: true` to run the offline checks and get
  * the plan without touching the workspace.
  */
-export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions): Promise<DeployItem[]> {
+export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions): Promise<DeployReport> {
     const bodies = prepareClassBodies(vars);
-    assertClientCompatibility(bodies, opts.liveClientMembers);
-    const plan: DeployItem[] = CLASS_ORDER.map((name) => ({ name, bytes: bodies[name].length }));
-    if (opts.dryRun) return plan;
+    const alreadyMissingMembers = assertClientCompatibility(bodies, opts.compatibility);
+    if (opts.dryRun) return { items: CLASS_ORDER.map((name) => ({ name, bytes: bodies[name].length })), alreadyMissingMembers };
 
     const { token, expiresAt } = await firebaseBearer(vars);
     const base = `${vars.baseUrl ?? 'https://api.hablla.com'}/v1/workspaces/${vars.workspaceId}`;
@@ -335,5 +371,5 @@ export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions): P
     });
     if (publish.status >= 300) throw new Error(`Publish failed (${publish.status}) — drafts uploaded but nothing went live`);
 
-    return results;
+    return { items: results, alreadyMissingMembers };
 }
