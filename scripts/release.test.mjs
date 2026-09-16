@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { applyBump, decideBump, findVersionCommit, prependChangelog, RELEASE_PATHS, withLockVersion } from './release.mjs';
+import { applyBump, decideBump, prependChangelog, RELEASE_PATHS, withLockVersion } from './release.mjs';
 
 describe('decideBump', () => {
     it.each([
@@ -62,23 +62,3 @@ describe('RELEASE_PATHS', () => {
     });
 });
 
-describe('findVersionCommit', () => {
-    const revisions = [
-        { sha: 'deps', version: '0.3.0' },
-        { sha: 'bump', version: '0.3.0' },
-        { sha: 'older', version: '0.2.0' },
-        { sha: 'oldest', version: '0.3.0' },
-    ];
-
-    it('picks the commit that introduced the current version, not a later edit of package.json', () => {
-        expect(findVersionCommit(revisions, '0.3.0')).toBe('bump');
-    });
-
-    it('picks the first revision when the version never changed', () => {
-        expect(findVersionCommit([{ sha: 'b', version: '0.1.0' }, { sha: 'a', version: '0.1.0' }], '0.1.0')).toBe('a');
-    });
-
-    it('fails when the latest revision carries another version', () => {
-        expect(() => findVersionCommit(revisions, '0.4.0')).toThrow('the latest package.json revision does not carry version 0.4.0');
-    });
-});

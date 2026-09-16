@@ -106,19 +106,6 @@ export function withLockVersion(lock, version) {
     return { ...lock, version, packages: { ...lock.packages, '': { ...lock.packages[''], version } } };
 }
 
-/**
- * The commit that introduced a version: the oldest revision of the newest-first
- * run of `package.json` revisions that all carry it.
- * @param {{ sha: string, version: string }[]} revisions `package.json` revisions, newest first.
- * @param {string} version The version to locate.
- * @returns {string} The commit sha.
- */
-export function findVersionCommit(revisions, version) {
-    if (revisions[0]?.version !== version) throw new Error(`the latest package.json revision does not carry version ${version}`);
-    const firstOlderVersion = revisions.findIndex((revision) => revision.version !== version);
-    return revisions[firstOlderVersion === -1 ? revisions.length - 1 : firstOlderVersion - 1].sha;
-}
-
 /** Title line every CHANGELOG starts with. */
 const CHANGELOG_TITLE = '# Changelog';
 
@@ -234,13 +221,13 @@ function publish(reportPath) {
     console.log(`[release] pushed commit + ${tag}.`);
 }
 
-/** `package.json` revisions along the release branch's first-parent line, newest first. */
-function packageJsonRevisions() {
-    const commits = git(['log', '--first-parent', '--format=%H', '--', 'package.json']).split('\n').filter(Boolean);
-    return commits.map((sha) => ({ sha, version: JSON.parse(git(['show', `${sha}:package.json`])).version }));
-}
 
-/** Tag the current version on the commit that introduced it, when the remote does not have the tag yet. */
+/**
+ * Tag the current version on the checked-out commit (the main push that changed
+ * `package.json`), when the remote does not have the tag yet. Tagging HEAD keeps the
+ * release equal to main and avoids GitHub rejecting a token-pushed tag on an older
+ * commit whose workflow files differ from main's.
+ */
 function tagCurrentVersion() {
     requireReleaseBranch();
     const version = readJson('package.json').version;
@@ -249,7 +236,7 @@ function tagCurrentVersion() {
         console.log(`[release] ${tag} already exists on origin; nothing to tag.`);
         return;
     }
-    const commit = findVersionCommit(packageJsonRevisions(), version);
+    const commit = git(['rev-parse', 'HEAD']);
     ensureGitIdentity();
     git(['tag', '-a', tag, '-m', `${tag} (release)`, commit]);
     git(['push', 'origin', `refs/tags/${tag}`]);
