@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { MAX_BODY_LENGTH, renderChangeSummary, renderChangelogEntry, renderFailureIssue, resolveOutcome } from './codegen-summary.mjs';
+import { MAX_BODY_LENGTH, renderChangeSummary, renderChangelogEntry, renderFailureIssue, renderPullRequestBody, resolveOutcome } from './codegen-summary.mjs';
 
 /** A report with an empty diff, overridable per test. */
 function reportWith(classification, diff = {}, reasons = []) {
@@ -64,18 +64,37 @@ describe('renderChangeSummary', () => {
         const report = reportWith('additive', { addedEndpoints: ['GET /a (x)'] });
         expect(renderChangeSummary(report)).toBe(renderChangeSummary(structuredClone(report)));
     });
+});
 
+/** A report whose summary is far above GitHub's body limit. */
+function oversizedReport() {
+    const addedEndpoints = Array.from({ length: 5000 }, (_, i) => `GET /v1/very/long/generated/route/number/${i} (resource)`);
+    return reportWith('additive', { addedEndpoints });
+}
+
+describe('renderPullRequestBody', () => {
     it('stays under the GitHub body limit', () => {
-        const addedEndpoints = Array.from({ length: 5000 }, (_, i) => `GET /v1/very/long/generated/route/number/${i} (resource)`);
-        const summary = renderChangeSummary(reportWith('additive', { addedEndpoints }));
-        expect(summary.length).toBeLessThan(MAX_BODY_LENGTH + 200);
-        expect(summary).toContain('_Truncated:');
+        const body = renderPullRequestBody(oversizedReport());
+        expect(body.length).toBeLessThan(MAX_BODY_LENGTH + 200);
+        expect(body).toContain('_Truncated:');
+    });
+
+    it('is the plain summary when it fits', () => {
+        const report = reportWith('breaking', { removedEndpoints: ['GET /a (x)'] });
+        expect(renderPullRequestBody(report)).toBe(renderChangeSummary(report));
     });
 });
 
 describe('renderChangelogEntry', () => {
     it('heads the summary with the version and date', () => {
         expect(renderChangelogEntry(reportWith('changed', { changedFiles: ['gen_enums.ts'] }), '0.3.1', '2026-09-16')).toMatch(/^## v0\.3\.1 \(2026-09-16\)\n\n\*\*Classification:\*\* `changed`/);
+    });
+
+    it('is never truncated', () => {
+        const entry = renderChangelogEntry(oversizedReport(), '0.3.1', '2026-09-16');
+        expect(entry.length).toBeGreaterThan(MAX_BODY_LENGTH);
+        expect(entry).not.toContain('_Truncated:');
+        expect(entry).toContain('GET /v1/very/long/generated/route/number/4999 (resource)');
     });
 });
 
@@ -88,7 +107,7 @@ describe('renderFailureIssue', () => {
         });
         expect(body).toContain('**Run:** https://github.com/o/r/actions/runs/1');
         expect(body).toContain('**Failed steps:** `gates`');
-        expect(body).toContain('No generation report was written');
+        expect(body).toContain('_No generation report was written._');
     });
 
     it('carries the guard reasons of a failure report', () => {

@@ -105,7 +105,7 @@ jobs:
         id: pr-inputs
         if: steps.verify.outcome == 'success' && github.ref == 'refs/heads/main' && steps.classify.outputs.outcome == 'breaking'
         run: |
-          node scripts/codegen-summary.mjs summary --report="$REPORT" --out="$RUNNER_TEMP/codegen-summary.md"
+          node scripts/codegen-summary.mjs pull-request --report="$REPORT" --out="$RUNNER_TEMP/codegen-pull-request.md"
           {
             echo "version=$(node -p "require('./package.json').version")"
             echo "paths<<EOF_RELEASE_PATHS"
@@ -122,7 +122,7 @@ jobs:
           add-paths: ${{ steps.pr-inputs.outputs.paths }}
           commit-message: "feat(codegen)!: regen breaking, v${{ steps.pr-inputs.outputs.version }}"
           title: "Codegen: breaking API changes (v${{ steps.pr-inputs.outputs.version }})"
-          body-path: ${{ runner.temp }}/codegen-summary.md
+          body-path: ${{ runner.temp }}/codegen-pull-request.md
           reviewers: gabrielbarbosel
           labels: |
             codegen

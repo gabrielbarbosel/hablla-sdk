@@ -1,12 +1,13 @@
 /**
  * Deterministic human-facing text for the codegen cycle, rendered only from
  * `generation-report.json`: the run outcome the workflow routes on, the change
- * summary used as PR body and CHANGELOG entry, and the failure issue body. No
- * LLM and no network, so the same report always yields the same text.
+ * summary (the CHANGELOG entry in full, the PR body capped to GitHub's limit),
+ * and the failure issue body. No LLM and no network, so the same report always
+ * yields the same text.
  *
  * Usage:
  *   node scripts/codegen-summary.mjs outcome --report=generation-report.json --pipeline=success
- *   node scripts/codegen-summary.mjs summary --report=generation-report.json --out=summary.md
+ *   node scripts/codegen-summary.mjs pull-request --report=generation-report.json --out=pull-request.md
  *   node scripts/codegen-summary.mjs failure --report=generation-report.json --steps='<toJSON(steps)>' --run-url=https://… --out=issue.md
  */
 
@@ -17,7 +18,7 @@ import { isEntryPoint, parseCommandLine, readReportIfPresent } from './cli.mjs';
 /** Every classification the generator may report. */
 export const CLASSIFICATIONS = ['failure', 'breaking', 'additive', 'changed', 'noop'];
 
-/** GitHub rejects issue and PR bodies above 65536 characters; stay clear of it. */
+/** GitHub rejects issue and PR bodies above 65536 characters; stay clear of it. Never applied to the CHANGELOG. */
 export const MAX_BODY_LENGTH = 60000;
 
 /**
@@ -91,7 +92,16 @@ export function renderChangeSummary(report) {
             ...diff.changedFiles.map((file) => `changed ${code(file)}`),
         ]),
     ];
-    return limitLength(`${lines.join('\n').trimEnd()}\n`);
+    return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * Render the breaking-change pull request body: the change summary capped to {@link MAX_BODY_LENGTH}.
+ * @param {object} report The parsed generation report.
+ * @returns {string} Markdown.
+ */
+export function renderPullRequestBody(report) {
+    return limitLength(renderChangeSummary(report));
 }
 
 /**
@@ -106,7 +116,7 @@ export function renderChangelogEntry(report, version, date) {
 }
 
 /**
- * Render the failure issue body (or comment) for a run that changed nothing.
+ * Render the failure issue body (or comment), capped to {@link MAX_BODY_LENGTH}.
  * @param {{ report: object | null, steps: Record<string, { outcome: string }>, runUrl: string }} input
  *   `steps` is the workflow's `toJSON(steps)`.
  * @returns {string} Markdown.
@@ -114,13 +124,13 @@ export function renderChangelogEntry(report, version, date) {
 export function renderFailureIssue({ report, steps, runUrl }) {
     const failedSteps = Object.entries(steps).filter(([, step]) => step.outcome === 'failure').map(([id]) => `\`${id}\``);
     const lines = [
-        'The codegen run failed; nothing was committed, tagged or proposed.',
+        'The codegen run failed.',
         '',
         `**Run:** ${runUrl}`,
         `**Failed steps:** ${failedSteps.length ? failedSteps.join(', ') : '(none recorded)'}`,
         '',
     ];
-    const details = report ? renderChangeSummary(report) : '_No generation report was written: the pipeline did not reach the report stage._\n';
+    const details = report ? renderChangeSummary(report) : '_No generation report was written._\n';
     return limitLength(`${lines.join('\n')}${details}`);
 }
 
@@ -136,9 +146,9 @@ function main() {
         return;
     }
     if (!flags.out) throw new Error('--out is required');
-    if (command === 'summary') {
+    if (command === 'pull-request') {
         if (!report) throw new Error(`report not found: ${flags.report}`);
-        fs.writeFileSync(flags.out, renderChangeSummary(report));
+        fs.writeFileSync(flags.out, renderPullRequestBody(report));
         return;
     }
     if (command === 'failure') {
@@ -146,7 +156,7 @@ function main() {
         fs.writeFileSync(flags.out, renderFailureIssue({ report, steps: JSON.parse(flags.steps), runUrl: flags['run-url'] }));
         return;
     }
-    throw new Error(`unknown command: ${command} (expected outcome | summary | failure)`);
+    throw new Error(`unknown command: ${command} (expected outcome | pull-request | failure)`);
 }
 
 if (isEntryPoint(import.meta.url)) {
