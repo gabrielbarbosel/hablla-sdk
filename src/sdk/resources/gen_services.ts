@@ -286,7 +286,7 @@ export class Services extends Resource {
     }
 
     /**
-     * Get all services (V2).
+     * Get all services (V2) - índice otimizado (services_search_v2).
      * @method GET /v2/workspaces/{workspace_id}/services
      * @remarks Documented query: filters, page, limit, order, direction_order, user, finished_by_user, person, connection, sector, reason, card, name, search, type, status, statuses, csat, populate, start_date, end_date, field_date, tags, sectors, fcr, win, key, custom_fields (extra keys allowed).
      */

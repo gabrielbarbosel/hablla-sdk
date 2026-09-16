@@ -265,7 +265,7 @@ export class Cards extends Resource {
     }
 
     /**
-     * Get all cards (V3).
+     * Get all cards (V3) - índice otimizado (cards_search_v2).
      * @method GET /v3/workspaces/{workspace_id}/cards
      * @remarks Documented query: filters, page, limit, order, direction_order, name, search, campaign, source, list, custom_id, board, person, organization, user, product, service, sector, status, rating, tags, followers, users, populate, start_date, end_date, field_date, created_at, updated_at, finished_at, prediction_date, entry_date, next_task_start_date, next_task_type, has_next_task, custom_fields, highlight_old_cards (extra keys allowed).
      */

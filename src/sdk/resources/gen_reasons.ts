@@ -39,9 +39,9 @@ export class Reasons extends Resource {
     /**
      * Get all reasons.
      * @method GET /v1/workspaces/{workspace_id}/reasons
-     * @remarks Documented query: filters, page, limit, order, direction_order, name, sector, type, populate (extra keys allowed).
+     * @remarks Documented query: filters, start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, sector, type, populate (extra keys allowed).
      */
-    listReasons(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sector?: string; type?: ReasonTypeCode; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Reason>> {
+    listReasons(opts: { query?: { filters?: string; start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sector?: string; type?: ReasonTypeCode; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Reason>> {
         return this.http.get('/v1/workspaces/{workspace_id}/reasons', { query: opts.query });
     }
 

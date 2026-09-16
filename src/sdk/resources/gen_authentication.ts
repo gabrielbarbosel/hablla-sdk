@@ -12,30 +12,12 @@ export class Authentication extends Resource {
     }
 
     /**
-     * login.
-     * @method POST /v1/authentication/login
+     * logout.
+     * @method POST /v1/authentication/logout
      * @remarks Any query params may be sent (none documented).
      */
-    login(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.post('/v1/authentication/login', { body, query: opts.query });
-    }
-
-    /**
-     * registerWithExternal.
-     * @method POST /v1/authentication/register-with-external
-     * @remarks Any query params may be sent (none documented).
-     */
-    registerWithExternal(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.post('/v1/authentication/register-with-external', { body, query: opts.query });
-    }
-
-    /**
-     * registerWithPassword.
-     * @method POST /v1/authentication/register-with-password
-     * @remarks Any query params may be sent (none documented).
-     */
-    registerWithPassword(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.post('/v1/authentication/register-with-password', { body, query: opts.query });
+    logout(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v1/authentication/logout', { body, query: opts.query });
     }
 
     /**
@@ -57,11 +39,38 @@ export class Authentication extends Resource {
     }
 
     /**
+     * login.
+     * @method POST /v2/authentication/login
+     * @remarks Any query params may be sent (none documented).
+     */
+    login(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v2/authentication/login', { body, query: opts.query });
+    }
+
+    /**
+     * registerWithExternal.
+     * @method POST /v2/authentication/register-with-external
+     * @remarks Any query params may be sent (none documented).
+     */
+    registerWithExternal(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v2/authentication/register-with-external', { body, query: opts.query });
+    }
+
+    /**
+     * registerWithPassword.
+     * @method POST /v2/authentication/register-with-password
+     * @remarks Any query params may be sent (none documented).
+     */
+    registerWithPassword(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v2/authentication/register-with-password', { body, query: opts.query });
+    }
+
+    /**
      * getVerifyEmail.
-     * @method GET /v1/authentication/verify-email
+     * @method GET /v2/authentication/verify-email
      * @remarks Any query params may be sent (none documented).
      */
     getVerifyEmail(opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/authentication/verify-email', { query: opts.query, queryFormat: 'json' });
+        return this.http.get('/v2/authentication/verify-email', { query: opts.query, queryFormat: 'json' });
     }
 }

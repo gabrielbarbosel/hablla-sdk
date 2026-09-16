@@ -26,6 +26,15 @@ export interface Connection {
 /** `connections` resource (generated from openapi.json). */
 export class Connections extends Resource {
     /**
+     * getAnalytics.
+     * @method GET /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}/analytics
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getAnalytics(connectionId: string, templateId: string, opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}/analytics', { path: { connection_id: connectionId, template_id: templateId }, query: opts.query });
+    }
+
+    /**
      * createDuplicate.
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}
      * @remarks Any query params may be sent (none documented).
@@ -206,6 +215,24 @@ export class Connections extends Resource {
     }
 
     /**
+     * Create facebook connections from the selected pages.
+     * @method POST /v1/workspaces/{workspace_id}/connections/meta-fanpage
+     * @remarks Any query params may be sent (none documented).
+     */
+    metaFanpage(body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/meta-fanpage', { body, query: opts.query });
+    }
+
+    /**
+     * Create facebook and instagram connections from the selected pages.
+     * @method POST /v1/workspaces/{workspace_id}/connections/meta-fanpage-and-instagram
+     * @remarks Any query params may be sent (none documented).
+     */
+    metaFanpageAndInstagram(body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/meta-fanpage-and-instagram', { body, query: opts.query });
+    }
+
+    /**
      * Get connections by array of ids.
      * @method GET /v1/workspaces/{workspace_id}/connections/multiple
      * @remarks Documented query: ids (extra keys allowed).
@@ -215,11 +242,20 @@ export class Connections extends Resource {
     }
 
     /**
+     * Create whatsapp connections from the selected phone numbers.
+     * @method POST /v1/workspaces/{workspace_id}/connections/whatsapp-messaging
+     * @remarks Documented query: token, sector, phones (extra keys allowed).
+     */
+    whatsappMessaging(body: Partial<Connection>, opts: { query?: { token?: string; sector?: string; phones?: string } & Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/whatsapp-messaging', { body, query: opts.query });
+    }
+
+    /**
      * Get all connections.
      * @method GET /v1/workspaces/{workspace_id}/connections
-     * @remarks Documented query: page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
+     * @remarks Documented query: start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnectionsV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnectionsV1(opts: { query?: { start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 
@@ -244,9 +280,9 @@ export class Connections extends Resource {
     /**
      * Get all connections (V2).
      * @method GET /v2/workspaces/{workspace_id}/connections
-     * @remarks Documented query: filters, page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
+     * @remarks Documented query: filters, start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnections(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnections(opts: { query?: { filters?: string; start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
         return this.http.get('/v2/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 }

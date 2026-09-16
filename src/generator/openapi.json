@@ -9,16 +9,16 @@
       "swagger-official"
     ],
     "x-bundle-stats": {
-      "functionsRecovered": 705,
-      "operations": 654,
+      "functionsRecovered": 685,
+      "operations": 652,
       "multipartOperations": 7
     },
     "x-generator": "hablla-sdk generator / extract stage",
-    "x-extracted-at": "2026-07-12T20:01:31.520Z",
+    "x-extracted-at": "2026-09-16T21:02:02.719Z",
     "x-merge-stats": {
-      "studioOperations": 654,
-      "swaggerOnlyAdded": 71,
-      "summariesBackfilled": 211
+      "studioOperations": 652,
+      "swaggerOnlyAdded": 80,
+      "summariesBackfilled": 215
     }
   },
   "servers": [
@@ -4069,6 +4069,52 @@
             }
           },
           {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "field_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_at",
+                "updated_at"
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
+            "name": "updated_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
             "name": "page",
             "required": false,
             "in": "query",
@@ -4122,6 +4168,7 @@
                 "email",
                 "gupshup",
                 "whatsapp",
+                "whatsapp_coex",
                 "instagram",
                 "facebook",
                 "telegram",
@@ -4153,6 +4200,7 @@
                 "email",
                 "gupshup",
                 "whatsapp",
+                "whatsapp_coex",
                 "instagram",
                 "facebook",
                 "telegram",
@@ -4335,6 +4383,52 @@
             "x-source": "bundle"
           },
           {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "field_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_at",
+                "updated_at"
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
+            "name": "updated_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
             "name": "page",
             "required": false,
             "in": "query",
@@ -4388,6 +4482,7 @@
                 "email",
                 "gupshup",
                 "whatsapp",
+                "whatsapp_coex",
                 "instagram",
                 "facebook",
                 "telegram",
@@ -4419,6 +4514,7 @@
                 "email",
                 "gupshup",
                 "whatsapp",
+                "whatsapp_coex",
                 "instagram",
                 "facebook",
                 "telegram",
@@ -5562,6 +5658,227 @@
           }
         },
         "summary": "Register a whatsapp connection on Meta."
+      }
+    },
+    "/v1/workspaces/{workspace_id}/meta/whatsapp-auth": {
+      "post": {
+        "operationId": "whatsappAuthApi",
+        "tags": [
+          "meta"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "whatsappAuthApi",
+        "x-sdk-method": "whatsappAuth",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "x-source": "generic"
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (duplicate or concurrent modification)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Start whatsapp onboarding: list the available phone numbers."
+      }
+    },
+    "/v1/workspaces/{workspace_id}/connections/whatsapp-messaging": {
+      "post": {
+        "operationId": "createWhatsappConnectionsApi",
+        "tags": [
+          "connections"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          },
+          {
+            "name": "sector",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          },
+          {
+            "name": "phones",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "createWhatsappConnectionsApi",
+        "x-sdk-method": "createWhatsappConnections",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "x-source": "generic"
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (duplicate or concurrent modification)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create whatsapp connections from the selected phone numbers."
       }
     },
     "/v1/workspaces/{workspace_id}/cost-centers": {
@@ -11465,7 +11782,7 @@
             }
           }
         },
-        "summary": "Get all cards (V3)."
+        "summary": "Get all cards (V3) - índice otimizado (cards_search_v2)."
       }
     },
     "/v1/workspaces/{workspace_id}/cards/{card_id}/add-tags": {
@@ -29856,6 +30173,234 @@
         "summary": "Organizations merge."
       }
     },
+    "/v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person": {
+      "patch": {
+        "operationId": "pinPersonApi",
+        "tags": [
+          "organizations"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "pinPersonApi",
+        "x-sdk-method": "pinPerson",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "x-source": "generic"
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (duplicate or concurrent modification)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Pin a person on organization by id."
+      }
+    },
+    "/v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove": {
+      "patch": {
+        "operationId": "pinPersonRemoveApi",
+        "tags": [
+          "organizations"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "pinPersonRemoveApi",
+        "x-sdk-method": "pinPersonRemove",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "x-source": "generic"
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (duplicate or concurrent modification)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Remove a pinned person from organization by id."
+      }
+    },
     "/v1/workspaces/{workspace_id}/pages-projects/{pages_project_id}/pages": {
       "post": {
         "operationId": "createPageApi",
@@ -40917,6 +41462,52 @@
             "x-source": "bundle"
           },
           {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "field_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_at",
+                "updated_at"
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
+            "name": "updated_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
             "name": "page",
             "required": false,
             "in": "query",
@@ -42022,6 +42613,156 @@
         "x-source": "bundle",
         "x-bundle-fn": "getReportsConsolidatedServicesUsersNewApi",
         "x-sdk-method": "getReportsConsolidatedServicesUsersNew",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person": {
+      "get": {
+        "operationId": "getReportsServicePerson",
+        "tags": [
+          "reports"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "getReportsServicePerson",
+        "x-sdk-method": "getReportsServicePerson",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization": {
+      "get": {
+        "operationId": "getReportsServiceOrganization",
+        "tags": [
+          "reports"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "getReportsServiceOrganization",
+        "x-sdk-method": "getReportsServiceOrganization",
         "responses": {
           "200": {
             "description": "OK"
@@ -46948,6 +47689,81 @@
         }
       }
     },
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/workspace-users/history": {
+      "get": {
+        "operationId": "getUserHistoryApi",
+        "tags": [
+          "reports"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "getUserHistoryApi",
+        "x-sdk-method": "getUserHistory",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/user/{user_id}": {
       "get": {
         "operationId": "getUserTaskMetrics",
@@ -48930,6 +49746,52 @@
               "type": "string"
             },
             "x-source": "bundle"
+          },
+          {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "field_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_at",
+                "updated_at"
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
+            "name": "updated_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
           },
           {
             "name": "page",
@@ -52605,7 +53467,7 @@
     },
     "/v2/workspaces/{workspace_id}/services": {
       "get": {
-        "operationId": "getAllServicesApi",
+        "operationId": "getAllServices",
         "tags": [
           "services"
         ],
@@ -52917,7 +53779,7 @@
           }
         ],
         "x-source": "bundle",
-        "x-bundle-fn": "getAllServicesApi",
+        "x-bundle-fn": "getAllServices",
         "x-sdk-method": "getAllServices",
         "responses": {
           "200": {
@@ -52980,7 +53842,7 @@
             }
           }
         },
-        "summary": "Get all services (V2)."
+        "summary": "Get all services (V2) - índice otimizado (services_search_v2)."
       }
     },
     "/v1/workspaces/{workspace_id}/services/{service_id}": {
@@ -55292,6 +56154,14 @@
             }
           },
           {
+            "name": "person",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "category",
             "required": false,
             "in": "query",
@@ -56562,6 +57432,52 @@
               "type": "string"
             },
             "x-source": "bundle"
+          },
+          {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "field_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_at",
+                "updated_at"
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
+          },
+          {
+            "name": "updated_at",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/DateRangeDTO"
+            }
           },
           {
             "name": "page",
@@ -60119,6 +61035,123 @@
         }
       }
     },
+    "/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/{template_id}/analytics": {
+      "get": {
+        "operationId": "getTemplateAnalyticsApi",
+        "tags": [
+          "connections"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "getTemplateAnalyticsApi",
+        "x-sdk-method": "getTemplateAnalytics",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Connection"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/workspaces/{workspace_id}/connections/{connection_id}/templates/duplicate/{duplicate_id}": {
       "post": {
         "operationId": "duplicateTemplateApi",
@@ -61453,7 +62486,7 @@
         }
       }
     },
-    "/v1/authentication/register-with-password": {
+    "/v2/authentication/register-with-password": {
       "post": {
         "operationId": "registerUserApi",
         "tags": [
@@ -61532,7 +62565,7 @@
         }
       }
     },
-    "/v1/authentication/register-with-external": {
+    "/v2/authentication/register-with-external": {
       "post": {
         "operationId": "registerUserGoogleApi",
         "tags": [
@@ -61611,7 +62644,7 @@
         }
       }
     },
-    "/v1/authentication/login": {
+    "/v2/authentication/login": {
       "post": {
         "operationId": "loginApi",
         "tags": [
@@ -61769,7 +62802,7 @@
         }
       }
     },
-    "/v1/authentication/verify-email": {
+    "/v2/authentication/verify-email": {
       "get": {
         "operationId": "verifyEmailApi",
         "tags": [
@@ -61916,6 +62949,85 @@
         "x-source": "bundle",
         "x-bundle-fn": "resendEmailVerificationApi",
         "x-sdk-method": "resendEmailVerification",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "x-source": "generic"
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (duplicate or concurrent modification)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/authentication/logout": {
+      "post": {
+        "operationId": "logoutApi",
+        "tags": [
+          "authentication"
+        ],
+        "parameters": [],
+        "x-source": "bundle",
+        "x-bundle-fn": "logoutApi",
+        "x-sdk-method": "logout",
         "requestBody": {
           "required": true,
           "content": {
@@ -67562,903 +68674,6 @@
         }
       }
     },
-    "/v1/hablla-docs": {
-      "get": {
-        "operationId": "getAllHabllaDocsApi",
-        "tags": [
-          "hablla-docs"
-        ],
-        "parameters": [
-          {
-            "name": "filters",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "x-source": "bundle"
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "getAllHabllaDocsApi",
-        "x-sdk-method": "getAllHabllaDocs",
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "operationId": "createHabllaDocApi",
-        "tags": [
-          "hablla-docs"
-        ],
-        "parameters": [],
-        "x-source": "bundle",
-        "x-bundle-fn": "createHabllaDocApi",
-        "x-sdk-method": "createHabllaDoc",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          },
-          "x-source": "generic"
-        },
-        "responses": {
-          "201": {
-            "description": "Created"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (duplicate or concurrent modification)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/hablla-docs/{hablla_doc_id}": {
-      "put": {
-        "operationId": "updateHabllaDocApi",
-        "tags": [
-          "hablla-docs"
-        ],
-        "parameters": [
-          {
-            "name": "hablla_doc_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "updateHabllaDocApi",
-        "x-sdk-method": "updateHabllaDoc",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          },
-          "x-source": "generic"
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (duplicate or concurrent modification)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/enrichment/check-document": {
-      "post": {
-        "operationId": "checkDocument",
-        "tags": [
-          "enrichment"
-        ],
-        "parameters": [],
-        "x-source": "bundle",
-        "x-bundle-fn": "checkDocument",
-        "x-sdk-method": "checkDocument",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          },
-          "x-source": "generic"
-        },
-        "responses": {
-          "201": {
-            "description": "Created"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (duplicate or concurrent modification)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/legal-entities": {
-      "post": {
-        "operationId": "createLegalEntity",
-        "tags": [
-          "legal-entities"
-        ],
-        "parameters": [],
-        "x-source": "bundle",
-        "x-bundle-fn": "createLegalEntity",
-        "x-sdk-method": "createLegalEntity",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          },
-          "x-source": "generic"
-        },
-        "responses": {
-          "201": {
-            "description": "Created"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (duplicate or concurrent modification)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "operationId": "getAllLegalEntitiesApi",
-        "tags": [
-          "legal-entities"
-        ],
-        "parameters": [],
-        "x-source": "bundle",
-        "x-bundle-fn": "getAllLegalEntitiesApi",
-        "x-sdk-method": "getAllLegalEntities",
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/legal-entities/{legal_entity_id}": {
-      "put": {
-        "operationId": "updateLegalEntityApi",
-        "tags": [
-          "legal-entities"
-        ],
-        "parameters": [
-          {
-            "name": "legal_entity_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "updateLegalEntityApi",
-        "x-sdk-method": "updateLegalEntity",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          },
-          "x-source": "generic"
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (duplicate or concurrent modification)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/legal-entities/user/{user_id}": {
-      "get": {
-        "operationId": "checkLegalEntity",
-        "tags": [
-          "legal-entities"
-        ],
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "checkLegalEntity",
-        "x-sdk-method": "checkLegalEntity",
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/workspaces/{workspace_id}/temp-tokens": {
-      "post": {
-        "operationId": "createTempTokenApi",
-        "tags": [
-          "temp-tokens"
-        ],
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "createTempTokenApi",
-        "x-sdk-method": "createTempToken",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          },
-          "x-source": "generic"
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TempToken"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (duplicate or concurrent modification)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "operationId": "getTempTokensApi",
-        "tags": [
-          "temp-tokens"
-        ],
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "filters",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "x-source": "bundle"
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "getTempTokensApi",
-        "x-sdk-method": "getTempTokens",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "results": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/TempToken"
-                      }
-                    }
-                  },
-                  "additionalProperties": true
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/workspaces/{workspace_id}/temp-tokens/{temp_token_id}": {
-      "delete": {
-        "operationId": "deleteTempTokenApi",
-        "tags": [
-          "temp-tokens"
-        ],
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "temp_token_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "deleteTempTokenApi",
-        "x-sdk-method": "deleteTempToken",
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/workspaces/{workspace_id}/boards/{id}/cards": {
       "get": {
         "operationId": "BoardsController_getCards_v1",
@@ -68994,6 +69209,204 @@
         ],
         "x-source": "swagger",
         "x-sdk-method": "BoardsController_getBoardReport_v1"
+      }
+    },
+    "/v1/workspaces/{workspace_id}/connections/meta-fanpage": {
+      "post": {
+        "description": "Second step of the fanpage onboarding: <b>token</b> is the handoff token returned by POST /meta/fanpage-auth.",
+        "operationId": "ConnectionsController_createMetaFanpage_v1",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (duplicate or concurrent modification)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create facebook connections from the selected pages.",
+        "tags": [
+          "connections"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "ConnectionsController_createMetaFanpage_v1"
+      }
+    },
+    "/v1/workspaces/{workspace_id}/connections/meta-fanpage-and-instagram": {
+      "post": {
+        "description": "Second step of the instagram onboarding: <b>token</b> is the handoff token returned by POST /meta/instagram-auth. Creates two connections per page.",
+        "operationId": "ConnectionsController_createMetaFanpageAndInstagram_v1",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (duplicate or concurrent modification)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create facebook and instagram connections from the selected pages.",
+        "tags": [
+          "connections"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "ConnectionsController_createMetaFanpageAndInstagram_v1"
       }
     },
     "/v1/workspaces/{workspace_id}/connections/multiple": {
@@ -75800,6 +76213,266 @@
         ],
         "x-source": "swagger",
         "x-sdk-method": "TransferLogsController_getOnCardById_v1"
+      }
+    },
+    "/v1/workspaces/{workspace_id}/meta/analytics": {
+      "get": {
+        "operationId": "MetaController_getAnalytics_v1",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get analytics.",
+        "tags": [
+          "meta"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "MetaController_getAnalytics_v1"
+      }
+    },
+    "/v1/workspaces/{workspace_id}/meta/profile": {
+      "get": {
+        "operationId": "MetaController_getProfile_v1",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get profile.",
+        "tags": [
+          "meta"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "MetaController_getProfile_v1"
+      },
+      "put": {
+        "description": "<b>Required request body arguments:</b> connection.",
+        "operationId": "MetaController_updateProfile_v1",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update profile.",
+        "tags": [
+          "meta"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "MetaController_updateProfile_v1"
+      }
+    },
+    "/v2/workspaces/{workspace_id}/meta/auth": {
+      "get": {
+        "deprecated": true,
+        "description": "Superseded by POST /whatsapp-auth, /instagram-auth and /fanpage-auth.",
+        "operationId": "MetaController_authOnMeta_v2",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Auth on meta.",
+        "tags": [
+          "meta"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "MetaController_authOnMeta_v2"
+      },
+      "post": {
+        "deprecated": true,
+        "description": "Superseded by POST /connections/whatsapp-messaging, /connections/meta-fanpage and /connections/meta-fanpage-and-instagram.",
+        "operationId": "MetaController_createConnOnMeta_v2",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create connection on meta.",
+        "tags": [
+          "meta"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "MetaController_createConnOnMeta_v2"
+      }
+    },
+    "/v1/workspaces/{workspace_id}/meta/instagram-auth": {
+      "post": {
+        "description": "<b>Required request body arguments:</b> code or access_token. Returns a handoff token to be sent to POST /connections/meta-fanpage-and-instagram.",
+        "operationId": "MetaController_authInstagram_v1",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start instagram onboarding: list the pages with a linked account.",
+        "tags": [
+          "meta"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "MetaController_authInstagram_v1"
+      }
+    },
+    "/v1/workspaces/{workspace_id}/meta/fanpage-auth": {
+      "post": {
+        "description": "<b>Required request body arguments:</b> code or access_token. Returns a handoff token to be sent to POST /connections/meta-fanpage.",
+        "operationId": "MetaController_authFanpage_v1",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start fanpage onboarding: list the available pages.",
+        "tags": [
+          "meta"
+        ],
+        "x-source": "swagger",
+        "x-sdk-method": "MetaController_authFanpage_v1"
       }
     },
     "/v1/workspaces/{workspace_id}/holidays/filter": {

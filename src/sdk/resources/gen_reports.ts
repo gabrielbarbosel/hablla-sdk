@@ -651,6 +651,24 @@ export class Reports extends Resource {
     }
 
     /**
+     * getServicesPerOrganization.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization
+     * @remarks Documented query: query (extra keys allowed).
+     */
+    getServicesPerOrganization(opts: { query?: { query?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization', { query: opts.query });
+    }
+
+    /**
+     * getServicesPerPerson.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person
+     * @remarks Documented query: query (extra keys allowed).
+     */
+    getServicesPerPerson(opts: { query?: { query?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person', { query: opts.query });
+    }
+
+    /**
      * getServicesUserMetrics.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-user-metrics
      * @remarks Documented query: filters (extra keys allowed).
@@ -729,6 +747,15 @@ export class Reports extends Resource {
      */
     getUsersSummary(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/tasks/users-summary', { query: opts.query });
+    }
+
+    /**
+     * getUserHistory.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/workspace-users/history
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getUserHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/workspace-users/history', { query: opts.query });
     }
 
     /**

@@ -47,9 +47,9 @@ export class Tags extends Resource {
     /**
      * Get all tags.
      * @method GET /v1/workspaces/{workspace_id}/tags
-     * @remarks Documented query: filters, page, limit, order, direction_order, name, sector, populate (extra keys allowed).
+     * @remarks Documented query: filters, start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, sector, populate (extra keys allowed).
      */
-    listTags(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sector?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Tag>> {
+    listTags(opts: { query?: { filters?: string; start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; sector?: string; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Tag>> {
         return this.http.get('/v1/workspaces/{workspace_id}/tags', { query: opts.query });
     }
 

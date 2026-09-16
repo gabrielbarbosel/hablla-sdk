@@ -33,6 +33,7 @@ export const ConnectionChannel = [
     { code: 'email' },
     { code: 'gupshup' },
     { code: 'whatsapp' },
+    { code: 'whatsapp_coex' },
     { code: 'instagram' },
     { code: 'facebook' },
     { code: 'telegram' },

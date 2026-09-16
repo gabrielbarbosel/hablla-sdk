@@ -27,6 +27,15 @@ export interface Organization {
 /** `organizations` resource (generated from openapi.json). */
 export class Organizations extends Resource {
     /**
+     * Remove a pinned person from organization by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove
+     * @remarks Any query params may be sent (none documented).
+     */
+    remove(organizationId: string, body: Partial<Organization>, opts: { query?: Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person/remove', { path: { organization_id: organizationId }, body, query: opts.query });
+    }
+
+    /**
      * Add person to organization by id.
      * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/add-persons
      * @remarks Documented query: persons (extra keys allowed).
@@ -60,6 +69,15 @@ export class Organizations extends Resource {
      */
     getPersons(id: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; search?: string; name?: string; email?: string; phone?: string; tax_id?: string; legal_name?: string; status?: OrganizationStatusCode; updated_at?: string; custom_fields?: string[]; user?: string; tags?: string[]; populate?: string[] } & Record<string, unknown> } = {}): Promise<Paged<Organization>> {
         return this.http.get('/v1/workspaces/{workspace_id}/organizations/{id}/persons', { path: { id }, query: opts.query });
+    }
+
+    /**
+     * Pin a person on organization by id.
+     * @method PATCH /v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person
+     * @remarks Any query params may be sent (none documented).
+     */
+    patchPinPerson(organizationId: string, body: Partial<Organization>, opts: { query?: Record<string, unknown> } = {}): Promise<Organization> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/organizations/{organization_id}/pin-person', { path: { organization_id: organizationId }, body, query: opts.query });
     }
 
     /**
