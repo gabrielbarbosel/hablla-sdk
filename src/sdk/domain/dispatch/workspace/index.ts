@@ -10,6 +10,7 @@ export type { Clock, DispatchJobStore } from './ports';
 export {
     CallBudgetExceededError,
     DispatchThrottledError,
+    DispatchTransportError,
     DispatchValidationError,
     DuplicateDispatchError,
     InvalidJobTransitionError,

@@ -11,6 +11,8 @@ import {
 } from './constants';
 import {
     CallBudgetExceededError,
+    DispatchThrottledError,
+    DispatchTransportError,
     DispatchValidationError,
     DuplicateDispatchError,
     InvalidJobTransitionError,
@@ -647,6 +649,17 @@ describe('WorkspaceDispatch fails fast', () => {
         dispatch = buildDispatch(10);
 
         await expect(dispatch.plan(aRequest({ rows: [aRow('1')] }))).rejects.toBeInstanceOf(CallBudgetExceededError);
+        expect(store.jobs.size).toBe(0);
+    });
+
+    it('tells a throttled catalog read apart from one lost to the network', async () => {
+        hablla.faults.push({ matches: (request) => request.path.endsWith('/users'), kind: 'throttle', times: 1 });
+
+        await expect(dispatch.plan(aRequest())).rejects.toBeInstanceOf(DispatchThrottledError);
+
+        hablla.faults.push({ matches: (request) => request.path.endsWith('/users'), kind: 'reject', times: 1 });
+
+        await expect(dispatch.plan(aRequest())).rejects.toBeInstanceOf(DispatchTransportError);
         expect(store.jobs.size).toBe(0);
     });
 

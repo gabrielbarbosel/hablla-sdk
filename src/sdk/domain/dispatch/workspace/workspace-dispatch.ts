@@ -24,7 +24,7 @@ import { isSuccess, payloadOf, truncateDetail } from './call-failures';
 import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName } from './campaign';
 import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
-import { CallBudgetExceededError, DispatchThrottledError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
+import { CallBudgetExceededError, DispatchThrottledError, DispatchTransportError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
 import {
     RESUMABLE_PHASES,
     advanceCursor,
@@ -573,12 +573,17 @@ export class WorkspaceDispatch {
 /**
  * The payload of a successful catalog or creation call.
  *
- * @throws DispatchThrottledError when the call was throttled, not sent or lost to the
- *   network; DispatchValidationError naming the route and status otherwise.
+ * @throws DispatchThrottledError when the call was throttled or never sent;
+ *   DispatchTransportError when it was lost to the network, so its outcome is unknown;
+ *   DispatchValidationError naming the route and status otherwise.
  */
 function requireSuccess(result: CallResult, route: string): unknown {
-    if (result.kind !== 'completed') {
+    if (result.kind === 'throttled' || result.kind === 'unsent') {
         throw new DispatchThrottledError(route);
+    }
+
+    if (result.kind !== 'completed') {
+        throw new DispatchTransportError(route, result.message);
     }
 
     if (!isSuccess(result)) {

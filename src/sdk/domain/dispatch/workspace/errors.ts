@@ -8,11 +8,19 @@ export class DispatchValidationError extends Error {
     }
 }
 
-/** A catalog read was rate limited or never sent; the operator should retry in a minute. */
+/** A catalog read or a creation was rate limited or never sent; the operator should retry in a minute. */
 export class DispatchThrottledError extends Error {
     constructor(readonly route: string) {
         super(`Hablla rate limited ${route}; try again in one minute`);
         this.name = 'DispatchThrottledError';
+    }
+}
+
+/** A catalog read or a creation was lost to the network, so whether it was applied is unknown. */
+export class DispatchTransportError extends Error {
+    constructor(readonly route: string, readonly detail: string) {
+        super(`Hablla did not answer ${route}: ${detail}`);
+        this.name = 'DispatchTransportError';
     }
 }
 
