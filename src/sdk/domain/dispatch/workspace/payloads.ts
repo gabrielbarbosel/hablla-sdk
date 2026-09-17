@@ -8,10 +8,10 @@ import type { PersonSnapshot } from './owner-policy';
 import { toDigits } from '../../../utils';
 import { UnexpectedPayloadError } from './errors';
 
-/** One phone as Hablla stores it on a person. */
+/** One phone as Hablla stores it on a person; `isWhatsapp` is absent when the payload does not declare it. */
 export interface StoredPhone {
     digits: string;
-    isWhatsapp: boolean;
+    isWhatsapp?: boolean;
 }
 
 /** A person's id and stored phones, the part both person listings (v1 and v2) share. */
@@ -85,13 +85,18 @@ export function toPersonIdentity(raw: unknown): PersonIdentity {
     return { id, phones };
 }
 
-/** Reads one stored phone of a person. */
+/**
+ * Reads one stored phone of a person. `is_whatsapp` is kept exactly as declared: absent
+ * means the payload says nothing, which is not the same as `false`, and only a declared
+ * `false` rules the phone out of a dispatch (see `resolvePersonLookup`). A value of
+ * another type is a payload surprise and throws.
+ */
 function toStoredPhone(raw: unknown, personId: string): StoredPhone {
     const phone = requireRecord(raw, 'person', personId);
 
     return {
         digits: toDigits(requireString(phone, 'phone', 'person', personId)),
-        isWhatsapp: requireBoolean(phone, 'is_whatsapp', 'person', personId),
+        isWhatsapp: optionalBoolean(phone, 'is_whatsapp', 'person', personId),
     };
 }
 
@@ -201,6 +206,11 @@ function requireBoolean(record: PayloadRecord, field: string, payload: string, i
     }
 
     return value;
+}
+
+/** A boolean field the payload may leave out; a value of another type still throws. */
+function optionalBoolean(record: PayloadRecord, field: string, payload: string, item: string): boolean | undefined {
+    return record[field] === undefined ? undefined : requireBoolean(record, field, payload, item);
 }
 
 /** A required array field. */

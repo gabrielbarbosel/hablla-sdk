@@ -38,10 +38,12 @@ export function attendanceLookupCalls(person: PersonSnapshot, contact: DispatchC
 
 /**
  * Resolves the person stage. Two or more persons holding the phone are
- * `duplicatePersons`, a blocked one is `blocked`, one whose matching phones are not on
- * WhatsApp is `noWhatsapp` (the campaign resolves its audience with the WhatsApp filter,
- * so such a person would never match the count), a single usable one needs the attendance
- * stage, and none makes the contact `ready` for creation.
+ * `duplicatePersons`, a blocked one is `blocked`, one whose matching phones are all
+ * declared as not being on WhatsApp is `noWhatsapp` (the campaign resolves its audience
+ * with the WhatsApp filter, so such a person would never match the count), a single usable
+ * one needs the attendance stage, and none makes the contact `ready` for creation. A phone
+ * that leaves `is_whatsapp` undeclared is not a declared no, so it goes on and the
+ * campaign's own filter decides.
  */
 export function resolvePersonLookup(contact: DispatchContact, results: readonly CallResult[], purpose: LookupPurpose, now: number): PersonLookupResolution {
     const failure = resolveLookupFailure(contact, results, now);
@@ -77,7 +79,7 @@ export function resolvePersonLookup(contact: DispatchContact, results: readonly 
         return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome: 'blocked' } };
     }
 
-    if (!matchingStoredPhones(person, phone).some((storedPhone) => storedPhone.isWhatsapp)) {
+    if (matchingStoredPhones(person, phone).every((storedPhone) => storedPhone.isWhatsapp === false)) {
         return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome: 'noWhatsapp' } };
     }
 

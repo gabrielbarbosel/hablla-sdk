@@ -386,6 +386,15 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         expect(hablla.campaigns).toHaveLength(1);
     });
 
+    it('sends a person whose phone does not declare WhatsApp, without breaking the execution', async () => {
+        hablla.addPerson({ id: habllaId('p'), phone: phoneOf('1'), phones: [{ phone: phoneOf('1'), type: 'personal' }] });
+
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1'), aRow('2')] }));
+
+        expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:inAudience']);
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 2, campaignQuantity: 2 });
+    });
+
     it('completes without a campaign when no contact is left to send', async () => {
         hablla.addPerson({ id: habllaId('p'), phone: phoneOf('1'), whatsapp: false });
 

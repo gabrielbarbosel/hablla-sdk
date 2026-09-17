@@ -68,6 +68,18 @@ describe('toPersonIdentity (v1 listing)', () => {
         expect(toPersonIdentity(personsV1.results[0])).toEqual({ id: '6a207e428e3c5e6651860144', phones: [{ digits: '5551999990001', isWhatsapp: true }] });
     });
 
+    it('keeps a phone whose is_whatsapp is not declared, without inventing a value', () => {
+        const person = { ...personsV1.results[0]!, phones: [without(personsV1.results[0]!.phones[0]!, 'is_whatsapp')] };
+
+        expect(toPersonIdentity(person).phones).toEqual([{ digits: '5551999990001', isWhatsapp: undefined }]);
+    });
+
+    it('throws when is_whatsapp is declared with another type', () => {
+        const person = { ...personsV1.results[0]!, phones: [{ ...personsV1.results[0]!.phones[0]!, is_whatsapp: 'yes' }] };
+
+        expect(() => toPersonIdentity(person)).toThrow(UnexpectedPayloadError);
+    });
+
     it('throws when the id is missing', () => {
         expect(() => toPersonIdentity(without(personsV1.results[0]!, 'id'))).toThrow(UnexpectedPayloadError);
     });

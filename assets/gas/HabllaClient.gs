@@ -8659,7 +8659,7 @@
     const phone = requireRecord(raw, "person", personId);
     return {
       digits: toDigits(requireString(phone, "phone", "person", personId)),
-      isWhatsapp: requireBoolean(phone, "is_whatsapp", "person", personId)
+      isWhatsapp: optionalBoolean(phone, "is_whatsapp", "person", personId)
     };
   }
   function toPersonSnapshot(raw) {
@@ -8735,6 +8735,9 @@
       throw new UnexpectedPayloadError(payload, `${item}: field ${field} is not a boolean`);
     }
     return value;
+  }
+  function optionalBoolean(record, field, payload, item) {
+    return record[field] === void 0 ? void 0 : requireBoolean(record, field, payload, item);
   }
   function requireArray(record, field, payload, item) {
     const value = record[field];
@@ -9044,7 +9047,7 @@
     if (person.isBlocked) {
       return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "blocked" }) };
     }
-    if (!matchingStoredPhones(person, phone).some((storedPhone) => storedPhone.isWhatsapp)) {
+    if (matchingStoredPhones(person, phone).every((storedPhone) => storedPhone.isWhatsapp === false)) {
       return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "noWhatsapp" }) };
     }
     return { kind: "checkAttendance", person };

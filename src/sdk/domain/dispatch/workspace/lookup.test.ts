@@ -96,6 +96,12 @@ describe('resolvePersonLookup without WhatsApp', () => {
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'noWhatsapp', resolvedAt: NOW, lookupPurpose: 'preview' });
     });
 
+    it('goes on when the matching phone does not declare WhatsApp, which is not a declared no', () => {
+        const person = { ...personItem({ id: 'p1', phone: '5551999000001' }), phones: [{ phone: '5551999000001', type: 'personal' }] };
+
+        expect(resolvePersonLookup(CONTACT, [completed(200, page([person]))], 'preview', NOW).kind).toBe('checkAttendance');
+    });
+
     it('uses a matching WhatsApp phone even when another stored phone is not on WhatsApp', () => {
         const person = {
             ...personItem({ id: 'p1', phone: '5551999000001' }),

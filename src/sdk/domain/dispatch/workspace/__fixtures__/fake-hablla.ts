@@ -33,11 +33,11 @@ export interface RecordedRequest {
     body: any;
 }
 
-/** A person held by the fake. */
+/** A person held by the fake; a phone may leave `is_whatsapp` undeclared, as some payloads do. */
 export interface FakePerson {
     id: string;
     name: string;
-    phones: Array<{ phone: string; is_whatsapp: boolean; type: string }>;
+    phones: Array<{ phone: string; is_whatsapp?: boolean; type: string }>;
     users: string[];
     followers: string[];
     is_blocked: boolean;
@@ -285,7 +285,11 @@ export class FakeHablla implements HttpTransport {
         return reply(200, { count: this.audienceOf(filters).size, not_found: 0 });
     }
 
-    /** Distinct persons matching `in_segmentation` and, when present, `whatsapp`. */
+    /**
+     * Distinct persons matching `in_segmentation` and, when present, `whatsapp`. A phone
+     * that leaves `is_whatsapp` undeclared is not ruled out: what a listing omits says
+     * nothing about the report engine's own index.
+     */
     private audienceOf(filters: Array<{ type: string; segmentation?: string }>): Set<string> {
         const segmentationId = filters.find((filter) => filter.type === 'in_segmentation')!.segmentation!;
         const needsWhatsapp = filters.some((filter) => filter.type === 'whatsapp');
@@ -294,7 +298,7 @@ export class FakeHablla implements HttpTransport {
         for (const item of this.segmentations.get(segmentationId)!.items) {
             const person = this.persons.get(item.person);
 
-            if (person && (!needsWhatsapp || person.phones.some((phone) => phone.is_whatsapp))) {
+            if (person && (!needsWhatsapp || person.phones.some((phone) => phone.is_whatsapp !== false))) {
                 persons.add(person.id);
             }
         }
