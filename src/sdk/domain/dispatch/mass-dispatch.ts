@@ -44,6 +44,8 @@ const CUSTOM_FIELD_MAX_PAGES = 40;
  * is public and standalone, so other contexts can reuse them without the full run.
  * Every dispatch is written to the injected {@link DispatchLedger} — the canonical
  * dispatch↔audience record that replaces the legacy phone+time-window reconstruction.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export class MassDispatch {
     constructor(private readonly client: HabllaClient, private readonly ledger?: DispatchLedger) {}

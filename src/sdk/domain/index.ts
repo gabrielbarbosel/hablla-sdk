@@ -30,6 +30,9 @@ export class HabllaDomain {
      * Flow-less mass dispatch (import audience + single WhatsApp campaign). Ledger-less
      * by default; construct {@link MassDispatch} directly with a {@link DispatchLedger}
      * to record dispatches to a durable sink.
+     *
+     * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch}
+     *   (flow-less dispatch on the workspace token), composed by the runtime with its ports.
      */
     readonly massDispatch: MassDispatch;
     /**
