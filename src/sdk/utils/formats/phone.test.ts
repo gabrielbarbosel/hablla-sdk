@@ -51,6 +51,23 @@ describe('brazilianPhoneVariants', () => {
     });
 });
 
+describe('brazilianPhoneVariants (landlines)', () => {
+    it('keeps a landline as a single shape, with no 9th digit invented', () => {
+        expect(brazilianPhoneVariants('5133334444')).toEqual({ digits: '555133334444', alternate: '555133334444' });
+        expect(brazilianPhoneVariants('555133334444')).toEqual({ digits: '555133334444', alternate: '555133334444' });
+        expect(phoneIdentity(brazilianPhoneVariants('5133334444')!)).toBe('555133334444');
+    });
+
+    it('adds the 9th digit only to a mobile given without it', () => {
+        expect(brazilianPhoneVariants('5199596516')).toEqual({ digits: '555199596516', alternate: '5551999596516' });
+    });
+
+    it('rejects a local number that is neither a mobile nor a landline', () => {
+        expect(brazilianPhoneVariants('5513333444')).toBeUndefined();
+        expect(brazilianPhoneVariants('5551333344445')).toBeUndefined();
+    });
+});
+
 describe('phoneIdentity', () => {
     it('is the 13-digit form for both shapes of the same line', () => {
         expect(phoneIdentity(phoneVariants('5551999596516'))).toBe('5551999596516');

@@ -1,7 +1,9 @@
 /**
  * The writes that bring one contact into the audience, planned deterministically from
  * its persisted state (the plan itself is never stored), with their calls and the
- * handling of their results. `joinAudience` is always the last write.
+ * handling of their results. `joinAudience` is always the last write. A created person is
+ * stored with `phoneIdentity`, which is the operator's number in its canonical shape and
+ * never a number the dispatch made up (see {@link phoneIdentity}).
  */
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
