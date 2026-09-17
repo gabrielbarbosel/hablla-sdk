@@ -8320,9 +8320,13 @@
     "writeFailed",
     "inAudience"
   ];
-  var RESUMABLE_PHASES = ["resolving", "materializing", "awaitingAudience", "sending"];
+  var RESUMABLE_PHASES = ["resolvingExclusions", "resolving", "materializing", "awaitingAudience", "sending"];
 
   // src/sdk/domain/dispatch/workspace/audience.ts
+  var EXCLUDABLE_OUTCOMES = ["pendingLookup", "ready"];
+  function excludesByFilter(exclusion) {
+    return exclusion.segmentationFilters.length > 0;
+  }
   function prepareAudience(request, roster) {
     const seenPhones = /* @__PURE__ */ new Set();
     const prepared = request.rows.map((row, index) => {
@@ -8343,7 +8347,7 @@
         excludedIdentities.add(phoneIdentity(variants));
       }
     }
-    return contacts.map((contact) => contact.outcome === "pendingLookup" && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone)) ? __spreadProps(__spreadValues({}, contact), { outcome: "excluded" }) : contact);
+    return contacts.map((contact) => EXCLUDABLE_OUTCOMES.includes(contact.outcome) && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone)) ? __spreadProps(__spreadValues({}, contact), { outcome: "excluded" }) : contact);
   }
   function audienceFingerprint(request, contacts) {
     const identities = contacts.filter((contact) => contact.outcome === "pendingLookup" && contact.phone).map((contact) => phoneIdentity(contact.phone)).sort();
@@ -8424,6 +8428,8 @@
   var CATALOG_PAGE_LIMIT = 50;
   var CAMPAIGN_RECONCILE_PAGE_LIMIT = 50;
   var SEGMENTATION_ITEM_LOOKUP_LIMIT = 50;
+  var EXCLUSION_PAGE_LIMIT = 1e3;
+  var FIRST_EXCLUSION_PAGE = 1;
   var FAILURE_DETAIL_MAX_LENGTH = 300;
 
   // src/sdk/domain/dispatch/workspace/call-budget.ts
@@ -8433,11 +8439,15 @@
   var LARGEST_STEP_CALLS = 2;
   var ESTIMATED_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
   var FIXED_BEARER_CALLS = 1 + Math.ceil(AUDIENCE_READY_TIMEOUT_MS / AUDIENCE_POLL_INTERVAL_MS) + 1 + 1;
-  function estimateCallBudget(contacts, catalogPages) {
+  var EXCLUSION_RUNS_PER_DISPATCH = 2;
+  function estimateCallBudget(contacts, catalogPages, exclusionPages) {
     const contactsToProcess = contacts.filter((contact) => contact.outcome === "pendingLookup").length;
     const workspace = catalogPages.roster + contactsToProcess * ESTIMATED_CALLS_PER_CONTACT;
-    const bearer = catalogPages.customFields + FIXED_BEARER_CALLS;
+    const bearer = catalogPages.customFields + FIXED_BEARER_CALLS + exclusionBearerCalls(exclusionPages);
     return { workspace, bearer, total: workspace + bearer };
+  }
+  function exclusionBearerCalls(exclusionPages) {
+    return exclusionPages === 0 ? 0 : 1 + exclusionPages * EXCLUSION_RUNS_PER_DISPATCH;
   }
 
   // src/sdk/domain/dispatch/workspace/call-failures.ts
@@ -8551,6 +8561,24 @@
     }
     return job.audienceSize;
   }
+  function requireExclusionPurpose(job) {
+    if (job.exclusionPurpose === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no exclusion run in progress`);
+    }
+    return job.exclusionPurpose;
+  }
+  function requireExclusionCursor(job) {
+    if (job.exclusionCursor === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no exclusion page to read`);
+    }
+    return job.exclusionCursor;
+  }
+  function requireExclusionAttempts(job) {
+    if (job.exclusionAttempts === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no exclusion attempts recorded`);
+    }
+    return job.exclusionAttempts;
+  }
   function requireAudienceDeadline(job) {
     if (job.audienceDeadlineAt === void 0) {
       throw new Error(`Dispatch job ${job.id} has no audience deadline`);
@@ -8645,6 +8673,14 @@
       results: requireArray(page, "results", payload, "page"),
       totalPages: requireNumber(page, "totalPages", payload, "page")
     };
+  }
+  function toFilteredPersonPage(data, payload) {
+    const results = requireArray(requireRecord(data, payload, "page"), "results", payload, "page");
+    return { phones: results.flatMap((raw) => toPersonPhoneNumbers(raw, payload)), size: results.length };
+  }
+  function toPersonPhoneNumbers(raw, payload) {
+    const phones = requireArray(requireRecord(raw, payload, "person"), "phones", payload, "person");
+    return phones.map((entry) => requireString(requireRecord(entry, payload, "phone"), "phone", payload, "phone"));
   }
   function toCreatedId(data, payload) {
     return requireString(requireRecord(data, payload, "response"), "id", payload, "response");
@@ -8862,6 +8898,15 @@
   }
   function countAudience(filters) {
     return { method: "POST", rawPath: "/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/count", body: { filters }, strategy: "bearer" };
+  }
+  function listFilteredPersonsPage(filters, page) {
+    return {
+      method: "POST",
+      rawPath: "/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list",
+      query: { limit: EXCLUSION_PAGE_LIMIT, page },
+      body: { filters },
+      strategy: "bearer"
+    };
   }
   function createCampaign(body) {
     return { method: "POST", rawPath: "/v2/workspaces/{workspace_id}/campaigns", body, strategy: "bearer" };
@@ -9315,7 +9360,7 @@
     var _b;
     const _a = request, { rows: _rows, exclusion } = _a, settings = __objRest(_a, ["rows", "exclusion"]);
     const firstPending = prepared.contacts.find((contact) => contact.outcome === "pendingLookup");
-    return {
+    const job = {
       id: jobIdOf(prepared.fingerprint, now),
       revision: 0,
       fingerprint: prepared.fingerprint,
@@ -9332,19 +9377,38 @@
       consecutiveInterruptedRounds: 0,
       warnings: []
     };
+    return firstPending && excludesByFilter(exclusion) ? withExclusionRun(job, "preview", now) : job;
+  }
+  function withExclusionRun(job, purpose, now) {
+    return __spreadProps(__spreadValues({}, job), {
+      phase: "resolvingExclusions",
+      exclusionPurpose: purpose,
+      exclusionCursor: FIRST_EXCLUSION_PAGE,
+      exclusionAttempts: 0,
+      updatedAt: now
+    });
   }
   function duplicateVerdict(existing, repeatOfJobId, now) {
     const supersede = [];
     let busy;
+    const takeIdle = (job) => {
+      if (isLeased(job, now)) {
+        busy != null ? busy : busy = job;
+      } else {
+        supersede.push(job);
+      }
+    };
     for (const job of existing) {
       switch (job.phase) {
+        case "resolvingExclusions":
+          if (isConfirmed(job)) {
+            return { kind: "refuse", job };
+          }
+          takeIdle(job);
+          break;
         case "resolving":
         case "awaitingConfirmation":
-          if (isLeased(job, now)) {
-            busy != null ? busy : busy = job;
-          } else {
-            supersede.push(job);
-          }
+          takeIdle(job);
           break;
         case "materializing":
         case "awaitingAudience":
@@ -9362,6 +9426,9 @@
       return { kind: "refuse", job: latestSent };
     }
     return busy ? { kind: "busy", job: busy } : { kind: "create", supersede };
+  }
+  function isConfirmed(job) {
+    return job.startedAt !== void 0;
   }
   function latestSentJob(jobs) {
     return jobs.filter((job) => job.phase === "completed" && job.campaignId !== void 0).reduce((latest, job) => latest === void 0 || job.createdAt > latest.createdAt ? job : latest, void 0);
@@ -9412,12 +9479,12 @@
     };
   }
   function toAwaitingConfirmation(job, now) {
-    assertPhase(job, ["resolving"], "await confirmation");
+    assertPhase(job, ["resolving", "resolvingExclusions"], "await confirmation");
     return __spreadProps(__spreadValues({}, job), { phase: "awaitingConfirmation", cursor: 0, pass: 0, passDeferredUntil: void 0, updatedAt: now });
   }
-  function toMaterializing(job, segmentationId, operatorEmail, now) {
+  function toConfirmed(job, segmentationId, operatorEmail, now) {
     assertPhase(job, ["awaitingConfirmation"], "start materializing");
-    return __spreadProps(__spreadValues({}, job), {
+    const confirmed = __spreadProps(__spreadValues({}, job), {
       phase: "materializing",
       segmentationId,
       cursor: 0,
@@ -9426,6 +9493,30 @@
       dispatchConfig: toDispatchConfig(job.settings.pacing),
       startedBy: operatorEmail,
       startedAt: now,
+      updatedAt: now
+    });
+    return excludesByFilter(job.exclusion) ? withExclusionRun(confirmed, "send", now) : confirmed;
+  }
+  function toNextExclusionPage(job, now) {
+    assertPhase(job, ["resolvingExclusions"], "read another exclusion page");
+    return __spreadProps(__spreadValues({}, job), { exclusionCursor: requireExclusionCursor(job) + 1, exclusionAttempts: 0, updatedAt: now });
+  }
+  function toAfterExclusions(job, now) {
+    assertPhase(job, ["resolvingExclusions"], "leave the exclusion phase");
+    const resolved = withoutExclusionRun(job, now);
+    if (requireExclusionPurpose(job) === "preview") {
+      return resolved.counts.pendingLookup > 0 ? __spreadProps(__spreadValues({}, resolved), { phase: "resolving" }) : toAwaitingConfirmation(resolved, now);
+    }
+    return resolved.counts.ready > 0 ? __spreadProps(__spreadValues({}, resolved), { phase: "materializing" }) : toCompleted(resolved, now);
+  }
+  function withoutExclusionRun(job, now) {
+    return __spreadProps(__spreadValues({}, job), {
+      exclusionPurpose: void 0,
+      exclusionCursor: void 0,
+      exclusionAttempts: void 0,
+      cursor: 0,
+      pass: 0,
+      passDeferredUntil: void 0,
       updatedAt: now
     });
   }
@@ -9443,7 +9534,7 @@
     return __spreadProps(__spreadValues({}, job), { phase: "sending", lastAudienceCount: audienceCount, updatedAt: now });
   }
   function toCompleted(job, now) {
-    assertPhase(job, ["awaitingConfirmation", "materializing"], "complete");
+    assertPhase(job, ["awaitingConfirmation", "resolvingExclusions", "materializing"], "complete");
     return __spreadProps(__spreadValues({}, job), { phase: "completed", audienceSize: job.counts.inAudience, updatedAt: now });
   }
   function toCampaignCompleted(job, campaign, now) {
@@ -9470,6 +9561,10 @@
   function tokenRejectedReason(strategy) {
     return strategy === "bearer" ? "bearer_token_rejected" : "workspace_token_rejected";
   }
+  function tokenRejectedFailure(calls, results, step, resumePhase) {
+    const strategy = rejectedTokenStrategy(calls, results);
+    return { reason: tokenRejectedReason(strategy), detail: `${step} refused the ${strategy} token`, resumePhase };
+  }
   function toFailed(job, failure, now) {
     assertPhase(job, RESUMABLE_PHASES, "fail");
     return __spreadProps(__spreadValues({}, job), { phase: "failed", failure, updatedAt: now });
@@ -9485,7 +9580,10 @@
     });
   }
   function toSuperseded(job, now) {
-    assertPhase(job, ["resolving", "awaitingConfirmation"], "be superseded");
+    assertPhase(job, ["resolvingExclusions", "resolving", "awaitingConfirmation"], "be superseded");
+    if (isConfirmed(job)) {
+      throw new InvalidJobTransitionError(job.id, job.phase, "be superseded once it was confirmed");
+    }
     return __spreadProps(__spreadValues({}, job), { phase: "superseded", updatedAt: now });
   }
   function toAbandoned(job, operatorEmail, now) {
@@ -9517,6 +9615,7 @@
         return { kind: "continueAfter", delayMs: AUDIENCE_POLL_INTERVAL_MS };
       case "sending":
         return { kind: "continueAfter", delayMs: Math.max(0, ((_a = job.campaignReconcileNotBefore) != null ? _a : now) - now) };
+      case "resolvingExclusions":
       case "resolving":
       case "materializing":
         return { kind: "continueAfter", delayMs: 0 };
@@ -9530,6 +9629,85 @@
   function earliest(values) {
     const defined = values.filter((value) => value !== void 0);
     return defined.length > 0 ? Math.min(...defined) : void 0;
+  }
+
+  // src/sdk/domain/dispatch/workspace/exclusion.ts
+  var EXCLUSION_LISTING = "exclusion listing";
+  function exclusionPageCount(universeSize) {
+    return Math.floor(universeSize / EXCLUSION_PAGE_LIMIT) + 1;
+  }
+  function resolveExclusionPage(job, call, result, maxExclusionPages, now) {
+    const failure = classifyCallFailures([result]);
+    switch (failure == null ? void 0 : failure.kind) {
+      case void 0:
+        break;
+      case "stopBlock":
+        return { kind: "stop", cause: failure.cause, job };
+      case "tokenRejected":
+        return { kind: "failed", job: toFailed(job, tokenRejectedFailure([call], [result], EXCLUSION_LISTING, "resolvingExclusions"), now) };
+      case "rejected":
+        return {
+          kind: "failed",
+          job: toFailed(job, { reason: "exclusion_query_rejected", detail: `exclusion listing refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: "resolvingExclusions" }, now)
+        };
+      case "outcomeUnknown":
+        return retryExclusionPage(job, failure.failure.detail, now);
+    }
+    const page = toFilteredPersonPage(payloadOf(result), EXCLUSION_LISTING);
+    const lastPage = page.size < EXCLUSION_PAGE_LIMIT;
+    if (!lastPage && requireExclusionCursor(job) >= maxExclusionPages) {
+      return {
+        kind: "failed",
+        job: toFailed(job, { reason: "exclusion_too_large", detail: `the exclusion filters list more than ${maxExclusionPages} pages of ${EXCLUSION_PAGE_LIMIT} persons`, resumePhase: "resolvingExclusions" }, now)
+      };
+    }
+    return { kind: "page", phones: page.phones, lastPage };
+  }
+  function applyExcludedPhones(job, contacts, phones, now) {
+    const after = excludeContacts(contacts, phones);
+    const excluded = after.filter((contact, position) => contact !== contacts[position]);
+    return {
+      job: __spreadProps(__spreadValues({}, job), {
+        counts: tallyOutcomes(job.counts, contacts, after),
+        revalidationShifts: exclusionShifts(job, excluded.length),
+        updatedAt: now
+      }),
+      excluded
+    };
+  }
+  function exclusionShifts(job, excludedCount) {
+    var _a;
+    if (requireExclusionPurpose(job) !== "send" || excludedCount === 0) {
+      return job.revalidationShifts;
+    }
+    return __spreadProps(__spreadValues({}, job.revalidationShifts), { excluded: ((_a = job.revalidationShifts.excluded) != null ? _a : 0) + excludedCount });
+  }
+  function retryExclusionPage(job, detail, now) {
+    const attempts = requireExclusionAttempts(job) + 1;
+    if (attempts < MAX_CALL_ATTEMPTS) {
+      return { kind: "stop", cause: "interrupted", job: __spreadProps(__spreadValues({}, job), { exclusionAttempts: attempts, updatedAt: now }) };
+    }
+    return {
+      kind: "failed",
+      job: toFailed(__spreadProps(__spreadValues({}, job), { exclusionAttempts: 0 }), { reason: "exclusion_unresolved", detail: truncateDetail(detail), resumePhase: "resolvingExclusions" }, now)
+    };
+  }
+
+  // src/sdk/domain/dispatch/workspace/limits.ts
+  var GOOGLE_WORKSPACE_DAILY_CALL_QUOTA = 1e5;
+  var DEFAULT_MAX_EXCLUSION_PAGES = 50;
+  function resolveDispatchLimits(limits = {}) {
+    var _a, _b;
+    return {
+      dailyCallQuota: requireCount("dailyCallQuota", (_a = limits.dailyCallQuota) != null ? _a : GOOGLE_WORKSPACE_DAILY_CALL_QUOTA),
+      maxExclusionPages: requireCount("maxExclusionPages", (_b = limits.maxExclusionPages) != null ? _b : DEFAULT_MAX_EXCLUSION_PAGES)
+    };
+  }
+  function requireCount(limit, value) {
+    if (!Number.isInteger(value) || value < 1) {
+      throw new RangeError(`WorkspaceDispatch: ${limit} must be an integer >= 1, got ${value}`);
+    }
+    return value;
   }
 
   // src/sdk/domain/dispatch/workspace/request-validation.ts
@@ -9637,9 +9815,6 @@
         problems.push(`exclusion.segmentationFilters[${position}].type must not be empty`);
       }
     });
-    if (request.exclusion.segmentationFilters.length > 0) {
-      problems.push("exclusion.segmentationFilters is not supported yet: exclude by explicit phones");
-    }
     return problems;
   }
   function referenceProblems(request, roster, customFields) {
@@ -9767,10 +9942,6 @@
     const spent = __spreadProps(__spreadValues({}, job), { campaignReconcileAttempts: 0 });
     return job.campaignSendState === "sent" ? { kind: "advanced", job: toCampaignUnverified(spent, detail, now) } : { kind: "advanced", job: toFailed(spent, { reason: "campaign_outcome_unknown", detail, resumePhase: "sending" }, now) };
   }
-  function tokenRejectedFailure(calls, results, step, resumePhase) {
-    const strategy = rejectedTokenStrategy(calls, results);
-    return { reason: tokenRejectedReason(strategy), detail: `${step} refused the ${strategy} token`, resumePhase };
-  }
   function waitForAudience(job, lastAudienceCount, now) {
     const waiting = __spreadProps(__spreadValues({}, job), { lastAudienceCount, updatedAt: now });
     return pastAudienceDeadline(job, now) ? { kind: "advanced", job: audienceTimedOut(waiting, now) } : { kind: "wait", job: waiting };
@@ -9797,16 +9968,16 @@
 
   // src/sdk/domain/dispatch/workspace/workspace-dispatch.ts
   var WorkspaceDispatch = class {
-    constructor(ports, limits) {
+    constructor(ports, limits = {}) {
       __publicField(this, "ports", ports);
-      __publicField(this, "limits", limits);
-      if (!Number.isInteger(limits.dailyCallQuota) || limits.dailyCallQuota < 1) {
-        throw new RangeError(`WorkspaceDispatch: dailyCallQuota must be an integer >= 1, got ${limits.dailyCallQuota}`);
-      }
+      __publicField(this, "limits");
+      this.limits = resolveDispatchLimits(limits);
     }
     /**
      * Validates the request against the roster and the custom fields, prepares the
-     * audience, checks the call budget and the duplicate verdict, and inserts the job.
+     * audience, measures the exclusion by filter, checks the call budget and the duplicate
+     * verdict, and inserts the job. The exclusion itself is resolved by the
+     * `resolvingExclusions` phase, so no paginated read runs inside this call.
      *
      * @throws DispatchValidationError, DispatchThrottledError, CallBudgetExceededError,
      *   DuplicateDispatchError or JobBusyError, always before any write.
@@ -9820,7 +9991,7 @@
         assertValidRequest(request, rosterIndex, indexCustomFields(customFields.items));
         const prepared = prepareAudience(request, rosterIndex);
         const catalogPages = { roster: roster.pages, customFields: customFields.pages };
-        const budget = estimateCallBudget(prepared.contacts, catalogPages);
+        const budget = estimateCallBudget(prepared.contacts, catalogPages, yield this.measureExclusionRun(request));
         if (budget.total > this.limits.dailyCallQuota) {
           throw new CallBudgetExceededError(budget, this.limits.dailyCallQuota);
         }
@@ -9851,7 +10022,7 @@
             return this.ports.store.update(toCompleted(job, now), []);
           }
           const segmentationId = yield this.createSegmentation(job);
-          return this.ports.store.update(toMaterializing(job, segmentationId, options.operatorEmail, this.ports.clock.now()), []);
+          return this.ports.store.update(toConfirmed(job, segmentationId, options.operatorEmail, this.ports.clock.now()), []);
         }));
         return this.progressOf(started);
       });
@@ -9933,6 +10104,31 @@
         const laterResults = laterCalls.length > 0 ? yield this.ports.executor.executeAll(laterCalls) : [];
         const laterItems = laterResults.flatMap((result) => toPayloadPage(requireSuccess(result, catalog), catalog).results);
         return { items: [...firstPage.results, ...laterItems].map(parse), pages: 1 + laterCalls.length };
+      });
+    }
+    /**
+     * Pages one exclusion run will read, from a Bearer count of the filters' universe, or 0
+     * when the request excludes nobody by filter. Above the configured ceiling it fails the
+     * plan, before anything is stored: a truncated exclusion would dispatch to people the
+     * operator left out.
+     *
+     * @throws DispatchValidationError, DispatchThrottledError or DispatchTransportError.
+     */
+    measureExclusionRun(request) {
+      return __async(this, null, function* () {
+        if (!excludesByFilter(request.exclusion)) {
+          return 0;
+        }
+        const [result] = yield this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)]);
+        requireSuccess(result, "exclusion universe count");
+        const universeSize = readAudienceCount(result);
+        const pages = exclusionPageCount(universeSize);
+        if (pages > this.limits.maxExclusionPages) {
+          throw new DispatchValidationError([
+            `exclusion.segmentationFilters match ${universeSize} persons, more than the ${this.limits.maxExclusionPages} pages of ${EXCLUSION_PAGE_LIMIT} this dispatch may read`
+          ]);
+        }
+        return pages;
       });
     }
     /** Inserts the job unless a duplicate blocks it, superseding idle jobs of the same audience. */
@@ -10037,6 +10233,8 @@
     runPhaseStep(session, deadlineAt) {
       return __async(this, null, function* () {
         switch (session.job.phase) {
+          case "resolvingExclusions":
+            return this.resolveExclusions(session);
           case "resolving":
           case "materializing":
             return this.runChunk(session, session.job.phase, deadlineAt);
@@ -10047,6 +10245,40 @@
           default:
             return { kind: "yield" };
         }
+      });
+    }
+    /**
+     * Reads one page of the exclusion listing and marks every contact it names `excluded`.
+     * The phase runs before `resolving`, so the preview already counts the excluded
+     * contacts, and again on the confirmed job before `materializing`, so nobody excluded is
+     * written to.
+     */
+    resolveExclusions(session) {
+      return __async(this, null, function* () {
+        const call = listFilteredPersonsPage(session.job.exclusion.segmentationFilters, requireExclusionCursor(session.job));
+        const [result] = yield this.executeRound(session, [call]);
+        const resolution = resolveExclusionPage(session.job, call, result, this.limits.maxExclusionPages, this.ports.clock.now());
+        if (resolution.kind === "page") {
+          return this.applyExclusionPage(session, resolution.phones, resolution.lastPage);
+        }
+        session.job = yield this.ports.store.update(resolution.job, []);
+        return resolution.kind === "failed" ? { kind: "yield" } : { kind: "stop", stop: { cause: resolution.cause } };
+      });
+    }
+    /**
+     * Applies the phones of one page to the job's contacts and persists them together with
+     * the next page, or with the phase the run hands over to, in one compare-and-set. An
+     * execution that dies before it re-reads the same page, and a contact excluded twice
+     * changes nothing.
+     */
+    applyExclusionPage(session, phones, lastPage) {
+      return __async(this, null, function* () {
+        const contacts = yield this.ports.store.loadContacts(session.job.id, { offset: 0, limit: session.job.contactCount });
+        const now = this.ports.clock.now();
+        const applied = applyExcludedPhones(session.job, contacts, phones, now);
+        const job = lastPage ? toAfterExclusions(applied.job, now) : toNextExclusionPage(applied.job, now);
+        session.job = yield this.ports.store.update(job, applied.excluded);
+        return { kind: "next" };
       });
     }
     /**
@@ -11754,7 +11986,7 @@
     return new HabllaStore(backend, STORE_SCHEMAS);
   }
   function createWorkspaceDispatch(client, baseUrl, workspaceId, options) {
-    const missing = ["concurrency", "spreadsheetId", "dailyCallQuota"].filter((option) => (options == null ? void 0 : options[option]) === void 0);
+    const missing = ["concurrency", "spreadsheetId"].filter((option) => (options == null ? void 0 : options[option]) === void 0);
     if (missing.length > 0) {
       throw new Error(`Hablla.createWorkspaceDispatch: missing ${missing.join(", ")}`);
     }
@@ -11764,7 +11996,7 @@
         store: new SheetDispatchJobStore({ spreadsheetId: options.spreadsheetId }),
         clock: gasClock
       },
-      { dailyCallQuota: options.dailyCallQuota }
+      { dailyCallQuota: options.dailyCallQuota, maxExclusionPages: options.maxExclusionPages }
     );
   }
   function archiveWorkspaceDispatchJob(spreadsheetId, jobId) {
