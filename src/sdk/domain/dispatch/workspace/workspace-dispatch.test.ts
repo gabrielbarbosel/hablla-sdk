@@ -10,7 +10,8 @@ import {
     THROTTLE_COOLDOWN_MS,
     TRANSPORT_COOLDOWN_MS,
 } from './constants';
-import { ESTIMATED_CALLS_PER_CONTACT } from './call-budget';
+import { estimateCallBudget } from './call-budget';
+import { exclusionPageCount } from './exclusion';
 import {
     CallBudgetExceededError,
     DispatchThrottledError,
@@ -21,7 +22,7 @@ import {
     JobBusyError,
 } from './errors';
 import { BEARER_HEADER, FakeClock, FakeHablla, InMemoryDispatchJobStore, WORKSPACE_ID, WORKSPACE_TOKEN, type FakePerson } from './__fixtures__/fake-hablla';
-import { ADVISOR, CONNECTION_ID, FIRST_NAME_FIELD_ID, OTHER_ADVISOR, RESERVE_OWNER, ROSTER_USERS, SYSTEM_USER, aRequest, aRow, habllaId } from './__fixtures__/builders';
+import { ADVISOR, CONNECTION_ID, FIRST_NAME_FIELD_ID, OTHER_ADVISOR, RESERVE_OWNER, ROSTER_USERS, SYSTEM_USER, aContact, aRequest, aRow, habllaId } from './__fixtures__/builders';
 import type { DispatchProgress, WorkspaceDispatchRequest } from './types';
 
 const START = 1_800_000_000_000;
@@ -298,13 +299,18 @@ describe('WorkspaceDispatch exclusion by filter', () => {
         expect(resumed.job.counts).toMatchObject({ excluded: 1, ready: 1 });
     });
 
-    it('charges the exclusion pages to the call budget', async () => {
+    it('charges the exclusion to the call budget, on a quota the same plan without it fits', async () => {
         const universe = anExclusionUniverse(0, [phoneOf('2')]);
+        const catalogPages = { roster: 1, customFields: 1 };
+        const quota = estimateCallBudget([aContact()], catalogPages, 0).total;
+
+        expect(estimateCallBudget([aContact()], catalogPages, exclusionPageCount(1)).total).toBeGreaterThan(quota);
+
+        dispatch = buildDispatch(quota);
+
         const withoutExclusion = await dispatch.plan(aRequest({ rows: [aRow('1')] }));
-        const bearerBefore = hablla.requests.filter((request) => request.authorization === BEARER_HEADER).length;
 
         await dispatch.abandon(withoutExclusion.job.id, OPERATOR);
-        dispatch = buildDispatch(bearerBefore + ESTIMATED_CALLS_PER_CONTACT + 40);
 
         await expect(dispatch.plan(excluding(universe, [aRow('1')]))).rejects.toBeInstanceOf(CallBudgetExceededError);
     });
