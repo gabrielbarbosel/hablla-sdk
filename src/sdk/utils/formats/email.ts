@@ -23,3 +23,6 @@ export const deriveEmail = (rawValue: unknown, rule: DeriveEmailRule): string | 
     if (!accounts.length) return null;
     return accounts.join(rule.separator) + '@' + rule.domain;
 };
+
+/** Canonical form of an email for comparisons: trimmed and lower-cased. */
+export const normalizeEmail = (value: string): string => value.trim().toLowerCase();

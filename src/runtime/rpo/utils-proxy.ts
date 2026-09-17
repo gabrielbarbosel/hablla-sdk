@@ -23,9 +23,16 @@ export const firstName = (fullName: unknown): string => bag().firstName(fullName
 export const hashString = (value: unknown): number => bag().hashString(value);
 export const distributeOwners = (count: number, users: readonly string[], mode: OwnerStrategy, rng?: (index: number) => number): string[] => bag().distributeOwners(count, users, mode, rng);
 export const expandByWeight = (users: readonly string[], weights?: Readonly<Record<string, number>>): string[] => bag().expandByWeight(users, weights);
-export const xlsxToRows =(parts: XlsxParts): string[][] => bag().xlsxToRows(parts);
+export const hash64Hex = (value: string): string => bag().hash64Hex(value);
+export const collapseWhitespace = (value: string): string => bag().collapseWhitespace(value);
+export const capitalizeWord = (word: string): string => bag().capitalizeWord(word);
+export const brazilianPhoneVariants = (value: unknown): PhoneVariants | undefined => bag().brazilianPhoneVariants(value);
+export const phoneIdentity = (variants: PhoneVariants): string => bag().phoneIdentity(variants);
+export const normalizeEmail = (value: string): string => bag().normalizeEmail(value);
+export const xlsxToRows = (parts: XlsxParts): string[][] => bag().xlsxToRows(parts);
 export const parseSharedStrings = (xml: string): string[] => bag().parseSharedStrings(xml);
 export const parseWorksheet = (xml: string, shared: readonly string[]): string[][] => bag().parseWorksheet(xml, shared);
 export const pickWorksheetName = (names: readonly string[]): string | null => bag().pickWorksheetName(names);
 
+export { BRAZIL_COUNTRY_CODE } from '../../sdk/utils/formats/phone';
 export type { PhoneVariants, DeriveEmailRule, OwnerStrategy, XlsxParts } from '../../sdk/utils';

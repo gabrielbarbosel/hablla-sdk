@@ -7056,17 +7056,24 @@
   // src/sdk/utils/index.ts
   var utils_exports = {};
   __export(utils_exports, {
+    BRAZIL_COUNTRY_CODE: () => BRAZIL_COUNTRY_CODE,
+    brazilianPhoneVariants: () => brazilianPhoneVariants,
+    capitalizeWord: () => capitalizeWord,
+    collapseWhitespace: () => collapseWhitespace,
     collectIndexed: () => collectIndexed,
     customFieldKeys: () => customFieldKeys,
     deriveEmail: () => deriveEmail,
     distributeOwners: () => distributeOwners,
     expandByWeight: () => expandByWeight,
     firstName: () => firstName,
+    hash64Hex: () => hash64Hex,
     hashString: () => hashString,
     isEmail: () => isEmail,
     matchesPhone: () => matchesPhone,
+    normalizeEmail: () => normalizeEmail,
     parseSharedStrings: () => parseSharedStrings,
     parseWorksheet: () => parseWorksheet,
+    phoneIdentity: () => phoneIdentity,
     phoneVariants: () => phoneVariants,
     pickWorksheetName: () => pickWorksheetName,
     toDigits: () => toDigits,
@@ -7079,14 +7086,24 @@
     const trimmed = String(fullName != null ? fullName : "").trim();
     return trimmed.split(/\s+/)[0] || trimmed;
   };
-  var hashString = (value) => {
-    const str = String(value != null ? value : "");
-    let hash = 2166136261;
-    for (let index = 0; index < str.length; index++) {
-      hash ^= str.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
+  var FNV_OFFSET_BASIS = 2166136261;
+  var FNV_SECOND_OFFSET_BASIS = 2654435769;
+  var FNV_PRIME = 16777619;
+  var HEX_DIGITS_PER_32_BITS = 8;
+  var fnv1a32 = (text, offsetBasis) => {
+    let hash = offsetBasis;
+    for (let index = 0; index < text.length; index++) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, FNV_PRIME);
     }
     return hash >>> 0;
+  };
+  var hashString = (value) => fnv1a32(String(value != null ? value : ""), FNV_OFFSET_BASIS);
+  var hash64Hex = (value) => [FNV_OFFSET_BASIS, FNV_SECOND_OFFSET_BASIS].map((offsetBasis) => fnv1a32(value, offsetBasis).toString(16).padStart(HEX_DIGITS_PER_32_BITS, "0")).join("");
+  var collapseWhitespace = (value) => value.trim().replace(/\s+/g, " ");
+  var capitalizeWord = (word) => {
+    const lowerCased = word.toLocaleLowerCase("pt-BR");
+    return lowerCased.charAt(0).toLocaleUpperCase("pt-BR") + lowerCased.slice(1);
   };
 
   // src/sdk/utils/primitives/record.ts
@@ -7146,6 +7163,21 @@
     const value = toDigits(candidate);
     return value === variants.digits || value === variants.alternate;
   };
+  var BRAZIL_COUNTRY_CODE = "55";
+  var NATIONAL_PHONE_LENGTHS = [10, 11];
+  var INTERNATIONAL_PHONE_LENGTHS = [12, 13];
+  var CANONICAL_PHONE_LENGTH = 13;
+  var brazilianPhoneVariants = (value) => {
+    const digits = toDigits(value);
+    if (NATIONAL_PHONE_LENGTHS.includes(digits.length)) {
+      return phoneVariants(BRAZIL_COUNTRY_CODE + digits);
+    }
+    if (INTERNATIONAL_PHONE_LENGTHS.includes(digits.length) && digits.startsWith(BRAZIL_COUNTRY_CODE)) {
+      return phoneVariants(digits);
+    }
+    return void 0;
+  };
+  var phoneIdentity = (variants) => variants.digits.length === CANONICAL_PHONE_LENGTH ? variants.digits : variants.alternate;
 
   // src/sdk/utils/formats/email.ts
   var isEmail = (value) => /@/.test(String(value != null ? value : ""));
@@ -7154,6 +7186,7 @@
     if (!accounts.length) return null;
     return accounts.join(rule.separator) + "@" + rule.domain;
   };
+  var normalizeEmail = (value) => value.trim().toLowerCase();
 
   // src/sdk/utils/formats/hablla.ts
   var customFieldKeys = (record) => Object.keys(record).filter((key) => /^cf_[a-f0-9]{24}$/.test(key));

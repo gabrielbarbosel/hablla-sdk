@@ -11,7 +11,7 @@ class W_HabllaDomain {
 (() => {
   // src/runtime/rpo/utils-proxy.ts
   var bag = () => globalThis.HABLLA_UTILS;
-  var toDigits = (value) => bag().toDigits(value);
+  var toDigits2 = (value) => bag().toDigits(value);
   var phoneVariants = (value) => bag().phoneVariants(value);
   var matchesPhone = (candidate, variants) => bag().matchesPhone(candidate, variants);
   var isEmail = (value) => bag().isEmail(value);
@@ -431,7 +431,7 @@ class W_HabllaDomain {
     }
     /** Both 9th-digit shapes of a phone in full (DDI-prefixed) digits, for suppression matching. */
     suppressionKeys(phone, defaultDdi) {
-      const digits = toDigits(phone);
+      const digits = toDigits2(phone);
       if (!digits) return [];
       const full = digits.startsWith(defaultDdi) ? digits : defaultDdi + digits;
       const variants = phoneVariants(full);
@@ -446,7 +446,7 @@ class W_HabllaDomain {
     assignOwners(contacts, config) {
       const distribution = config.ownerDistribution;
       if (!distribution || !distribution.owners.length) return;
-      const rng = config.rng ?? ((index) => hashString(toDigits(contacts[index]?.phone)));
+      const rng = config.rng ?? ((index) => hashString(toDigits2(contacts[index]?.phone)));
       const owners = distributeOwners(contacts.length, distribution.owners, distribution.strategy, rng);
       contacts.forEach((contact, index) => {
         if (owners[index]) contact.owner = owners[index];
@@ -549,7 +549,7 @@ class W_HabllaDomain {
     }
     /** Both 9th-digit shapes of a contact's phone in full (DDI-prefixed) form, for guard lookups. */
     phoneKeys(contact, defaultDdi) {
-      const digits = toDigits(contact.phone);
+      const digits = toDigits2(contact.phone);
       const ddi = contact.ddi ?? defaultDdi;
       const full = digits.startsWith(ddi) ? digits : ddi + digits;
       const variants = phoneVariants(full);
@@ -762,7 +762,7 @@ class W_HabllaDomain {
       if (survivors.length === 0) {
         return { campaignId: void 0, imported: 0, received, suppressed, ownerMap: {} };
       }
-      const rng = config.rng ?? ((index) => hashString(toDigits(survivors[index]?.phone)));
+      const rng = config.rng ?? ((index) => hashString(toDigits2(survivors[index]?.phone)));
       const ownerPool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
       const owners = distributeOwners(survivors.length, ownerPool, config.ownerDistribution?.strategy ?? "fixo", rng);
       const ownerMap = {};
@@ -820,7 +820,7 @@ class W_HabllaDomain {
      * @remarks Copied verbatim from {@link MassDispatch.suppressionKeys} — see {@link filterSuppressed}.
      */
     suppressionKeys(phone, defaultDdi) {
-      const digits = toDigits(phone);
+      const digits = toDigits2(phone);
       if (!digits) return [];
       const full = digits.startsWith(defaultDdi) ? digits : defaultDdi + digits;
       const variants = phoneVariants(full);
