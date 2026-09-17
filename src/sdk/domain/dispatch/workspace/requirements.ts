@@ -124,7 +124,7 @@ export function requireExclusionCursor(job: DispatchJob): number {
 }
 
 /**
- * The attempts spent on the current exclusion page, set while it is in `resolvingExclusions`.
+ * The attempts spent on the current exclusion read, set while it is in `resolvingExclusions`.
  *
  * @throws Error when absent.
  */
@@ -134,6 +134,34 @@ export function requireExclusionAttempts(job: DispatchJob): number {
     }
 
     return job.exclusionAttempts;
+}
+
+/**
+ * The universe the current exclusion run checks its coverage against, counted before its
+ * first page.
+ *
+ * @throws Error when absent.
+ */
+export function requireExclusionUniverseSize(job: DispatchJob): number {
+    if (job.exclusionUniverseSize === undefined) {
+        throw new Error(`Dispatch job ${job.id} has no counted exclusion universe`);
+    }
+
+    return job.exclusionUniverseSize;
+}
+
+/**
+ * The persons the current exclusion run has listed so far, set while it is in
+ * `resolvingExclusions`.
+ *
+ * @throws Error when absent.
+ */
+export function requireExclusionListed(job: DispatchJob): number {
+    if (job.exclusionListed === undefined) {
+        throw new Error(`Dispatch job ${job.id} has no listed exclusion tally`);
+    }
+
+    return job.exclusionListed;
 }
 
 /**

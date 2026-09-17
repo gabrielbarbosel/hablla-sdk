@@ -5,6 +5,7 @@ import type { CatalogPages } from './call-budget';
 import type { BlockContact, ContactStep } from './contact-step';
 import type { EarlyStop } from './job-machine';
 import type { DispatchLimits } from './limits';
+import type { FilteredPersonPage } from './payloads';
 import type { Clock, DispatchJobStore } from './ports';
 import type {
     ChunkedPhase,
@@ -25,7 +26,7 @@ import { estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
 import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName, readAudienceCount } from './campaign';
 import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, EXCLUSION_PAGE_LIMIT, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
-import { applyExcludedPhones, exclusionPageCount, resolveExclusionPage } from './exclusion';
+import { EXCLUSION_UNIVERSE_COUNT, applyExcludedPhones, exclusionPageCount, resolveExclusionPage, resolveExclusionUniverse } from './exclusion';
 import { resolveDispatchLimits } from './limits';
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
 import { CallBudgetExceededError, DispatchThrottledError, DispatchTransportError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
@@ -258,9 +259,9 @@ export class WorkspaceDispatch {
 
         const [result] = await this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)]);
 
-        requireSuccess(result!, 'exclusion universe count');
+        requireSuccess(result!, EXCLUSION_UNIVERSE_COUNT);
 
-        const universeSize = readAudienceCount(result!);
+        const universeSize = readAudienceCount(result!, EXCLUSION_UNIVERSE_COUNT);
         const pages = exclusionPageCount(universeSize);
 
         if (pages > this.limits.maxExclusionPages) {
@@ -391,18 +392,41 @@ export class WorkspaceDispatch {
     }
 
     /**
-     * Reads one page of the exclusion listing and marks every contact it names `excluded`.
-     * The phase runs before `resolving`, so the preview already counts the excluded
-     * contacts, and again on the confirmed job before `materializing`, so nobody excluded is
-     * written to.
+     * One read of the exclusion phase: the count of the filters' universe while the run has
+     * none, then one page of the listing. The phase runs before `resolving`, so the preview
+     * already counts the excluded contacts, and again on the confirmed job before
+     * `materializing`, so nobody excluded is written to.
      */
     private async resolveExclusions(session: ContinueSession): Promise<LoopSignal> {
+        return session.job.exclusionUniverseSize === undefined ? this.countExclusionUniverse(session) : this.readExclusionPage(session);
+    }
+
+    /** Counts the universe the run's pages must cover and keeps it on the job as the run's reference. */
+    private async countExclusionUniverse(session: ContinueSession): Promise<LoopSignal> {
+        const call = countAudience(session.job.exclusion.segmentationFilters);
+        const [result] = await this.executeRound(session, [call]);
+        const resolution = resolveExclusionUniverse(session.job, call, result!, this.ports.clock.now());
+
+        session.job = await this.ports.store.update(resolution.job, []);
+
+        switch (resolution.kind) {
+            case 'universe':
+                return { kind: 'next' };
+            case 'failed':
+                return { kind: 'yield' };
+            case 'stop':
+                return { kind: 'stop', stop: { cause: resolution.cause } };
+        }
+    }
+
+    /** Reads the page at the cursor and marks every contact it names `excluded`. */
+    private async readExclusionPage(session: ContinueSession): Promise<LoopSignal> {
         const call = listFilteredPersonsPage(session.job.exclusion.segmentationFilters, requireExclusionCursor(session.job));
         const [result] = await this.executeRound(session, [call]);
         const resolution = resolveExclusionPage(session.job, call, result!, this.limits.maxExclusionPages, this.ports.clock.now());
 
         if (resolution.kind === 'page') {
-            return this.applyExclusionPage(session, resolution.phones, resolution.lastPage);
+            return this.applyExclusionPage(session, resolution.page, resolution.lastPage);
         }
 
         session.job = await this.ports.store.update(resolution.job, []);
@@ -413,13 +437,13 @@ export class WorkspaceDispatch {
     /**
      * Applies the phones of one page to the job's contacts and persists them together with
      * the next page, or with the phase the run hands over to, in one compare-and-set. An
-     * execution that dies before it re-reads the same page, and a contact excluded twice
+     * execution that dies mid-page only re-reads that same page, and applying a page twice
      * changes nothing.
      */
-    private async applyExclusionPage(session: ContinueSession, phones: readonly string[], lastPage: boolean): Promise<LoopSignal> {
+    private async applyExclusionPage(session: ContinueSession, page: FilteredPersonPage, lastPage: boolean): Promise<LoopSignal> {
         const contacts = await this.ports.store.loadContacts(session.job.id, { offset: 0, limit: session.job.contactCount });
         const now = this.ports.clock.now();
-        const applied = applyExcludedPhones(session.job, contacts, phones, now);
+        const applied = applyExcludedPhones(session.job, contacts, page, now);
         const job = lastPage ? toAfterExclusions(applied.job, now) : toNextExclusionPage(applied.job, now);
 
         session.job = await this.ports.store.update(job, applied.excluded);

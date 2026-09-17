@@ -49,9 +49,9 @@ export const EXCLUSION_RUNS_PER_DISPATCH = 2;
  * Call estimate of a dispatch: {@link ESTIMATED_CALLS_PER_CONTACT} per contact in
  * `pendingLookup`, plus, per dispatch, the catalog pages, the segmentation, every count
  * until the audience timeout, the campaign and the read that resolves it. An exclusion by
- * filter adds the count `plan` reads its universe with and its pages, once per run. Per
- * dispatch, not a daily ledger: the app shows the number and does not fire two large
- * dispatches in a day.
+ * filter adds the count `plan` reads its universe with and, per run, the count that run
+ * checks its coverage against plus its pages. Per dispatch, not a daily ledger: the app
+ * shows the number and does not fire two large dispatches in a day.
  *
  * @param exclusionPages Pages one exclusion run reads, or 0 when nothing is excluded by filter.
  */
@@ -63,7 +63,7 @@ export function estimateCallBudget(contacts: readonly DispatchContact[], catalog
     return { workspace, bearer, total: workspace + bearer };
 }
 
-/** Bearer calls of the exclusion: the universe count `plan` reads, plus the pages of every run. */
+/** Bearer calls of the exclusion: the universe count `plan` reads, plus one count and the pages of every run. */
 function exclusionBearerCalls(exclusionPages: number): number {
-    return exclusionPages === 0 ? 0 : 1 + exclusionPages * EXCLUSION_RUNS_PER_DISPATCH;
+    return exclusionPages === 0 ? 0 : 1 + (1 + exclusionPages) * EXCLUSION_RUNS_PER_DISPATCH;
 }

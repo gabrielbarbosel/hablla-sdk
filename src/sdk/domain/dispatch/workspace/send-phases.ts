@@ -14,6 +14,9 @@ import { toCreatedId } from './payloads';
 import { requireAudienceDeadline, requireAudienceSize } from './requirements';
 import { toCampaignCompleted, toCampaignUnverified, toFailed, toSending, tokenRejectedFailure } from './job-machine';
 
+/** The payload name the audience count is reported under. */
+const AUDIENCE_COUNT = 'audience count';
+
 /**
  * Next move after a Bearer phase call:
  * - `advanced`: the job moved on (or failed) and is persisted as returned.
@@ -42,13 +45,13 @@ export function resolveAudienceCount(job: DispatchJob, call: HttpCall, result: C
     const failure = classifyCallFailures([result]);
 
     if (failure?.kind === 'tokenRejected') {
-        return { kind: 'advanced', job: toFailed(job, tokenRejectedFailure([call], [result], 'audience count', 'awaitingAudience'), now) };
+        return { kind: 'advanced', job: toFailed(job, tokenRejectedFailure([call], [result], AUDIENCE_COUNT, 'awaitingAudience'), now) };
     }
 
     if (failure?.kind === 'rejected') {
         return {
             kind: 'advanced',
-            job: toFailed(job, { reason: 'audience_query_rejected', detail: `audience count refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: 'awaitingAudience' }, now),
+            job: toFailed(job, { reason: 'audience_query_rejected', detail: `${AUDIENCE_COUNT} refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: 'awaitingAudience' }, now),
         };
     }
 
@@ -63,7 +66,7 @@ export function resolveAudienceCount(job: DispatchJob, call: HttpCall, result: C
     }
 
     const audienceSize = requireAudienceSize(job);
-    const count = readAudienceCount(result);
+    const count = readAudienceCount(result, AUDIENCE_COUNT);
 
     if (count === audienceSize) {
         return { kind: 'advanced', job: toSending(job, count, now) };

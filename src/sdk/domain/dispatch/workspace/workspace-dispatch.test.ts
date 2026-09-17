@@ -250,6 +250,33 @@ describe('WorkspaceDispatch exclusion by filter', () => {
         expect(planned.job.exclusionCursor).toBeUndefined();
     });
 
+    it('fails the run loud when the pages end short of the universe it counted', async () => {
+        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT + 499, [phoneOf('2')]);
+
+        hablla.shortListingPages.add(1);
+
+        const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
+
+        expect(planned.job).toMatchObject({ phase: 'failed', failure: { reason: 'exclusion_incomplete', resumePhase: 'resolvingExclusions' } });
+        expect(hablla.requestsTo('POST', /message-stats\/list$/).map((request) => request.query.get('page'))).toEqual(['1']);
+        expect(outcomesOf(planned.job.id)).toEqual(['0:pendingLookup', '1:pendingLookup']);
+    });
+
+    it('reads the whole listing again when an incomplete run is resumed', async () => {
+        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT + 499, [phoneOf('2')]);
+
+        hablla.shortListingPages.add(1);
+
+        const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
+
+        hablla.shortListingPages.clear();
+
+        const resumed = await drive(await dispatch.start(planned.job.id, OPERATOR));
+
+        expect(hablla.requestsTo('POST', /message-stats\/list$/).map((request) => request.query.get('page'))).toEqual(['1', '1', '2']);
+        expect(resumed.job).toMatchObject({ phase: 'awaitingConfirmation', counts: expect.objectContaining({ excluded: 1, ready: 1 }) });
+    });
+
     it('keeps the page cursor between executions and resumes the phase where it stopped', async () => {
         const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT, [phoneOf('2')]);
 

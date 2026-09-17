@@ -65,12 +65,13 @@ describe('buildAudienceQuery and buildCampaignBody', () => {
 
 describe('readAudienceCount', () => {
     it('reads the count of a 2xx', () => {
-        expect(readAudienceCount(completed(200, { count: 3, not_found: 0 }))).toBe(3);
+        expect(readAudienceCount(completed(200, { count: 3, not_found: 0 }), 'audience count')).toBe(3);
     });
 
-    it('throws without a numeric count or on another status', () => {
-        expect(() => readAudienceCount(completed(200, {}))).toThrow(UnexpectedPayloadError);
-        expect(() => readAudienceCount(completed(400, { count: 3 }))).toThrow(UnexpectedPayloadError);
+    it('throws without a numeric count or on another status, naming the payload its caller read', () => {
+        expect(() => readAudienceCount(completed(200, {}), 'audience count')).toThrow(UnexpectedPayloadError);
+        expect(() => readAudienceCount(completed(400, { count: 3 }), 'audience count')).toThrow(UnexpectedPayloadError);
+        expect(() => readAudienceCount(completed(200, {}), 'exclusion universe count')).toThrow(/exclusion universe count/);
     });
 });
 

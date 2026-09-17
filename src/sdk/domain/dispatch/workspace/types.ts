@@ -204,6 +204,7 @@ export type JobFailureReason =
     | 'exclusion_query_rejected'
     | 'exclusion_too_large'
     | 'exclusion_unresolved'
+    | 'exclusion_incomplete'
     | 'audience_timeout'
     | 'audience_query_rejected'
     | 'audience_mismatch'
@@ -247,8 +248,12 @@ export interface DispatchJob {
     exclusionPurpose?: LookupPurpose;
     /** Page of the exclusion listing the run reads next (1-based). */
     exclusionCursor?: number;
-    /** Attempts spent on the current exclusion page. */
+    /** Attempts spent on the current exclusion read. */
     exclusionAttempts?: number;
+    /** Persons the filters matched when the run counted its universe; the run reads it once, before its first page. */
+    exclusionUniverseSize?: number;
+    /** Persons the run's pages listed so far, checked against `exclusionUniverseSize` when the last page arrives. */
+    exclusionListed?: number;
     /** Rounds interrupted in a row (see `trackInterruptedRounds`); reset by the first round that is not. */
     consecutiveInterruptedRounds: number;
     startedBy?: string;

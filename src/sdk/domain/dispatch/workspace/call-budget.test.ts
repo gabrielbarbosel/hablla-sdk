@@ -17,11 +17,11 @@ describe('estimateCallBudget', () => {
         });
     });
 
-    it('charges the exclusion universe count once and its pages once per run', () => {
+    it("charges the plan's universe count once and, per run, its own count and its pages", () => {
         const withoutExclusion = estimateCallBudget([aContact()], { roster: 1, customFields: 1 }, 0);
         const withExclusion = estimateCallBudget([aContact()], { roster: 1, customFields: 1 }, 3);
 
-        expect(withExclusion.bearer - withoutExclusion.bearer).toBe(1 + 3 * EXCLUSION_RUNS_PER_DISPATCH);
+        expect(withExclusion.bearer - withoutExclusion.bearer).toBe(1 + (1 + 3) * EXCLUSION_RUNS_PER_DISPATCH);
         expect(withExclusion.workspace).toBe(withoutExclusion.workspace);
         expect(withExclusion.total).toBe(withExclusion.workspace + withExclusion.bearer);
     });

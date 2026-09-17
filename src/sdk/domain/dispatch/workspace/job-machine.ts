@@ -99,7 +99,11 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
     return firstPending && excludesByFilter(exclusion) ? withExclusionRun(job, 'preview', now) : job;
 }
 
-/** The job at the first page of an exclusion run, the phase that precedes both the preview and the writes. */
+/**
+ * The job at the start of an exclusion run, the phase that precedes both the preview and
+ * the writes. The run has no universe yet: it counts one before its first page and checks
+ * what the pages listed against it.
+ */
 function withExclusionRun(job: DispatchJob, purpose: LookupPurpose, now: number): DispatchJob {
     return {
         ...job,
@@ -107,6 +111,8 @@ function withExclusionRun(job: DispatchJob, purpose: LookupPurpose, now: number)
         exclusionPurpose: purpose,
         exclusionCursor: FIRST_EXCLUSION_PAGE,
         exclusionAttempts: 0,
+        exclusionUniverseSize: undefined,
+        exclusionListed: 0,
         updatedAt: now,
     };
 }
@@ -321,6 +327,8 @@ function withoutExclusionRun(job: DispatchJob, now: number): DispatchJob {
         exclusionPurpose: undefined,
         exclusionCursor: undefined,
         exclusionAttempts: undefined,
+        exclusionUniverseSize: undefined,
+        exclusionListed: undefined,
         cursor: 0,
         pass: 0,
         passDeferredUntil: undefined,

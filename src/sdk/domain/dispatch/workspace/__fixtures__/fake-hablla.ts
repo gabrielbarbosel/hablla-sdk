@@ -70,6 +70,8 @@ export class FakeHablla implements HttpTransport {
     readonly campaigns: Array<{ id: string; name: string; quantity: number; query: unknown }> = [];
     /** Count calls per segmentation answered with the not-propagated 500. */
     notPropagatedCounts = 1;
+    /** Listing pages answered one person short, as a report route that drops a person would. */
+    readonly shortListingPages = new Set<number>();
     /** When set, a campaign read reports this quantity instead of the audience it resolved. */
     campaignQuantityOverride?: number;
     workspaceTokenRevoked = false;
@@ -309,15 +311,17 @@ export class FakeHablla implements HttpTransport {
     /**
      * A page of the persons matching report filters, with their phones and in segmentation
      * order. The payload carries no page total, as the real route's does not: only a page
-     * shorter than `limit` says the listing is over.
+     * shorter than `limit` says the listing is over. A page in {@link shortListingPages}
+     * drops its last person, which is how a listing ends early without saying so.
      */
     private listFilteredPersons(filters: Array<{ type: string; segmentation?: string }>, query: URLSearchParams): HttpResponse<unknown> {
         const listed = [...this.audienceOf(filters)].map((personId) => ({ phones: this.persons.get(personId)!.phones }));
         const limit = Number(query.get('limit'));
         const page = Number(query.get('page'));
         const slice = listed.slice((page - 1) * limit, page * limit);
+        const answered = this.shortListingPages.has(page) ? slice.slice(0, -1) : slice;
 
-        return reply(200, { results: JSON.parse(JSON.stringify(slice)), count: slice.length, page, limit });
+        return reply(200, { results: JSON.parse(JSON.stringify(answered)), count: answered.length, page, limit });
     }
 
     /**

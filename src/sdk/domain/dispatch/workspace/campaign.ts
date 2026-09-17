@@ -73,18 +73,20 @@ export function buildCampaignBody(job: DispatchJob): CampaignCreateBody {
 }
 
 /**
- * The audience count of a successful count response.
+ * The count of a successful count response, reported under the name its caller reads it
+ * for: the same route counts the audience of a dispatch and the universe of an exclusion
+ * filter, and a payload surprise has to name which one.
  *
  * @throws UnexpectedPayloadError for any other result or a count that is not a number.
  *   The transient 5xx of a segmentation that has not propagated never reaches here; the
  *   phase treats every unknown outcome as a wait ({@link resolveAudienceCount}).
  */
-export function readAudienceCount(result: CallResult): number {
+export function readAudienceCount(result: CallResult, payload: string): number {
     const data = isSuccess(result) ? payloadOf(result) as { count?: unknown } | null : undefined;
     const count = data?.count;
 
     if (typeof count !== 'number' || !Number.isFinite(count)) {
-        throw new UnexpectedPayloadError('audience count', `expected a 2xx with a numeric count, got ${JSON.stringify(result)}`);
+        throw new UnexpectedPayloadError(payload, `expected a 2xx with a numeric count, got ${JSON.stringify(result)}`);
     }
 
     return count;
