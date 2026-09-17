@@ -5,7 +5,7 @@
 
 export { WorkspaceDispatch } from './workspace-dispatch';
 export type { WorkspaceDispatchPorts } from './workspace-dispatch';
-export { RESUMABLE_PHASES } from './job-machine';
+export { CLAIMING_OUTCOMES, holdsPersonClaim } from './person-claims';
 export type { Clock, DispatchJobStore } from './ports';
 export {
     CallBudgetExceededError,
@@ -19,6 +19,7 @@ export {
     StaleJobError,
     UnexpectedPayloadError,
 } from './errors';
+export { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
 export type {
     AdvisorKeyKind,
     AdvisorResolution,
@@ -27,6 +28,7 @@ export type {
     ContactFailure,
     ContactOutcome,
     ContactPage,
+    CustomFieldValue,
     ContinueOptions,
     DispatchContact,
     DispatchJob,
@@ -47,6 +49,9 @@ export type {
     OwnerChange,
     OwnerSource,
     PendingWrite,
+    PersonCreateBody,
+    PersonPhoneBody,
+    PersonUpdateBody,
     ResolvedPerson,
     ResumePhase,
     SegmentationCreateBody,

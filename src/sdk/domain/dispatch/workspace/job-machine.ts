@@ -10,6 +10,7 @@ import type { StopCause } from './call-failures';
 import type {
     ChunkedPhase,
     ContactOutcome,
+    ResumePhase,
     DispatchContact,
     DispatchJob,
     DispatchJobPhase,
@@ -22,31 +23,12 @@ import { toDispatchConfig } from './campaign';
 import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { workOutcomeOf } from './contact-step';
 import { InvalidJobTransitionError } from './errors';
-
-/** Phases a `continue` works on; every other phase is left untouched. */
-export const RESUMABLE_PHASES: readonly DispatchJobPhase[] = ['resolving', 'materializing', 'awaitingAudience', 'sending'];
+import { jobIdOf } from './job-id';
+import { requireAudienceSize } from './requirements';
+import { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
 
 /** Phases in which the job is over. */
 const TERMINAL_PHASES: readonly DispatchJobPhase[] = ['completed', 'superseded', 'abandoned'];
-
-/** Every contact outcome, for complete counts. */
-const CONTACT_OUTCOMES: readonly ContactOutcome[] = [
-    'invalidPhone',
-    'repeatedPhone',
-    'excluded',
-    'missingName',
-    'unresolvedAdvisor',
-    'pendingLookup',
-    'lookupFailed',
-    'inAttendance',
-    'duplicatePersons',
-    'blocked',
-    'noWhatsapp',
-    'repeatedPerson',
-    'ready',
-    'writeFailed',
-    'inAudience',
-];
 
 /** Why a call returned early, as `nextStepOf` understands it. */
 export type EarlyStop = { cause: StopCause } | { waitUntil: number };
@@ -88,14 +70,14 @@ export function tallyOutcomes(counts: Readonly<Record<ContactOutcome, number>>, 
 
 /**
  * A new job at revision 0: `resolving`, or `awaitingConfirmation` when no contact needs
- * a lookup. Its id is the fingerprint plus the creation time in base 36.
+ * a lookup.
  */
 export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number): DispatchJob {
     const { rows: _rows, exclusion, ...settings } = request;
     const firstPending = prepared.contacts.find((contact) => contact.outcome === 'pendingLookup');
 
     return {
-        id: `${prepared.fingerprint}-${now.toString(36)}`,
+        id: jobIdOf(prepared.fingerprint, now),
         revision: 0,
         fingerprint: prepared.fingerprint,
         settings,
@@ -185,6 +167,11 @@ export function trackInterruptedRounds(job: DispatchJob, results: readonly CallR
     };
 }
 
+/** True for a phase a `continue` works on; every other phase is left untouched. */
+export function isResumablePhase(phase: DispatchJobPhase): phase is ResumePhase {
+    return RESUMABLE_PHASES.some((resumable) => resumable === phase);
+}
+
 /** True while another execution holds the job's lease. */
 export function isLeased(job: DispatchJob, now: number): boolean {
     return job.leaseUntil !== undefined && job.leaseUntil > now;
@@ -200,8 +187,7 @@ export function hasPhaseWork(job: DispatchJob, phase: ChunkedPhase): boolean {
  * the end of the contacts, a phase that still has work starts the next pass from the
  * first contact, and reports `waitUntil` when every remaining contact was deferred.
  */
-export function advanceCursor(job: DispatchJob, chunk: readonly DispatchContact[], now: number): { job: DispatchJob; waitUntil?: number } {
-    const phase = job.phase as ChunkedPhase;
+export function advanceCursor(job: DispatchJob, phase: ChunkedPhase, chunk: readonly DispatchContact[], now: number): { job: DispatchJob; waitUntil?: number } {
     const chunkDeferrals = chunk
         .filter((contact) => contact.outcome === workOutcomeOf(phase) && contact.retryNotBefore !== undefined && contact.retryNotBefore > now)
         .map((contact) => contact.retryNotBefore!);
@@ -303,7 +289,7 @@ export function tokenRejectedReason(strategy: AuthStrategy): JobFailureReason {
 
 /** A working phase → `failed`; the failure names the phase `start` re-enters. */
 export function toFailed(job: DispatchJob, failure: JobFailure, now: number): DispatchJob {
-    assertPhase(job, ['resolving', 'materializing', 'awaitingAudience', 'sending'], 'fail');
+    assertPhase(job, RESUMABLE_PHASES, 'fail');
 
     return { ...job, phase: 'failed', failure, updatedAt: now };
 }
@@ -396,17 +382,4 @@ function earliest(values: readonly (number | undefined)[]): number | undefined {
     const defined = values.filter((value): value is number => value !== undefined);
 
     return defined.length > 0 ? Math.min(...defined) : undefined;
-}
-
-/**
- * The expected audience size, set when the job entered `awaitingAudience`.
- *
- * @throws Error when absent (a planning bug).
- */
-export function requireAudienceSize(job: DispatchJob): number {
-    if (job.audienceSize === undefined) {
-        throw new Error(`Dispatch job ${job.id} has no audience size`);
-    }
-
-    return job.audienceSize;
 }

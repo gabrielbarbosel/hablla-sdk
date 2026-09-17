@@ -8,11 +8,11 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { ContactResolution, StopCause } from './call-failures';
-import type { DispatchContact, DispatchJob, PendingWrite } from './types';
+import type { DispatchContact, DispatchJob, PendingWrite, PersonCreateBody } from './types';
 import { phoneIdentity } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt, truncateDetail } from './call-failures';
 import { RECONCILIATION_DELAY_MS } from './constants';
-import { requireOwnerChange, requirePerson, requirePhone, requireTarget } from './contact-requirements';
+import { requireOwnerChange, requirePerson, requirePhone, requireSegmentationId, requireTarget } from './requirements';
 import { UnexpectedPayloadError } from './errors';
 import { toCreatedId } from './payloads';
 import { addPersonOwners, addSegmentationItem, createPerson, removePersonFollowers, removePersonOwners, updatePerson } from './routes';
@@ -201,17 +201,4 @@ function createdIdOf(result: CallResult, payload: string): string | undefined {
 /** The HTTP status of a completed result. */
 function statusOf(result: CallResult): number | 'transport' {
     return result.kind === 'completed' ? result.status : 'transport';
-}
-
-/**
- * The job's segmentation id; set by `start` before any write.
- *
- * @throws Error when the job has no segmentation (a planning bug).
- */
-export function requireSegmentationId(job: DispatchJob): string {
-    if (!job.segmentationId) {
-        throw new Error(`Dispatch job ${job.id} has no segmentation`);
-    }
-
-    return job.segmentationId;
 }

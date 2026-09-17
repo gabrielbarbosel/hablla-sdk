@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { claimPerson } from './person-claims';
+import { claimPerson, holdsPersonClaim } from './person-claims';
+import type { ContactOutcome } from './types';
 
 describe('claimPerson', () => {
     it('lets the first contact claim an unclaimed person', () => {
@@ -26,5 +27,15 @@ describe('claimPerson', () => {
         claimPerson(claims, 'p2', 5);
 
         expect([...claims]).toEqual([['p1', 4]]);
+    });
+});
+
+describe('holdsPersonClaim', () => {
+    it('is true only for the outcomes that keep a person', () => {
+        const claiming: ContactOutcome[] = ['ready', 'inAudience'];
+        const others: ContactOutcome[] = ['pendingLookup', 'repeatedPerson', 'inAttendance', 'writeFailed', 'noWhatsapp'];
+
+        expect(claiming.every(holdsPersonClaim)).toBe(true);
+        expect(others.some(holdsPersonClaim)).toBe(false);
     });
 });

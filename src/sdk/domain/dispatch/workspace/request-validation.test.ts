@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { assertValidRequest, assertValidRequestShape, indexCustomFields, indexRoster, JOB_ID_PATTERN } from './request-validation';
+import { assertValidRequest, assertValidRequestShape, indexCustomFields, indexRoster } from './request-validation';
+import { isJobId } from './job-id';
 import { DispatchValidationError } from './errors';
 import { toCustomFieldDefinition } from './payloads';
 import customFieldsPage from './__fixtures__/custom-fields-page.json';
@@ -56,7 +57,7 @@ describe('assertValidRequest', () => {
     it('accepts a well-formed repeatOfJobId', () => {
         const jobId = `0123456789abcdef-3-${Date.UTC(2026, 8, 17).toString(36)}`;
 
-        expect(JOB_ID_PATTERN.test(jobId)).toBe(true);
+        expect(isJobId(jobId)).toBe(true);
         expect(problemsOf(aRequest({ repeatOfJobId: jobId }))).toEqual([]);
     });
 

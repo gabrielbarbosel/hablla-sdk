@@ -85,25 +85,30 @@ export interface WorkspaceDispatchRequest {
 export type DispatchSettings = Omit<WorkspaceDispatchRequest, 'rows' | 'exclusion'>;
 
 /**
- * Per-contact outcome, stable codes read by the app (which owns the PT-BR labels).
+ * Every per-contact outcome, stable codes read by the app (which owns the PT-BR labels),
+ * and the source of {@link ContactOutcome} and of the outcome counts.
  * Transitional: `pendingLookup`, `ready`. Every other value is terminal.
  */
-export type ContactOutcome =
-    | 'invalidPhone'
-    | 'repeatedPhone'
-    | 'excluded'
-    | 'missingName'
-    | 'unresolvedAdvisor'
-    | 'pendingLookup'
-    | 'lookupFailed'
-    | 'inAttendance'
-    | 'duplicatePersons'
-    | 'blocked'
-    | 'noWhatsapp'
-    | 'repeatedPerson'
-    | 'ready'
-    | 'writeFailed'
-    | 'inAudience';
+export const CONTACT_OUTCOMES = [
+    'invalidPhone',
+    'repeatedPhone',
+    'excluded',
+    'missingName',
+    'unresolvedAdvisor',
+    'pendingLookup',
+    'lookupFailed',
+    'inAttendance',
+    'duplicatePersons',
+    'blocked',
+    'noWhatsapp',
+    'repeatedPerson',
+    'ready',
+    'writeFailed',
+    'inAudience',
+] as const;
+
+/** Per-contact outcome; see {@link CONTACT_OUTCOMES}. */
+export type ContactOutcome = (typeof CONTACT_OUTCOMES)[number];
 
 /** How the advisor column resolved; shown in the drill-down. */
 export type AdvisorResolution = 'matched' | 'missing' | 'notFound' | 'systemUser';
@@ -177,18 +182,16 @@ export interface DispatchContact {
     failure?: ContactFailure;
 }
 
-export type DispatchJobPhase =
-    | 'resolving'
-    | 'awaitingConfirmation'
-    | 'materializing'
-    | 'awaitingAudience'
-    | 'sending'
-    | 'completed'
-    | 'failed'
-    | 'superseded'
-    | 'abandoned';
+/** Phases a `continue` works on and a failed job may re-enter; the source of {@link ResumePhase}. */
+export const RESUMABLE_PHASES = ['resolving', 'materializing', 'awaitingAudience', 'sending'] as const;
 
-/** Phases a `continue` works on. */
+/** Phase a failed job re-enters on `start`; see {@link RESUMABLE_PHASES}. */
+export type ResumePhase = (typeof RESUMABLE_PHASES)[number];
+
+/** Phase of a dispatch job; `awaitingConfirmation` waits for the operator, the last four are over. */
+export type DispatchJobPhase = ResumePhase | 'awaitingConfirmation' | 'completed' | 'failed' | 'superseded' | 'abandoned';
+
+/** Phases whose work is done contact by contact, in chunks. */
 export type ChunkedPhase = 'resolving' | 'materializing';
 
 export type JobFailureReason =
@@ -198,9 +201,6 @@ export type JobFailureReason =
     | 'audience_mismatch'
     | 'campaign_rejected'
     | 'campaign_outcome_unknown';
-
-/** Phase a failed job re-enters on `start`. */
-export type ResumePhase = 'resolving' | 'materializing' | 'awaitingAudience' | 'sending';
 
 /** Failure of a job; `start` re-enters `resumePhase`, `abandon` ends it. Every failure is resumable. */
 export interface JobFailure {
@@ -271,6 +271,7 @@ export type DispatchNextStep =
     | { kind: 'awaitConfirmation' }
     | { kind: 'finished' };
 
+/** A job with the step its caller should take next. */
 export interface DispatchProgress {
     job: DispatchJob;
     next: DispatchNextStep;
@@ -281,6 +282,7 @@ export interface DispatchJobView extends DispatchProgress {
     contacts: readonly DispatchContact[];
 }
 
+/** A window over a job's contacts, for the drill-down. */
 export interface ContactPage {
     offset: number;
     limit: number;
@@ -294,6 +296,7 @@ export interface ContinueOptions {
     leaseUntil: number;
 }
 
+/** Who is acting on the job; recorded on the job. */
 export interface OperatorOptions {
     operatorEmail: string;
 }
@@ -302,6 +305,35 @@ export interface OperatorOptions {
 export interface WorkspaceDispatchLimits {
     /** Upper bound of HTTP calls one dispatch may need (GAS: the account's daily UrlFetch quota). */
     dailyCallQuota: number;
+}
+
+/** One custom-field value, as the person routes take it. */
+export interface CustomFieldValue {
+    custom_field: string;
+    value: string;
+}
+
+/** A phone of a person created by the dispatch. */
+export interface PersonPhoneBody {
+    phone: string;
+    is_whatsapp: boolean;
+    type: string;
+}
+
+/** Person creation body (v1 persons). */
+export interface PersonCreateBody {
+    /** Full name, upper-cased; only a person the dispatch creates gets a name from a row. */
+    name: string;
+    phones: readonly PersonPhoneBody[];
+    /** Owners of the person; the route replaces nothing, it creates. */
+    users: readonly string[];
+    sectors: readonly string[];
+    custom_fields: readonly CustomFieldValue[];
+}
+
+/** Person update body; `custom_fields` merge by id, so only the given ids change. */
+export interface PersonUpdateBody {
+    custom_fields: readonly CustomFieldValue[];
 }
 
 /** Persisted-shape segmentation creation body. */

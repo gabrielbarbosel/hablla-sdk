@@ -15,7 +15,7 @@ export interface DispatchJobStore {
     findByFingerprint(fingerprint: string): Promise<DispatchJob[]>;
     findByPhases(phases: readonly DispatchJobPhase[]): Promise<DispatchJob[]>;
     loadContacts(jobId: string, page: ContactPage): Promise<DispatchContact[]>;
-    /** Person id → lowest contact index among contacts in `ready` or `inAudience`. */
+    /** Person id → index of the contact that holds it (see `holdsPersonClaim`). */
     loadPersonClaims(jobId: string): Promise<ReadonlyMap<string, number>>;
     /**
      * Persists the header and the given contacts (by index) atomically when the stored

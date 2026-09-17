@@ -8,6 +8,7 @@ import type { HttpRequest, HttpResponse, HttpTransport } from '../../../../core/
 import type { Clock, DispatchJobStore } from '../ports';
 import type { ContactPage, DispatchContact, DispatchJob, DispatchJobPhase } from '../types';
 import { JobNotFoundError, StaleJobError } from '../errors';
+import { holdsPersonClaim } from '../person-claims';
 
 /** What the report engine answers while a new segmentation has not propagated (probe 03). */
 const AUDIENCE_NOT_PROPAGATED_MESSAGE = 'Erro ao resolver segmentações';
@@ -356,7 +357,7 @@ export class InMemoryDispatchJobStore implements DispatchJobStore {
         const claims = new Map<string, number>();
 
         for (const contact of this.entry(jobId).contacts) {
-            if (contact.person && (contact.outcome === 'ready' || contact.outcome === 'inAudience') && !claims.has(contact.person.id)) {
+            if (contact.person && holdsPersonClaim(contact.outcome) && !claims.has(contact.person.id)) {
                 claims.set(contact.person.id, contact.index);
             }
         }

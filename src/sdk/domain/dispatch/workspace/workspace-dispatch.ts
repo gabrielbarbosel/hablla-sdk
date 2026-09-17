@@ -18,6 +18,7 @@ import type {
     WorkspaceDispatchLimits,
     WorkspaceDispatchRequest,
 } from './types';
+import { RESUMABLE_PHASES } from './types';
 import { prepareAudience } from './audience';
 import { estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
@@ -26,12 +27,12 @@ import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, LOOKUP_CHUNK_SIZE, WR
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
 import { CallBudgetExceededError, DispatchThrottledError, DispatchTransportError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
 import {
-    RESUMABLE_PHASES,
     advanceCursor,
     createJob,
     duplicateVerdict,
     hasPhaseWork,
     isLeased,
+    isResumablePhase,
     nextStepOf,
     tallyOutcomes,
     toAbandoned,
@@ -166,7 +167,7 @@ export class WorkspaceDispatch {
 
         const leased = await this.acquireLease(jobId, options.leaseUntil);
 
-        if (!RESUMABLE_PHASES.includes(leased.phase)) {
+        if (!isResumablePhase(leased.phase)) {
             return this.progressOf(leased);
         }
 
@@ -299,7 +300,7 @@ export class WorkspaceDispatch {
         return this.ports.store.withExclusiveAccess(async () => {
             const job = await this.loadIdle(jobId);
 
-            if (!RESUMABLE_PHASES.includes(job.phase)) {
+            if (!isResumablePhase(job.phase)) {
                 return job;
             }
 
@@ -320,7 +321,7 @@ export class WorkspaceDispatch {
 
     /** Runs the job's phases while a chunk still fits before the deadline. */
     private async runUntilDeadline(session: ContinueSession, deadlineAt: number): Promise<EarlyStop | undefined> {
-        while (RESUMABLE_PHASES.includes(session.job.phase) && this.hasTimeLeft(deadlineAt)) {
+        while (isResumablePhase(session.job.phase) && this.hasTimeLeft(deadlineAt)) {
             const signal = await this.runPhaseStep(session, deadlineAt);
 
             if (signal.kind === 'stop') {
@@ -486,7 +487,7 @@ export class WorkspaceDispatch {
     /** Advances the cursor past a settled chunk and closes the phase when its work is done. */
     private async closeChunk(session: ContinueSession, phase: ChunkedPhase, chunk: readonly DispatchContact[]): Promise<LoopSignal> {
         const now = this.ports.clock.now();
-        const advanced = advanceCursor(session.job, chunk, now);
+        const advanced = advanceCursor(session.job, phase, chunk, now);
         let job = advanced.job;
 
         if (!hasPhaseWork(job, phase)) {

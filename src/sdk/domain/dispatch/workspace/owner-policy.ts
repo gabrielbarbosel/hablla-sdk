@@ -38,7 +38,7 @@ export function decideOwnerChange(person: PersonSnapshot, target: TargetOwner, s
         return {
             kind: 'replaceSystemOwners',
             unfollowFirst,
-            removedOwnerIds: person.ownerIds.filter((ownerId) => ownerId !== target.userId),
+            removedOwnerIds: person.ownerIds,
         };
     }
 

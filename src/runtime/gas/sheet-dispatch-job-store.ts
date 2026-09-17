@@ -1,5 +1,5 @@
-import type { ContactPage, DispatchContact, DispatchJob, DispatchJobPhase, DispatchJobStore } from '../../sdk/domain/dispatch/workspace';
-import { JobNotFoundError, StaleJobError } from '../../sdk/domain/dispatch/workspace';
+import type { ContactOutcome, ContactPage, DispatchContact, DispatchJob, DispatchJobPhase, DispatchJobStore } from '../../sdk/domain/dispatch/workspace';
+import { holdsPersonClaim, JobNotFoundError, StaleJobError } from '../../sdk/domain/dispatch/workspace';
 
 /** Apps Script bindings the store uses. */
 declare const SpreadsheetApp: {
@@ -150,10 +150,10 @@ export class SheetDispatchJobStore implements DispatchJobStore {
 
         for (const values of this.readContactRows(jobId, block.firstRow, 0, block.contactCount)) {
             const personId = String(values[contactColumn('personId')]);
-            const outcome = String(values[contactColumn('outcome')]);
+            const outcome = String(values[contactColumn('outcome')]) as ContactOutcome;
             const index = Number(values[contactColumn('index')]);
 
-            if (personId !== '' && (outcome === 'ready' || outcome === 'inAudience') && !claims.has(personId)) {
+            if (personId !== '' && holdsPersonClaim(outcome) && !claims.has(personId)) {
                 claims.set(personId, index);
             }
         }

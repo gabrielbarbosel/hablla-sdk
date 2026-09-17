@@ -20,7 +20,7 @@ import {
 import { prepareAudience } from './audience';
 import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { InvalidJobTransitionError } from './errors';
-import { JOB_ID_PATTERN } from './request-validation';
+import { isJobId, jobIdOf } from './job-id';
 import { ROSTER, aContact, aRequest, aRow, completed } from './__fixtures__/builders';
 import type { DispatchJob, DispatchJobPhase, JobFailure } from './types';
 
@@ -41,8 +41,8 @@ describe('createJob', () => {
         expect(job.counts).toMatchObject({ invalidPhone: 1, pendingLookup: 2, ready: 0 });
         expect(job.exclusion).toEqual({ phoneCount: 1, segmentationFilters: [] });
         expect(job.settings).not.toHaveProperty('rows');
-        expect(job.id).toBe(`${job.fingerprint}-${NOW.toString(36)}`);
-        expect(JOB_ID_PATTERN.test(job.id)).toBe(true);
+        expect(job.id).toBe(jobIdOf(job.fingerprint, NOW));
+        expect(isJobId(job.id)).toBe(true);
     });
 
     it('awaits confirmation right away when no contact needs a lookup', () => {
@@ -128,24 +128,24 @@ describe('advanceCursor', () => {
         const job = aJob({ cursor: 0, contactCount: 4, passDeferredUntil: NOW + 500 });
         const chunk = [aContact({ retryNotBefore: NOW + 900 }), aContact({ index: 1, retryNotBefore: NOW + 100 })];
 
-        expect(advanceCursor(job, chunk, NOW)).toEqual({ job: { ...job, cursor: 2, passDeferredUntil: NOW + 100 } });
+        expect(advanceCursor(job, 'resolving', chunk, NOW)).toEqual({ job: { ...job, cursor: 2, passDeferredUntil: NOW + 100 } });
     });
 
     it('ends the phase at the last contact when no work is left', () => {
         const job = aJob({ cursor: 2, counts: countOutcomes([aContact({ outcome: 'ready' })]) });
 
-        expect(advanceCursor(job, [aContact({ index: 2, outcome: 'ready' })], NOW)).toEqual({ job: { ...job, cursor: 3, passDeferredUntil: undefined } });
+        expect(advanceCursor(job, 'resolving', [aContact({ index: 2, outcome: 'ready' })], NOW)).toEqual({ job: { ...job, cursor: 3, passDeferredUntil: undefined } });
     });
 
     it('starts the next pass when work is left, waiting for the earliest deferral', () => {
         const job = aJob({ cursor: 2 });
         const deferred = aContact({ index: 2, retryNotBefore: NOW + 60_000 });
 
-        expect(advanceCursor(job, [deferred], NOW)).toEqual({ job: { ...job, cursor: 0, pass: 1, passDeferredUntil: undefined }, waitUntil: NOW + 60_000 });
+        expect(advanceCursor(job, 'resolving', [deferred], NOW)).toEqual({ job: { ...job, cursor: 0, pass: 1, passDeferredUntil: undefined }, waitUntil: NOW + 60_000 });
     });
 
     it('starts the next pass without waiting when nothing was deferred', () => {
-        expect(advanceCursor(aJob({ cursor: 2 }), [aContact({ index: 2 })], NOW).waitUntil).toBeUndefined();
+        expect(advanceCursor(aJob({ cursor: 2 }), 'resolving', [aContact({ index: 2 })], NOW).waitUntil).toBeUndefined();
     });
 });
 

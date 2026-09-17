@@ -7,7 +7,7 @@
 import type { CallResult } from '../../../core/call-executor';
 import type { CampaignCreateBody, DispatchJob, DispatchPacing, HabllaDispatchConfig, SegmentationCreateBody, SegmentationFilter } from './types';
 import { isSuccess, payloadOf } from './call-failures';
-import { requireSegmentationId } from './contact-writes';
+import { requireDispatchConfig, requireSegmentationId } from './requirements';
 import { UnexpectedPayloadError } from './errors';
 import { toCampaignSummary, toPayloadPage } from './payloads';
 
@@ -55,16 +55,12 @@ export function buildSegmentationBody(job: DispatchJob): SegmentationCreateBody 
 export function buildCampaignBody(job: DispatchJob): CampaignCreateBody {
     const audience = buildAudienceQuery(job);
 
-    if (!job.dispatchConfig) {
-        throw new Error(`Dispatch job ${job.id} has no dispatch config`);
-    }
-
     return {
         send_type: 'immediate',
         send_mode: 'fractional',
         type: 'whatsapp',
         name: dispatchName(job),
-        dispatch_config: job.dispatchConfig,
+        dispatch_config: requireDispatchConfig(job),
         types: ['whatsapp', 'gupshup'],
         connection: job.settings.connectionId,
         template: job.settings.templateId,

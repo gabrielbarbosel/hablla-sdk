@@ -8,12 +8,10 @@ import type { CustomFieldDefinition, RosterUser } from './payloads';
 import type { WorkspaceDispatchRequest } from './types';
 import { normalizeEmail } from '../../../utils';
 import { DispatchValidationError } from './errors';
+import { isJobId } from './job-id';
 
 /** Hablla object id: 24 lowercase hex digits. */
 const HABLLA_ID_PATTERN = /^[0-9a-f]{24}$/;
-
-/** Job id: `<16 hex fingerprint hash>-<contact count>-<creation time in base 36>`. */
-export const JOB_ID_PATTERN = /^[0-9a-f]{16}-\d+-[0-9a-z]+$/;
 
 /** Custom-field target of person fields. */
 const PERSON_TARGET = 'person';
@@ -110,7 +108,7 @@ function requestShapeProblems(request: WorkspaceDispatchRequest): string[] {
         requireHabllaId('unresolvedAdvisorPolicy.reserveOwnerId', request.unresolvedAdvisorPolicy.reserveOwnerId);
     }
 
-    if (request.repeatOfJobId !== undefined && !JOB_ID_PATTERN.test(request.repeatOfJobId)) {
+    if (request.repeatOfJobId !== undefined && !isJobId(request.repeatOfJobId)) {
         problems.push(`repeatOfJobId must be a job id, got ${JSON.stringify(request.repeatOfJobId)}`);
     }
 

@@ -12,7 +12,8 @@ import { dispatchName, findCampaignByName, readAudienceCount } from './campaign'
 import { CALL_RETRY_DELAY_MS, MAX_CALL_ATTEMPTS, RECONCILIATION_DELAY_MS } from './constants';
 import { UnexpectedPayloadError } from './errors';
 import { toCampaignSummary } from './payloads';
-import { requireAudienceSize, toCompleted, toFailed, toSending, tokenRejectedReason } from './job-machine';
+import { requireAudienceDeadline, requireAudienceSize } from './requirements';
+import { toCompleted, toFailed, toSending, tokenRejectedReason } from './job-machine';
 
 /**
  * Next move after a Bearer phase call:
@@ -189,17 +190,4 @@ function withCampaignReconcileAt(job: DispatchJob, reconcileAt: number, now: num
 /** The job with the campaign marker cleared. */
 export function withoutCampaignInFlight(job: DispatchJob, now: number): DispatchJob {
     return { ...job, campaignSendState: undefined, campaignReconcileNotBefore: undefined, campaignReconcileAttempts: undefined, updatedAt: now };
-}
-
-/**
- * The audience deadline, set when the job entered or resumed `awaitingAudience`.
- *
- * @throws Error when absent (a planning bug).
- */
-function requireAudienceDeadline(job: DispatchJob): number {
-    if (job.audienceDeadlineAt === undefined) {
-        throw new Error(`Dispatch job ${job.id} has no audience deadline`);
-    }
-
-    return job.audienceDeadlineAt;
 }

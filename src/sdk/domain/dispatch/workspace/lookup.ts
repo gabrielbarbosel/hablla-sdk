@@ -13,7 +13,7 @@ import type { ContactResolution } from './call-failures';
 import { matchesPhone } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt } from './call-failures';
 import { OPEN_ATTENDANCE_STATUSES } from './constants';
-import { requirePhone, requireTarget } from './contact-requirements';
+import { requirePhone, requireTarget } from './requirements';
 import { decideOwnerChange } from './owner-policy';
 import { toAttendanceStatus, toPayloadPage, toPersonSnapshot } from './payloads';
 import { findOpenAttendances, findPersonsByPhone } from './routes';

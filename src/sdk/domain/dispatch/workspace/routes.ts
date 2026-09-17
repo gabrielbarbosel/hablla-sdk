@@ -6,7 +6,7 @@
  */
 
 import type { HttpCall } from '../../../core/call-executor';
-import type { CampaignCreateBody, SegmentationCreateBody, SegmentationFilter } from './types';
+import type { CampaignCreateBody, PersonCreateBody, PersonUpdateBody, SegmentationCreateBody, SegmentationFilter } from './types';
 import {
     ATTENDANCE_LOOKUP_LIMIT,
     CAMPAIGN_RECONCILE_PAGE_LIMIT,
@@ -53,12 +53,12 @@ export function findOpenAttendances(connectionId: string, storedPhone: string): 
 }
 
 /** Creates a person (workspace). */
-export function createPerson(body: unknown): HttpCall {
+export function createPerson(body: PersonCreateBody): HttpCall {
     return { method: 'POST', rawPath: PERSONS_V1, body, strategy: 'workspace' };
 }
 
 /** Updates a person; custom fields merge by id (workspace). */
-export function updatePerson(personId: string, body: unknown): HttpCall {
+export function updatePerson(personId: string, body: PersonUpdateBody): HttpCall {
     return { method: 'PUT', rawPath: PERSON_V1, pathParams: { person_id: personId }, body, strategy: 'workspace' };
 }
 

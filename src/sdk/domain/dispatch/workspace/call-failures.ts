@@ -69,7 +69,7 @@ export function classifyCallFailures(results: readonly CallResult[]): CallFailur
         return { kind: 'tokenRejected' };
     }
 
-    const unknownOutcome = results.find((result) => result.kind === 'transportFailed' || (result.kind === 'completed' && result.status >= SERVER_ERROR_STATUS_MIN));
+    const unknownOutcome = results.find(hasUnknownOutcome);
 
     if (unknownOutcome) {
         return { kind: 'outcomeUnknown', failure: failureOf(unknownOutcome) };
@@ -79,13 +79,26 @@ export function classifyCallFailures(results: readonly CallResult[]): CallFailur
         return { kind: 'stopBlock', cause: 'throttled' };
     }
 
-    const refused = results.find((result) => !isSuccess(result));
+    const refused = results.find(isRefusal);
 
     if (refused) {
         return { kind: 'rejected', failure: failureOf(refused) };
     }
 
     return undefined;
+}
+
+/** A result whose request may have been applied: a server error or a lost request. */
+type UnknownOutcome = Extract<CallResult, { kind: 'completed' | 'transportFailed' }>;
+
+/** True for a result whose request may have been applied. */
+function hasUnknownOutcome(result: CallResult): result is UnknownOutcome {
+    return result.kind === 'transportFailed' || (result.kind === 'completed' && result.status >= SERVER_ERROR_STATUS_MIN);
+}
+
+/** True for a response that refused the request without applying it. */
+function isRefusal(result: CallResult): result is Extract<CallResult, { kind: 'completed' }> {
+    return result.kind === 'completed' && !isSuccess(result);
 }
 
 /**
@@ -129,17 +142,11 @@ export function failContact(contact: DispatchContact, outcome: ContactOutcome, f
     return { ...contact, outcome, failure, retryNotBefore: undefined };
 }
 
-/** Failure record of a non-successful result. */
-function failureOf(result: CallResult): ContactFailure {
-    if (result.kind === 'completed') {
-        return { status: result.status, detail: truncateDetail(JSON.stringify(result.data) ?? '') };
-    }
-
-    if (result.kind === 'transportFailed' || result.kind === 'interrupted') {
-        return { status: 'transport', detail: truncateDetail(result.message) };
-    }
-
-    return { status: 'transport', detail: result.kind };
+/** Failure record of a result that answered a failure or was lost on the wire. */
+function failureOf(result: UnknownOutcome): ContactFailure {
+    return result.kind === 'completed'
+        ? { status: result.status, detail: truncateDetail(JSON.stringify(result.data) ?? '') }
+        : { status: 'transport', detail: truncateDetail(result.message) };
 }
 
 /** Caps a failure detail at `FAILURE_DETAIL_MAX_LENGTH`. */

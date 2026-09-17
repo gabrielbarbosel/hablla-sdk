@@ -13,7 +13,7 @@ import type { ChunkedPhase, ContactOutcome, DispatchContact, DispatchJob, Dispat
 import { rejectedTokenStrategy } from './call-failures';
 import { applyWriteResult, isWriteAhead, planContactWrites, withWriteAhead, writeCallFor } from './contact-writes';
 import { attendanceLookupCalls, personLookupCalls, resolveAttendanceLookup, resolvePersonLookup } from './lookup';
-import { claimPerson } from './person-claims';
+import { claimPerson, holdsPersonClaim } from './person-claims';
 import { applyReconciliation, reconciliationCalls } from './reconciliation';
 
 /** A contact inside a block; `attendanceCheck` holds the person between the two lookup stages, in memory only. */
@@ -180,11 +180,9 @@ function applyResolution(before: DispatchContact, resolution: ContactResolution,
     }
 }
 
-/** Claims the person of a `ready` or `inAudience` contact. */
+/** Claims the person of a contact whose outcome holds one. */
 function claimResolvedPerson(contact: DispatchContact, context: StepContext): StepOutcome {
-    const holdsPerson = contact.person !== undefined && (contact.outcome === 'ready' || contact.outcome === 'inAudience');
-
-    if (!holdsPerson) {
+    if (contact.person === undefined || !holdsPersonClaim(contact.outcome)) {
         return { kind: 'applied', block: { contact }, claims: context.claims };
     }
 
