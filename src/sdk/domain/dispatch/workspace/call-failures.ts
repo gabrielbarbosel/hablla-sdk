@@ -25,12 +25,13 @@ export type CallFailure =
     | { kind: 'rejected'; failure: ContactFailure };
 
 /**
- * Resolution of a failure for a contact, shared by every contact step. `stopBlock` may
- * carry the contact state to persist when the step must undo its write-ahead.
+ * Resolution of a failure for a contact, shared by every contact step. `stopBlock` and
+ * `tokenRejected` may carry the contact state to persist when a step must undo or keep
+ * its write-ahead.
  */
 export type CallFailureResolution =
     | { kind: 'retryLater'; contact: DispatchContact }
-    | { kind: 'tokenRejected'; strategy: AuthStrategy }
+    | { kind: 'tokenRejected'; strategy: AuthStrategy; contact?: DispatchContact }
     | { kind: 'stopBlock'; cause: StopCause; contact?: DispatchContact };
 
 /** Result of a finished contact step: an updated contact, or a failure resolution. */
@@ -119,4 +120,9 @@ function failureOf(result: CallResult): ContactFailure {
 /** Caps a failure detail at `FAILURE_DETAIL_MAX_LENGTH`. */
 export function truncateDetail(detail: string): string {
     return detail.slice(0, FAILURE_DETAIL_MAX_LENGTH);
+}
+
+/** Payload of a completed result; `undefined` for results without a response. */
+export function payloadOf(result: CallResult): unknown {
+    return result.kind === 'completed' ? result.data : undefined;
 }

@@ -4,7 +4,7 @@
  */
 
 import type { PhoneVariants } from '../../../utils';
-import type { DispatchContact, ResolvedPerson, TargetOwner } from './types';
+import type { DispatchContact, OwnerChange, ResolvedPerson, TargetOwner } from './types';
 
 /**
  * The contact's phone.
@@ -43,4 +43,17 @@ export function requirePerson(contact: DispatchContact): ResolvedPerson {
     }
 
     return contact.person;
+}
+
+/**
+ * The owner change an existing person was resolved with.
+ *
+ * @throws Error when the contact has no owner change.
+ */
+export function requireOwnerChange(contact: DispatchContact): OwnerChange {
+    if (!contact.ownerChange) {
+        throw new Error(`Contact ${contact.index} has no owner change`);
+    }
+
+    return contact.ownerChange;
 }

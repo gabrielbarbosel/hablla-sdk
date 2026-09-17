@@ -9,7 +9,7 @@ import type { PersonSnapshot } from './owner-policy';
 import type { DispatchContact, DispatchSettings, LookupPurpose } from './types';
 import type { ContactResolution } from './call-failures';
 import { matchesPhone } from '../../../utils';
-import { classifyCallFailures, failContact, spendAttempt } from './call-failures';
+import { classifyCallFailures, failContact, payloadOf, spendAttempt } from './call-failures';
 import { OPEN_ATTENDANCE_STATUSES } from './constants';
 import { requirePhone, requireTarget } from './contact-requirements';
 import { decideOwnerChange } from './owner-policy';
@@ -54,7 +54,7 @@ export function resolvePersonLookup(contact: DispatchContact, results: readonly 
     const persons = new Map<string, PersonSnapshot>();
 
     for (const result of results) {
-        for (const raw of toPayloadPage(dataOf(result), 'person search').results) {
+        for (const raw of toPayloadPage(payloadOf(result), 'person search').results) {
             const person = toPersonSnapshot(raw);
 
             if (person.phones.some((storedPhone) => matchesPhone(storedPhone, phone))) {
@@ -92,7 +92,7 @@ export function resolveAttendanceLookup(contact: DispatchContact, person: Person
         return failure;
     }
 
-    const hasOpenAttendance = results.some((result) => toPayloadPage(dataOf(result), 'attendance search').results
+    const hasOpenAttendance = results.some((result) => toPayloadPage(payloadOf(result), 'attendance search').results
         .map(toAttendanceStatus)
         .some((attendance) => OPEN_ATTENDANCE_STATUSES.includes(attendance.status)));
 
@@ -138,9 +138,4 @@ export function phoneShapes(contact: DispatchContact): string[] {
     const phone = requirePhone(contact);
 
     return [...new Set([phone.digits, phone.alternate])];
-}
-
-/** Payload of a successful result. */
-function dataOf(result: CallResult): unknown {
-    return result.kind === 'completed' ? result.data : undefined;
 }
