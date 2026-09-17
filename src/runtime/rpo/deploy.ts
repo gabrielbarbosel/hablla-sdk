@@ -2,17 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios, { AxiosRequestConfig } from 'axios';
 import type { HabllaVariables } from '../../sdk/variables';
+import { findMissingMembers, findSurfaceRegression, listHabllaSurface, parseJavaScript } from './compatibility';
 
-const ASSETS = path.join(__dirname, '..', '..', '..', 'assets', 'rpo');
+const PACKAGE_ROOT = path.join(__dirname, '..', '..', '..');
 
-/** SDK version, stamped into the deployed W_Variables so the live env self-identifies. */
-function sdkVersion(): string {
-    try {
-        return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8')).version ?? '0.0.0';
-    } catch {
-        return '0.0.0';
-    }
-}
+const ASSETS = path.join(PACKAGE_ROOT, 'assets', 'rpo');
 
 /** Wall-clock ceiling for every deploy HTTP call, so a hung request can never stall the deploy. */
 const REQUEST_TIMEOUT_MS = 30000;
@@ -23,7 +17,11 @@ const PUT_MAX_ATTEMPTS = 3;
 /** Base backoff between PUT retries; grows linearly per attempt. */
 const PUT_RETRY_DELAY_MS = 500;
 
-const CLASS_ORDER = [
+/** The API caps `limit` at 50, so `/classes` must be paged to enumerate them all. */
+const CLASSES_PAGE_SIZE = 50;
+
+/** Workspace classes the RPO runtime is made of, in the order the sandbox must load them. */
+export const CLASS_ORDER = [
     'W_PolyfillCore',
     'W_PolyfillBuffer',
     'W_PolyfillConsole',
@@ -37,7 +35,15 @@ const CLASS_ORDER = [
     'W_HabllaDomain',
 ] as const;
 
-interface WorkspaceClass {
+export type RpoClassName = (typeof CLASS_ORDER)[number];
+
+/** Classes whose body `tooling/build-rpo.js` generates from this SDK, stamped with its version banner. */
+const SDK_BUILT_CLASSES: ReadonlySet<string> = new Set<RpoClassName>(['W_Utils', 'W_Cache', 'W_HabllaClient', 'W_HabllaDomain']);
+
+/** Marker in `W_Variables.template.js` whose object literal receives the deploy-time variables. */
+const ENV_MARKER = '/*__HABLLA_ENV__*/';
+
+export interface WorkspaceClass {
     id?: string;
     _id?: string;
     name: string;
@@ -53,35 +59,208 @@ export interface DeployItem {
     skipped?: string;
 }
 
+/**
+ * How the deploy verifies the bundles against the live workspace code that consumes
+ * `globalThis.hablla`. `liveClientMembers` are dotted member paths, extracted from the
+ * flow code nodes with `extractHabllaReferences`.
+ * - `strict`: refused when the bundles to publish do not expose every live member.
+ * - `regression`: refused only when a live member the published runtime exposes is
+ *   dropped; live members the published runtime already lacks are reported instead.
+ *   `publishedBundles` are the class bodies currently live in the workspace, by name.
+ * - `unchecked`: no verification — an explicit, reviewable opt-out, never a default.
+ */
+export type ClientCompatibilityCheck =
+    | { mode: 'strict'; liveClientMembers: readonly string[] }
+    | { mode: 'regression'; liveClientMembers: readonly string[]; publishedBundles: Readonly<Record<string, string>> }
+    | { mode: 'unchecked' };
+
 export interface DeployOptions {
-    /** When true, returns the plan without uploading anything. */
+    /** When true, validates everything offline and returns the plan without uploading anything. */
     dryRun?: boolean;
+    compatibility: ClientCompatibilityCheck;
 }
 
-function jsCode(name: string, vars: HabllaVariables): string {
-    if (name === 'W_Variables') {
-        const template = fs.readFileSync(path.join(ASSETS, 'W_Variables.template.js'), 'utf8');
-        const env = JSON.stringify(
-            {
-                workspaceId: vars.workspaceId,
-                workspaceToken: vars.workspaceToken ?? '',
-                refreshToken: vars.refreshToken,
-                firebaseApiKey: vars.firebaseApiKey,
-                baseUrl: vars.baseUrl ?? 'https://api.hablla.com',
-                debug: vars.debug ?? false,
-                sdkVersion: sdkVersion(),
-                // Warm token: seeded with the bearer this very deploy just minted, so the
-                // isolates start authenticated and skip the cold Firebase refresh herd.
-                // The 30-min refresher keeps these fields fresh afterwards.
-                accessToken: vars.accessToken ?? '',
-                accessTokenExp: vars.accessTokenExp ?? 0,
-            },
-            null,
-            8,
-        );
-        return template.replace(/\/\*__HABLLA_ENV__\*\/[\s\S]*?\};/, `/*__HABLLA_ENV__*/ ${env};`);
+export interface DeployReport {
+    /** One entry per class, in deploy order: the plan on a dry run, the PUT outcomes otherwise. */
+    items: DeployItem[];
+    /** Live members already missing from the published runtime (regression mode only); they did not block the deploy. */
+    alreadyMissingMembers: string[];
+}
+
+/** A workspace class resolved as the target of one deploy PUT. */
+export interface DeployTarget {
+    name: RpoClassName;
+    id: string;
+    workspaceClass: WorkspaceClass;
+}
+
+/**
+ * SDK version from the package manifest, stamped into the deployed W_Variables and
+ * matched against the bundle banners.
+ * @throws When the manifest carries no version.
+ */
+function sdkVersion(): string {
+    const version: unknown = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')).version;
+    if (typeof version !== 'string' || version === '') {
+        throw new Error('package.json has no version — cannot identify the bundles to deploy');
     }
-    return fs.readFileSync(path.join(ASSETS, `${name}.js`), 'utf8');
+    return version;
+}
+
+/** First line `tooling/build-rpo.js` writes into every SDK-built class of the given version. */
+function buildBanner(version: string): string {
+    return `// GENERATED by tooling/build-rpo.js from the hablla SDK v${version}. Do not edit.`;
+}
+
+/**
+ * Renders W_Variables from its template. `accessToken`/`accessTokenExp` carry the warm
+ * bearer the deploy just minted, so isolates start authenticated instead of stampeding
+ * the Firebase refresh; the refresher keeps them fresh afterwards.
+ * @throws When the template lost its env marker (the substitution would be a silent no-op).
+ */
+function renderVariables(vars: HabllaVariables): string {
+    const template = fs.readFileSync(path.join(ASSETS, 'W_Variables.template.js'), 'utf8');
+    if (!template.includes(ENV_MARKER)) {
+        throw new Error(`W_Variables.template.js has no ${ENV_MARKER} marker — refusing to deploy an empty environment`);
+    }
+    const env = JSON.stringify(
+        {
+            workspaceId: vars.workspaceId,
+            workspaceToken: vars.workspaceToken ?? '',
+            refreshToken: vars.refreshToken,
+            firebaseApiKey: vars.firebaseApiKey,
+            baseUrl: vars.baseUrl ?? 'https://api.hablla.com',
+            debug: vars.debug ?? false,
+            sdkVersion: sdkVersion(),
+            accessToken: vars.accessToken ?? '',
+            accessTokenExp: vars.accessTokenExp ?? 0,
+        },
+        null,
+        8,
+    );
+    return template.replace(/\/\*__HABLLA_ENV__\*\/[\s\S]*?\};/, `${ENV_MARKER} ${env};`);
+}
+
+function jsCode(name: RpoClassName, vars: HabllaVariables): string {
+    return name === 'W_Variables' ? renderVariables(vars) : fs.readFileSync(path.join(ASSETS, `${name}.js`), 'utf8');
+}
+
+/**
+ * Checks that one class body is deployable: valid JavaScript, declaring the class it is
+ * published as, and — for SDK-built classes — generated from this very SDK version.
+ * @param name The workspace class name the body is published as.
+ * @param code The class body.
+ * @param version The SDK version being deployed.
+ * @throws On the first integrity violation.
+ */
+export function assertClassBody(name: string, code: string, version: string): void {
+    const ast = parseJavaScript(code, { sourceType: 'module' }, name);
+    const declaresClass =
+        ast.type === 'File' && ast.program.body.some((statement) => statement.type === 'ClassDeclaration' && statement.id?.name === name);
+    if (!declaresClass) {
+        throw new Error(`${name} does not declare class ${name} at top level — refusing to deploy a mismatched body`);
+    }
+    if (SDK_BUILT_CLASSES.has(name) && !code.startsWith(buildBanner(version))) {
+        throw new Error(`${name} was not built from hablla SDK v${version} — run \`npm run build:rpo\` before deploying`);
+    }
+}
+
+/**
+ * Reads, renders and validates every class body, entirely offline.
+ * @returns The class bodies keyed by class name.
+ */
+function prepareClassBodies(vars: HabllaVariables): Record<RpoClassName, string> {
+    const version = sdkVersion();
+    const bodies = {} as Record<RpoClassName, string>;
+    for (const name of CLASS_ORDER) {
+        const code = jsCode(name, vars);
+        assertClassBody(name, code, version);
+        bodies[name] = code;
+    }
+    return bodies;
+}
+
+function memberList(paths: readonly string[]): string {
+    return paths.map((path) => `hablla.${path}`).join(', ');
+}
+
+/**
+ * Refuses a deploy whose bundles would break a `globalThis.hablla` member the live code uses.
+ * @param bodies The class bodies to publish, keyed by class name.
+ * @param check The verification to run (see {@link ClientCompatibilityCheck}).
+ * @returns The live members already missing from the published runtime (regression mode), which do not block.
+ * @throws When the check refuses the bundles.
+ */
+export function assertClientCompatibility(bodies: Readonly<Record<string, string>>, check: ClientCompatibilityCheck): string[] {
+    switch (check.mode) {
+        case 'unchecked':
+            return [];
+        case 'strict': {
+            const missing = findMissingMembers(check.liveClientMembers, listHabllaSurface(bodies));
+            if (missing.length > 0) {
+                throw new Error(`The bundles to deploy do not expose ${memberList(missing)}, used by live code — refusing to deploy`);
+            }
+            return [];
+        }
+        case 'regression': {
+            const { dropped, alreadyMissing } = findSurfaceRegression(
+                check.liveClientMembers,
+                listHabllaSurface(check.publishedBundles),
+                listHabllaSurface(bodies),
+            );
+            if (dropped.length > 0) {
+                throw new Error(
+                    `The bundles to deploy drop ${memberList(dropped)}, exposed by the published runtime and used by live code — refusing to deploy`,
+                );
+            }
+            return alreadyMissing;
+        }
+    }
+}
+
+/**
+ * Resolves every class to deploy against the workspace listing, in deploy order.
+ * @param workspaceClasses Every class currently in the workspace.
+ * @throws When the workspace is empty, when a class to deploy appears more than once, or
+ *   when any class to deploy is missing or has no id — each kind reported all at once,
+ *   before anything is written.
+ */
+export function resolveDeployTargets(workspaceClasses: readonly WorkspaceClass[]): DeployTarget[] {
+    if (workspaceClasses.length === 0) {
+        throw new Error('GET /classes returned no classes — refusing to deploy against an empty workspace');
+    }
+    const matchesByName = new Map<string, WorkspaceClass[]>(CLASS_ORDER.map((name) => [name, []]));
+    workspaceClasses.forEach((workspaceClass) => matchesByName.get(workspaceClass.name)?.push(workspaceClass));
+
+    const duplicated = CLASS_ORDER.filter((name) => matchesByName.get(name)!.length > 1);
+    if (duplicated.length > 0) {
+        throw new Error(`Classes to deploy appear more than once in the workspace: ${duplicated.join(', ')} — aborting before any write`);
+    }
+    const missing = CLASS_ORDER.filter((name) => !classId(matchesByName.get(name)![0]));
+    if (missing.length > 0) {
+        throw new Error(`Required classes missing from the workspace (or without id): ${missing.join(', ')} — aborting before any write`);
+    }
+    return CLASS_ORDER.map((name) => {
+        const workspaceClass = matchesByName.get(name)![0]!;
+        return { name, id: classId(workspaceClass)!, workspaceClass };
+    });
+}
+
+function classId(workspaceClass: WorkspaceClass | undefined): string | undefined {
+    return workspaceClass?.id ?? workspaceClass?._id;
+}
+
+/**
+ * PUT body for one class. Optional visibility fields are echoed only when the listing
+ * provided them, so an absent field is never sent as undefined and never reverts a live
+ * class to its default (unpublished / disabled / no label).
+ */
+function classUpdateBody(workspaceClass: WorkspaceClass, code: string): Record<string, unknown> {
+    const body: Record<string, unknown> = { name: workspaceClass.name, js_code: code };
+    if (workspaceClass.label !== undefined) body.label = workspaceClass.label;
+    if (workspaceClass.is_public !== undefined) body.is_public = workspaceClass.is_public;
+    if (workspaceClass.is_enable !== undefined) body.is_enable = workspaceClass.is_enable;
+    return body;
 }
 
 function delay(ms: number): Promise<void> {
@@ -120,9 +299,6 @@ async function putClass(url: string, body: unknown, config: AxiosRequestConfig):
     throw lastError;
 }
 
-/** The API caps `limit` at 50, so `/classes` must be paged to enumerate them all. */
-const CLASSES_PAGE_SIZE = 50;
-
 /**
  * Fetches every class in the workspace, paging past the API's small default page
  * size. Without paging, once the full runtime is deployed the class count exceeds
@@ -147,47 +323,45 @@ async function listAllClasses(base: string, headers: Record<string, string>): Pr
 }
 
 /**
- * Deploys the RPO artifacts (polyfills + W_Variables with the given variables +
- * the bundled W_HabllaClient) to the workspace and publishes. The variables are
- * supplied by the caller — the same object used to instantiate the local client.
- * Pass `{ dryRun: true }` to preview the plan without uploading.
+ * Deploys the RPO artifacts (polyfills + W_Variables with the given variables + the
+ * bundled SDK classes) to the workspace and publishes. The variables are supplied by
+ * the caller — the same object used to instantiate the local client.
+ *
+ * Every check runs before the first write: bundle integrity and version, compatibility
+ * with the live code ({@link DeployOptions.compatibility}), and the presence of every
+ * target class in the workspace. The RPO is a single, shared runtime and publishing is
+ * workspace-wide, so a half-written deploy must never leave drafts behind a validation
+ * that could have failed earlier. Pass `dryRun: true` to run the offline checks and get
+ * the plan without touching the workspace.
  */
-export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions = {}): Promise<DeployItem[]> {
-    const baseUrl = vars.baseUrl ?? 'https://api.hablla.com';
-    const plan: DeployItem[] = CLASS_ORDER.map((name) => ({ name, bytes: jsCode(name, vars).length }));
-    if (opts.dryRun) return plan;
+export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions): Promise<DeployReport> {
+    const bodies = prepareClassBodies(vars);
+    const alreadyMissingMembers = assertClientCompatibility(bodies, opts.compatibility);
+    if (opts.dryRun) return { items: CLASS_ORDER.map((name) => ({ name, bytes: bodies[name].length })), alreadyMissingMembers };
 
     const { token, expiresAt } = await firebaseBearer(vars);
-    const base = `${baseUrl}/v1/workspaces/${vars.workspaceId}`;
+    const base = `${vars.baseUrl ?? 'https://api.hablla.com'}/v1/workspaces/${vars.workspaceId}`;
     const headers = { Authorization: `Bearer ${token}` };
-    // Seed W_Variables with this fresh bearer so the isolates come up warm (no herd).
-    const warmVars: HabllaVariables = { ...vars, accessToken: token, accessTokenExp: expiresAt };
-
-    const classes = await listAllClasses(base, headers);
-    if (classes.length === 0) throw new Error('GET /classes returned no classes — refusing to deploy against an empty workspace');
-    const byName = new Map(classes.map((c) => [c.name, c]));
+    const targets = resolveDeployTargets(await listAllClasses(base, headers));
+    const warmBodies: Record<RpoClassName, string> = { ...bodies, W_Variables: renderVariables({ ...vars, accessToken: token, accessTokenExp: expiresAt }) };
 
     const results: DeployItem[] = [];
-    for (const name of CLASS_ORDER) {
-        const cls = byName.get(name);
-        const code = jsCode(name, warmVars);
-        if (!cls) {
-            throw new Error(`Required class ${name} is missing from the workspace — aborting deploy`);
+    for (const target of targets) {
+        const code = warmBodies[target.name];
+        try {
+            const status = await putClass(`${base}/classes/${target.id}`, classUpdateBody(target.workspaceClass, code), {
+                headers,
+                timeout: REQUEST_TIMEOUT_MS,
+                validateStatus: () => true,
+            });
+            results.push({ name: target.name, status, bytes: code.length });
+        } catch (err) {
+            const drafted = results.map((item) => item.name).join(', ') || 'none';
+            throw new Error(
+                `PUT ${target.name} failed (${(err as Error).message}); drafts already written: ${drafted}; ` +
+                    `${target.name} may also have been drafted. Nothing was published — discard those drafts before any /classes/publish.`,
+            );
         }
-        const id = cls.id ?? cls._id;
-        // Only echo optional visibility fields when the listing actually provided them,
-        // so a missing field never gets sent as undefined and reverts a live class to its
-        // default (unpublished / disabled / no label).
-        const body: Record<string, unknown> = { name: cls.name, js_code: code };
-        if (cls.label !== undefined) body.label = cls.label;
-        if (cls.is_public !== undefined) body.is_public = cls.is_public;
-        if (cls.is_enable !== undefined) body.is_enable = cls.is_enable;
-        const status = await putClass(`${base}/classes/${id}`, body, {
-            headers,
-            timeout: REQUEST_TIMEOUT_MS,
-            validateStatus: () => true,
-        });
-        results.push({ name, status, bytes: code.length });
     }
 
     const publish = await axios.post(`${base}/classes/publish`, {}, {
@@ -197,5 +371,5 @@ export async function deployToRpo(vars: HabllaVariables, opts: DeployOptions = {
     });
     if (publish.status >= 300) throw new Error(`Publish failed (${publish.status}) — drafts uploaded but nothing went live`);
 
-    return results;
+    return { items: results, alreadyMissingMembers };
 }
