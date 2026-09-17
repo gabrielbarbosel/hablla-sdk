@@ -2,7 +2,7 @@ import type { HttpTransport, HttpResponse, Paged, RetryPolicy } from './types';
 import { isMultipart } from './types';
 import type { HabllaAuth } from './auth';
 import type { AuthStrategy } from './strategy';
-import { serializeQuery, serializeQueryJson } from './query';
+import { buildRequestUrl, type QueryFormat } from './url';
 import { HabllaApiError, type TraceEntry } from './errors';
 import { paginate, type PaginateOptions, type PaginateResult } from './pagination';
 
@@ -25,7 +25,7 @@ export interface RequestOptions {
      * object/array values (`?filters={"stage":"x"}`) as the studio's
      * `getWithConfig` endpoints require — those backends ignore the indices form.
      */
-    queryFormat?: 'indices' | 'json';
+    queryFormat?: QueryFormat;
     body?: unknown;
     headers?: Record<string, string>;
     contentType?: string;
@@ -83,15 +83,6 @@ export class HabllaHttpClient {
         return dbg.trace;
     }
 
-    private resolvePath(rawPath: string, params: Record<string, unknown> = {}): string {
-        return rawPath.replace(/{([^}]+)}/g, (match, token: string) => {
-            const key = token.includes('.') ? token.slice(token.lastIndexOf('.') + 1) : token;
-            const val = params[key] ?? (key.includes('workspace') ? this.config.workspaceId : null);
-            if (val == null) throw new Error('Missing path parameter: ' + token);
-            return encodeURIComponent(String(val));
-        });
-    }
-
     /**
      * Content-Type is a per-body decision. A multipart body owns its own
      * Content-Type (the transport generates the boundary), so none is set here. An
@@ -105,11 +96,9 @@ export class HabllaHttpClient {
             Authorization: await this.auth.authorization(strategy),
         };
         const body = opts.body;
-        if (isMultipart(body)) {
-            // transport owns Content-Type + boundary
-        } else if (opts.contentType) {
+        if (opts.contentType && !isMultipart(body)) {
             headers['Content-Type'] = opts.contentType;
-        } else if (body != null && typeof body === 'object') {
+        } else if (body != null && typeof body === 'object' && !isMultipart(body)) {
             headers['Content-Type'] = 'application/json';
         }
         Object.assign(headers, opts.headers);
@@ -142,39 +131,27 @@ export class HabllaHttpClient {
     }
 
     /**
-     * Sends once with the endpoint's resolved strategy. The strategy is seeded from
-     * the shared cache and defaults to workspace-first. On a genuine auth rejection
-     * (401/403) the request was not processed, so the other strategy is tried and
-     * the working one is recorded — symmetric, so a wrong seed self-corrects (a
-     * Bearer-seeded endpoint that a token cannot use falls back to workspace, and
-     * vice-versa). Any other workspace failure is retried once on Bearer to satisfy
-     * the request but is not recorded, so a transient error never rewrites the cache.
-     * A non-auth failure on a Bearer endpoint is not retried (avoids a duplicate
-     * POST when the request may already have been applied).
+     * Sends once. A forced strategy (`opts.strategy`) is authoritative: exactly one send,
+     * no probe, no fallback and no cache write. Otherwise the endpoint's strategy is
+     * resolved from the shared cache (workspace-first) and settled by
+     * {@link settleResolvedStrategy}.
      */
     private async _requestOnce<T>(method: string, rawPath: string, opts: RequestOptions = {}): Promise<T> {
-        const serialize = opts.queryFormat === 'json' ? serializeQueryJson : serializeQuery;
-        const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serialize(opts.query);
+        const url = buildRequestUrl({
+            baseUrl: this.config.baseUrl,
+            workspaceId: this.config.workspaceId,
+            rawPath,
+            pathParams: opts.path,
+            query: opts.query,
+            queryFormat: opts.queryFormat,
+        });
         const cacheKey = `${method}:${rawPath}`;
         const forced = opts.strategy;
         const primary = forced ?? await this.auth.resolveStrategy(cacheKey);
 
-        const idempotent = method === 'GET' || method === 'HEAD';
         let res = await this.send<T>(method, url, opts, primary);
-        if (forced) {
-            // Autoritativo: exatamente 1 send com a estratégia fixa — sem probe, sem
-            // fallback 401/403 e sem gravar no cache (não polui o strategy map).
-        } else if (res.status < 300) {
-            await this.auth.recordStrategy(cacheKey, primary);
-        } else if (res.status === 401 || res.status === 403) {
-            const alternate: AuthStrategy = primary === 'workspace' ? 'bearer' : 'workspace';
-            res = await this.send<T>(method, url, opts, alternate);
-            if (res.status < 300) await this.auth.recordStrategy(cacheKey, alternate);
-        } else if (primary === 'workspace' && idempotent) {
-            // Non-auth workspace failure: retry on Bearer only for idempotent methods.
-            // A mutating method (POST/PUT/PATCH/DELETE) may already have been applied,
-            // so it must never be re-sent on a 5xx/429/400.
-            res = await this.send<T>(method, url, opts, 'bearer');
+        if (!forced) {
+            res = await this.settleResolvedStrategy(method, url, opts, cacheKey, primary, res);
         }
 
         let trace: TraceEntry[] | undefined;
@@ -187,6 +164,43 @@ export class HabllaHttpClient {
             );
         }
         return res.data;
+    }
+
+    /**
+     * Applies the cache-resolved strategy policy to a first response. A success records
+     * the strategy. A genuine auth rejection (401/403) was not processed, so the other
+     * strategy is tried and recorded when it works — symmetric, so a wrong seed
+     * self-corrects. Any other workspace failure of an idempotent method is retried once
+     * on Bearer without recording, so a transient error never rewrites the cache; a
+     * mutating method may already have been applied and is never re-sent.
+     */
+    private async settleResolvedStrategy<T>(
+        method: string,
+        url: string,
+        opts: RequestOptions,
+        cacheKey: string,
+        primary: AuthStrategy,
+        first: HttpResponse<T>,
+    ): Promise<HttpResponse<T>> {
+        const idempotent = method === 'GET' || method === 'HEAD';
+
+        if (first.status < 300) {
+            await this.auth.recordStrategy(cacheKey, primary);
+            return first;
+        }
+
+        if (first.status === 401 || first.status === 403) {
+            const alternate: AuthStrategy = primary === 'workspace' ? 'bearer' : 'workspace';
+            const retried = await this.send<T>(method, url, opts, alternate);
+            if (retried.status < 300) await this.auth.recordStrategy(cacheKey, alternate);
+            return retried;
+        }
+
+        if (primary === 'workspace' && idempotent) {
+            return this.send<T>(method, url, opts, 'bearer');
+        }
+
+        return first;
     }
 
     get<T>(path: string, opts?: RequestOptions): Promise<T> {

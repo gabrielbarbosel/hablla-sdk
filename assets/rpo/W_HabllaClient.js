@@ -165,6 +165,22 @@ class W_HabllaClient {
     return parts.length ? `?${parts.join("&")}` : "";
   }
 
+  // src/sdk/core/url.ts
+  function buildRequestUrl(parts) {
+    const serialize = parts.queryFormat === "json" ? serializeQueryJson : serializeQuery;
+    return parts.baseUrl + resolvePathTemplate(parts.rawPath, parts.pathParams ?? {}, parts.workspaceId) + serialize(parts.query);
+  }
+  function resolvePathTemplate(rawPath, params, workspaceId) {
+    return rawPath.replace(/{([^}]+)}/g, (_match, token) => {
+      const key = token.includes(".") ? token.slice(token.lastIndexOf(".") + 1) : token;
+      const value = params[key] ?? (key.includes("workspace") ? workspaceId : null);
+      if (value == null) {
+        throw new Error("Missing path parameter: " + token);
+      }
+      return encodeURIComponent(String(value));
+    });
+  }
+
   // src/sdk/core/errors.ts
   function safeStringify(value, max) {
     try {
@@ -306,14 +322,6 @@ class W_HabllaClient {
       if (dbg.trace.length > TRACE_LIMIT) dbg.trace.shift();
       return dbg.trace;
     }
-    resolvePath(rawPath, params = {}) {
-      return rawPath.replace(/{([^}]+)}/g, (match, token) => {
-        const key = token.includes(".") ? token.slice(token.lastIndexOf(".") + 1) : token;
-        const val = params[key] ?? (key.includes("workspace") ? this.config.workspaceId : null);
-        if (val == null) throw new Error("Missing path parameter: " + token);
-        return encodeURIComponent(String(val));
-      });
-    }
     /**
      * Content-Type is a per-body decision. A multipart body owns its own
      * Content-Type (the transport generates the boundary), so none is set here. An
@@ -327,10 +335,9 @@ class W_HabllaClient {
         Authorization: await this.auth.authorization(strategy)
       };
       const body = opts.body;
-      if (isMultipart(body)) {
-      } else if (opts.contentType) {
+      if (opts.contentType && !isMultipart(body)) {
         headers["Content-Type"] = opts.contentType;
-      } else if (body != null && typeof body === "object") {
+      } else if (body != null && typeof body === "object" && !isMultipart(body)) {
         headers["Content-Type"] = "application/json";
       }
       Object.assign(headers, opts.headers);
@@ -361,33 +368,26 @@ class W_HabllaClient {
       }
     }
     /**
-     * Sends once with the endpoint's resolved strategy. The strategy is seeded from
-     * the shared cache and defaults to workspace-first. On a genuine auth rejection
-     * (401/403) the request was not processed, so the other strategy is tried and
-     * the working one is recorded — symmetric, so a wrong seed self-corrects (a
-     * Bearer-seeded endpoint that a token cannot use falls back to workspace, and
-     * vice-versa). Any other workspace failure is retried once on Bearer to satisfy
-     * the request but is not recorded, so a transient error never rewrites the cache.
-     * A non-auth failure on a Bearer endpoint is not retried (avoids a duplicate
-     * POST when the request may already have been applied).
+     * Sends once. A forced strategy (`opts.strategy`) is authoritative: exactly one send,
+     * no probe, no fallback and no cache write. Otherwise the endpoint's strategy is
+     * resolved from the shared cache (workspace-first) and settled by
+     * {@link settleResolvedStrategy}.
      */
     async _requestOnce(method, rawPath, opts = {}) {
-      const serialize = opts.queryFormat === "json" ? serializeQueryJson : serializeQuery;
-      const url = this.config.baseUrl + this.resolvePath(rawPath, opts.path) + serialize(opts.query);
+      const url = buildRequestUrl({
+        baseUrl: this.config.baseUrl,
+        workspaceId: this.config.workspaceId,
+        rawPath,
+        pathParams: opts.path,
+        query: opts.query,
+        queryFormat: opts.queryFormat
+      });
       const cacheKey = `${method}:${rawPath}`;
       const forced = opts.strategy;
       const primary = forced ?? await this.auth.resolveStrategy(cacheKey);
-      const idempotent = method === "GET" || method === "HEAD";
       let res = await this.send(method, url, opts, primary);
-      if (forced) {
-      } else if (res.status < 300) {
-        await this.auth.recordStrategy(cacheKey, primary);
-      } else if (res.status === 401 || res.status === 403) {
-        const alternate = primary === "workspace" ? "bearer" : "workspace";
-        res = await this.send(method, url, opts, alternate);
-        if (res.status < 300) await this.auth.recordStrategy(cacheKey, alternate);
-      } else if (primary === "workspace" && idempotent) {
-        res = await this.send(method, url, opts, "bearer");
+      if (!forced) {
+        res = await this.settleResolvedStrategy(method, url, opts, cacheKey, primary, res);
       }
       let trace;
       if (this.debug) trace = this.record({ method, path: rawPath, status: res.status });
@@ -398,6 +398,31 @@ class W_HabllaClient {
         );
       }
       return res.data;
+    }
+    /**
+     * Applies the cache-resolved strategy policy to a first response. A success records
+     * the strategy. A genuine auth rejection (401/403) was not processed, so the other
+     * strategy is tried and recorded when it works — symmetric, so a wrong seed
+     * self-corrects. Any other workspace failure of an idempotent method is retried once
+     * on Bearer without recording, so a transient error never rewrites the cache; a
+     * mutating method may already have been applied and is never re-sent.
+     */
+    async settleResolvedStrategy(method, url, opts, cacheKey, primary, first) {
+      const idempotent = method === "GET" || method === "HEAD";
+      if (first.status < 300) {
+        await this.auth.recordStrategy(cacheKey, primary);
+        return first;
+      }
+      if (first.status === 401 || first.status === 403) {
+        const alternate = primary === "workspace" ? "bearer" : "workspace";
+        const retried = await this.send(method, url, opts, alternate);
+        if (retried.status < 300) await this.auth.recordStrategy(cacheKey, alternate);
+        return retried;
+      }
+      if (primary === "workspace" && idempotent) {
+        return this.send(method, url, opts, "bearer");
+      }
+      return first;
     }
     get(path, opts) {
       return this.request("GET", path, opts);
