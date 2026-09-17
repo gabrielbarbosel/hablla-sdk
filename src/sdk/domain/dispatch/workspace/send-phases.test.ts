@@ -5,7 +5,7 @@ import { UnexpectedPayloadError } from './errors';
 import { buildAudienceQuery, buildCampaignBody, dispatchName } from './campaign';
 import { countAudience, createCampaign, findCampaignsByName } from './routes';
 import { aRequest, completed, page, settingsOf } from './__fixtures__/builders';
-import campaignCreated from './__fixtures__/campaign-created.json';
+import campaignById from './__fixtures__/campaign-by-id.json';
 import type { DispatchJob } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -67,7 +67,7 @@ describe('resolveAudienceCount', () => {
 
 describe('resolveCampaignCreation', () => {
     it('completes with the created campaign', () => {
-        expect(resolveCampaignCreation(SENDING, CREATE_CALL, completed(201, campaignCreated), NOW)).toMatchObject({
+        expect(resolveCampaignCreation(SENDING, CREATE_CALL, completed(201, campaignById), NOW)).toMatchObject({
             kind: 'advanced',
             job: { phase: 'completed', campaignId: '6aab0ad2c6653859e764285b', campaignQuantity: 1, campaignSendState: undefined, warnings: [] },
         });

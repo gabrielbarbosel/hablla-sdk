@@ -262,6 +262,16 @@ function createWorkspaceDispatch(client: HabllaClient, baseUrl: string, workspac
     );
 }
 
+/**
+ * Frees the contact rows of a finished dispatch job, keeping its header; the retention of
+ * the jobs spreadsheet, called from the owner's menu.
+ *
+ * @throws Error when the job is not finished or another execution holds it.
+ */
+function archiveWorkspaceDispatchJob(spreadsheetId: string, jobId: string): void {
+    runSync(() => new SheetDispatchJobStore({ spreadsheetId }).archive(jobId, gasClock.now()));
+}
+
 /** Instancia o client GAS (UrlFetchApp + cache em Script Properties) e expõe os globais. */
 export function installHabllaClient(): HabllaClient {
     const vars = readVariables();
@@ -284,6 +294,7 @@ export function installHabllaClient(): HabllaClient {
         store: makeStore(),
         utils,
         createWorkspaceDispatch: (options: WorkspaceDispatchOptions) => createWorkspaceDispatch(client, baseUrl, vars.workspaceId, options),
+        archiveWorkspaceDispatchJob,
         executionWindow,
     };
     return client;

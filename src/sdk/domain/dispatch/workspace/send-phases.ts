@@ -81,8 +81,11 @@ export function withCampaignInFlight(job: DispatchJob, now: number): DispatchJob
 }
 
 /**
- * Applies the campaign creation. A 2xx completes the job. A throttled call was not
- * processed and clears the marker. A refused token or another 4xx clears the marker and
+ * Applies the campaign creation. A 2xx completes the job, reading the created campaign
+ * from the response (its shape is the one the campaign GET returns; the 201 body itself is
+ * only proven by the live validation, and a 201 that does not carry it fails loudly and is
+ * then resolved by the reconciliation, which never re-sends blindly). A throttled call was
+ * not processed and clears the marker. A refused token or another 4xx clears the marker and
  * fails the job. A 5xx, a transport failure or an interrupted wave leave the outcome
  * unknown: the marker stays and a reconciliation by name is scheduled.
  */

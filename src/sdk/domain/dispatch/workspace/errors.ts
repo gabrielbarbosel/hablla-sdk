@@ -64,10 +64,10 @@ export class InvalidJobTransitionError extends Error {
     }
 }
 
-/** The worst-case HTTP calls of this dispatch exceed the configured daily quota. */
+/** The estimated HTTP calls of this dispatch exceed the configured daily quota. */
 export class CallBudgetExceededError extends Error {
     constructor(readonly budget: { workspace: number; bearer: number; total: number }, readonly dailyCallQuota: number) {
-        super(`Dispatch may need up to ${budget.total} HTTP calls, above the daily quota of ${dailyCallQuota}`);
+        super(`Dispatch is estimated to need ${budget.total} HTTP calls, above the daily quota of ${dailyCallQuota}`);
         this.name = 'CallBudgetExceededError';
     }
 }

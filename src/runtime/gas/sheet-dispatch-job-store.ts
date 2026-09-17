@@ -6,15 +6,18 @@ declare const SpreadsheetApp: {
     openById(id: string): StoreSpreadsheet;
 };
 
+/** The script-wide lock that makes `withExclusiveAccess` mutually exclusive across executions. */
 declare const LockService: {
     getScriptLock(): { waitLock(timeoutMs: number): void; releaseLock(): void };
 };
 
+/** The part of a spreadsheet the store uses. */
 interface StoreSpreadsheet {
     getSheetByName(name: string): StoreSheet | null;
     insertSheet(name: string): StoreSheet;
 }
 
+/** The part of a sheet the store uses. */
 interface StoreSheet {
     getLastRow(): number;
     getMaxRows(): number;

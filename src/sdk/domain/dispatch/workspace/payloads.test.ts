@@ -18,7 +18,7 @@ import users from './__fixtures__/users-page.json';
 import customFields from './__fixtures__/custom-fields-page.json';
 import segmentationItems from './__fixtures__/segmentation-items-by-person.json';
 import campaignsByName from './__fixtures__/campaigns-by-name.json';
-import campaignCreated from './__fixtures__/campaign-created.json';
+import campaignById from './__fixtures__/campaign-by-id.json';
 
 /** A copy of a fixture item without one field. */
 function without(item: object, field: string): Record<string, unknown> {
@@ -39,7 +39,7 @@ describe('toPayloadPage', () => {
 
 describe('toCreatedId', () => {
     it('reads the id of a created resource', () => {
-        expect(toCreatedId(campaignCreated, 'campaign')).toBe('6aab0ad2c6653859e764285b');
+        expect(toCreatedId(campaignById, 'campaign')).toBe('6aab0ad2c6653859e764285b');
     });
 
     it('throws when the id is missing', () => {

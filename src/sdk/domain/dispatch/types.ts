@@ -236,7 +236,9 @@ export interface AttendanceGuardReport {
     truncated: boolean;
 }
 
-/** A single audience-materialization + campaign, recorded for traceability. *
+/**
+ * A single audience-materialization + campaign, recorded for traceability.
+ *
  * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface MassDispatchLedgerEntry {
