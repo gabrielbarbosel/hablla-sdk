@@ -55,6 +55,42 @@ export interface CallExecutorOptions {
 /** Status the gateway answers when the token's rate limit is exhausted. */
 export const TOO_MANY_REQUESTS_STATUS = 429;
 
+/** Media type of every body the SDK sends and of every response it accepts. */
+const JSON_MEDIA_TYPE = 'application/json';
+
+/** One call ready for a transport: the wire contract of every executor. */
+export interface WireRequest {
+    method: HttpCall['method'];
+    url: string;
+    headers: Record<string, string>;
+    /** Set only when the call carries a body. */
+    contentType?: string;
+    body?: unknown;
+}
+
+/**
+ * The wire request of a call: its URL, the JSON `Accept`, the `Authorization` of its
+ * pinned strategy and, only when it carries a body, the JSON content type. Shared by every
+ * {@link CallExecutor} so the request contract has one implementation.
+ *
+ * @throws Error when no authorization was resolved for the call's strategy.
+ */
+export function wireRequestOf(call: HttpCall, headers: ReadonlyMap<AuthStrategy, string>, options: Pick<CallExecutorOptions, 'baseUrl' | 'workspaceId'>): WireRequest {
+    const authorization = headers.get(call.strategy);
+
+    if (authorization === undefined) {
+        throw new Error(`No authorization was resolved for the ${call.strategy} strategy`);
+    }
+
+    const request: WireRequest = {
+        method: call.method,
+        url: urlOfCall(call, options),
+        headers: { Accept: JSON_MEDIA_TYPE, Authorization: authorization },
+    };
+
+    return call.body === undefined ? request : { ...request, contentType: JSON_MEDIA_TYPE, body: call.body };
+}
+
 /**
  * Sends one wave and returns its results aligned with the wave. Throws when the wave
  * failed as a whole (nothing is known about any of its calls).
@@ -128,7 +164,7 @@ export async function authorizationsFor(calls: readonly HttpCall[], auth: CallAu
 }
 
 /** Absolute URL of a call. */
-export function urlOfCall(call: HttpCall, options: Pick<CallExecutorOptions, 'baseUrl' | 'workspaceId'>): string {
+function urlOfCall(call: HttpCall, options: Pick<CallExecutorOptions, 'baseUrl' | 'workspaceId'>): string {
     return buildRequestUrl({
         baseUrl: options.baseUrl,
         workspaceId: options.workspaceId,
@@ -192,22 +228,14 @@ export class TransportCallExecutor implements CallExecutor {
             : { kind: 'transportFailed', message: errorMessageOf(outcome.reason) });
     }
 
-    /** Sends one call with its pinned strategy's header. */
+    /** Sends one call, with the content type as a header, the way {@link HttpTransport} takes it. */
     private async send(call: HttpCall, headers: ReadonlyMap<AuthStrategy, string>): Promise<CallResult> {
-        const requestHeaders: Record<string, string> = {
-            Accept: 'application/json',
-            Authorization: headers.get(call.strategy)!,
-        };
-
-        if (call.body !== undefined) {
-            requestHeaders['Content-Type'] = 'application/json';
-        }
-
+        const request = wireRequestOf(call, headers, this.options);
         const response = await this.transport.send({
-            method: call.method,
-            url: urlOfCall(call, this.options),
-            headers: requestHeaders,
-            body: call.body,
+            method: request.method,
+            url: request.url,
+            headers: request.contentType === undefined ? request.headers : { ...request.headers, 'Content-Type': request.contentType },
+            body: request.body,
         });
 
         return resultOfResponse(response.status, response.data);

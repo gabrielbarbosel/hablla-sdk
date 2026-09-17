@@ -1,6 +1,6 @@
 import type { CallAuthorization, CallExecutor, CallExecutorOptions, CallResult, HttpCall } from '../../sdk/core/call-executor';
 import type { AuthStrategy } from '../../sdk/core/strategy';
-import { assertValidExecutorOptions, authorizationsFor, executeInWaves, resultOfResponse, urlOfCall } from '../../sdk/core/call-executor';
+import { assertValidExecutorOptions, authorizationsFor, executeInWaves, resultOfResponse, wireRequestOf } from '../../sdk/core/call-executor';
 
 /** Apps Script bindings the executor uses. */
 declare const UrlFetchApp: {
@@ -29,18 +29,19 @@ export class UrlFetchCallExecutor implements CallExecutor {
             .map((response) => resultOfResponse(response.getResponseCode(), parseBody(response.getContentText()))));
     }
 
-    /** The `fetchAll` request of a call. */
+    /** The `fetchAll` request of a call, with the content type and the body as `fetchAll` takes them. */
     private fetchRequestOf(call: HttpCall, headers: ReadonlyMap<AuthStrategy, string>): Record<string, unknown> {
+        const wire = wireRequestOf(call, headers, this.options);
         const request: Record<string, unknown> = {
-            url: urlOfCall(call, this.options),
-            method: call.method.toLowerCase(),
-            headers: { Accept: 'application/json', Authorization: headers.get(call.strategy) },
+            url: wire.url,
+            method: wire.method.toLowerCase(),
+            headers: wire.headers,
             muteHttpExceptions: true,
         };
 
-        if (call.body !== undefined) {
-            request.contentType = 'application/json';
-            request.payload = JSON.stringify(call.body);
+        if (wire.contentType !== undefined) {
+            request.contentType = wire.contentType;
+            request.payload = JSON.stringify(wire.body);
         }
 
         return request;
