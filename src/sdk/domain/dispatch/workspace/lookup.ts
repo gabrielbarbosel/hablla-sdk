@@ -5,7 +5,9 @@
  */
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
+import type { PhoneVariants } from '../../../utils';
 import type { PersonSnapshot } from './owner-policy';
+import type { StoredPhone } from './payloads';
 import type { DispatchContact, DispatchSettings, LookupPurpose } from './types';
 import type { ContactResolution } from './call-failures';
 import { matchesPhone } from '../../../utils';
@@ -32,15 +34,16 @@ export function personLookupCalls(contact: DispatchContact): HttpCall[] {
 
 /** One attendance search per stored phone of the person that matches the contact's phone. */
 export function attendanceLookupCalls(person: PersonSnapshot, contact: DispatchContact, connectionId: string): HttpCall[] {
-    const phone = requirePhone(contact);
-    const storedPhones = person.phones.filter((storedPhone) => matchesPhone(storedPhone, phone));
+    const matching = matchingStoredPhones(person, requirePhone(contact));
 
-    return [...new Set(storedPhones)].map((storedPhone) => findOpenAttendances(connectionId, storedPhone));
+    return [...new Set(matching.map((storedPhone) => storedPhone.digits))].map((digits) => findOpenAttendances(connectionId, digits));
 }
 
 /**
  * Resolves the person stage. Two or more persons holding the phone are
- * `duplicatePersons`, a blocked one is `blocked`, a single one needs the attendance
+ * `duplicatePersons`, a blocked one is `blocked`, one whose matching phones are not on
+ * WhatsApp is `noWhatsapp` (the campaign resolves its audience with the WhatsApp filter,
+ * so such a person would never match the count), a single usable one needs the attendance
  * stage, and none makes the contact `ready` for creation.
  */
 export function resolvePersonLookup(contact: DispatchContact, results: readonly CallResult[], purpose: LookupPurpose, now: number): PersonLookupResolution {
@@ -57,7 +60,7 @@ export function resolvePersonLookup(contact: DispatchContact, results: readonly 
         for (const raw of toPayloadPage(payloadOf(result), 'person search').results) {
             const person = toPersonSnapshot(raw);
 
-            if (person.phones.some((storedPhone) => matchesPhone(storedPhone, phone))) {
+            if (matchingStoredPhones(person, phone).length > 0) {
                 persons.set(person.id, person);
             }
         }
@@ -75,6 +78,10 @@ export function resolvePersonLookup(contact: DispatchContact, results: readonly 
 
     if (person.isBlocked) {
         return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome: 'blocked' } };
+    }
+
+    if (!matchingStoredPhones(person, phone).some((storedPhone) => storedPhone.isWhatsapp)) {
+        return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome: 'noWhatsapp' } };
     }
 
     return { kind: 'checkAttendance', person };
@@ -131,6 +138,11 @@ function resolveLookupFailure(contact: DispatchContact, results: readonly CallRe
 /** The contact with the bookkeeping of a completed lookup. */
 function settledLookup(contact: DispatchContact, purpose: LookupPurpose, now: number): DispatchContact {
     return { ...contact, resolvedAt: now, lookupPurpose: purpose, attempts: 0, retryNotBefore: undefined, failure: undefined };
+}
+
+/** The person's stored phones that are the contact's phone. */
+function matchingStoredPhones(person: PersonSnapshot, phone: PhoneVariants): StoredPhone[] {
+    return person.phones.filter((storedPhone) => matchesPhone(storedPhone.digits, phone));
 }
 
 /** Both shapes of the contact's phone, without repeats. */

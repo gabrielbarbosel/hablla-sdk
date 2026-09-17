@@ -6,7 +6,7 @@ const SYSTEM_USERS = ['martech', 'kras'];
 
 /** A person with the given owners and followers. */
 function person(ownerIds: string[], followerIds: string[] = []): PersonSnapshot {
-    return { id: 'p1', isBlocked: false, ownerIds, followerIds, phones: ['5551999000001'] };
+    return { id: 'p1', isBlocked: false, ownerIds, followerIds, phones: [{ digits: '5551999000001', isWhatsapp: true }] };
 }
 
 describe('decideOwnerChange', () => {

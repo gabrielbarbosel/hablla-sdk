@@ -333,12 +333,25 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 1, campaignQuantity: 1 });
     });
 
-    it('never sends when a member has no WhatsApp phone, and times out with the last count', async () => {
+    it('leaves a person without a WhatsApp phone out before any write, instead of blocking the audience', async () => {
+        hablla.addPerson({ id: habllaId('p'), phone: phoneOf('1'), whatsapp: false });
+
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1'), aRow('2')] }));
+
+        expect(outcomesOf(done.job.id)).toEqual(['0:noWhatsapp', '1:inAudience']);
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 1, campaignQuantity: 1 });
+        expect(hablla.persons.get(habllaId('p'))!.custom_fields).toEqual([]);
+        expect(hablla.campaigns).toHaveLength(1);
+    });
+
+    it('completes without a campaign when no contact is left to send', async () => {
         hablla.addPerson({ id: habllaId('p'), phone: phoneOf('1'), whatsapp: false });
 
         const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
 
-        expect(done.job).toMatchObject({ phase: 'failed', lastAudienceCount: 0, failure: { reason: 'audience_timeout', resumePhase: 'awaitingAudience' } });
+        expect(outcomesOf(done.job.id)).toEqual(['0:noWhatsapp']);
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 0 });
+        expect(done.job.campaignId).toBeUndefined();
         expect(hablla.campaigns).toHaveLength(0);
     });
 

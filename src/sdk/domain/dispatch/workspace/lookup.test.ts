@@ -88,9 +88,30 @@ describe('resolvePersonLookup', () => {
     });
 });
 
+describe('resolvePersonLookup without WhatsApp', () => {
+    it('reports noWhatsapp when no matching stored phone is on WhatsApp', () => {
+        const person = { ...personItem({ id: 'p1', phone: '5551999000001' }), phones: [{ phone: '5551999000001', is_whatsapp: false, type: 'personal' }] };
+        const resolution = resolvePersonLookup(CONTACT, [completed(200, page([person]))], 'preview', NOW);
+
+        expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'noWhatsapp', resolvedAt: NOW, lookupPurpose: 'preview' });
+    });
+
+    it('uses a matching WhatsApp phone even when another stored phone is not on WhatsApp', () => {
+        const person = {
+            ...personItem({ id: 'p1', phone: '5551999000001' }),
+            phones: [{ phone: '5551999000001', is_whatsapp: false, type: 'personal' }, { phone: '555199000001', is_whatsapp: true, type: 'personal' }],
+        };
+
+        expect(resolvePersonLookup(CONTACT, [completed(200, page([person]))], 'preview', NOW).kind).toBe('checkAttendance');
+    });
+});
+
 describe('attendanceLookupCalls', () => {
     it('uses the composite key with each stored phone that matches the contact', () => {
-        const person = toPersonSnapshot({ ...personItem({ id: 'p1', phone: '555199000001' }), phones: [{ phone: '555199000001' }, { phone: '5551777000000' }] });
+        const person = toPersonSnapshot({
+            ...personItem({ id: 'p1', phone: '555199000001' }),
+            phones: [{ phone: '555199000001', is_whatsapp: true }, { phone: '5551777000000', is_whatsapp: true }],
+        });
 
         expect(attendanceLookupCalls(person, CONTACT, CONNECTION_ID)).toEqual([{
             method: 'GET',

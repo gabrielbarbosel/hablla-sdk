@@ -99,6 +99,7 @@ export type ContactOutcome =
     | 'inAttendance'
     | 'duplicatePersons'
     | 'blocked'
+    | 'noWhatsapp'
     | 'repeatedPerson'
     | 'ready'
     | 'writeFailed'

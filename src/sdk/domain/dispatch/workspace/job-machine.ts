@@ -38,6 +38,7 @@ const CONTACT_OUTCOMES: readonly ContactOutcome[] = [
     'inAttendance',
     'duplicatePersons',
     'blocked',
+    'noWhatsapp',
     'repeatedPerson',
     'ready',
     'writeFailed',

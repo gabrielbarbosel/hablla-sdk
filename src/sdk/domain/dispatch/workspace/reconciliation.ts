@@ -62,7 +62,7 @@ function reconcileCreate(contact: DispatchContact, results: readonly CallResult[
         for (const raw of toPayloadPage(payloadOf(result), 'person listing').results) {
             const person = toPersonIdentity(raw);
 
-            if (person.phones.some((storedPhone) => matchesPhone(storedPhone, phone))) {
+            if (person.phones.some((storedPhone) => matchesPhone(storedPhone.digits, phone))) {
                 personIds.add(person.id);
             }
         }

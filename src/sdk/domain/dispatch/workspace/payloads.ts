@@ -8,11 +8,16 @@ import type { PersonSnapshot } from './owner-policy';
 import { toDigits } from '../../../utils';
 import { UnexpectedPayloadError } from './errors';
 
+/** One phone as Hablla stores it on a person. */
+export interface StoredPhone {
+    digits: string;
+    isWhatsapp: boolean;
+}
+
 /** A person's id and stored phones, the part both person listings (v1 and v2) share. */
 export interface PersonIdentity {
     id: string;
-    /** Stored phone digits. */
-    phones: readonly string[];
+    phones: readonly StoredPhone[];
 }
 
 /** One attendance (service) as far as the open-attendance check needs. */
@@ -75,10 +80,19 @@ export function toCreatedId(data: unknown, payload: string): string {
 export function toPersonIdentity(raw: unknown): PersonIdentity {
     const person = requireRecord(raw, 'person', 'item');
     const id = requireString(person, 'id', 'person', 'item');
-    const phones = requireArray(person, 'phones', 'person', id)
-        .map((entry) => toDigits(requireString(requireRecord(entry, 'person', id), 'phone', 'person', id)));
+    const phones = requireArray(person, 'phones', 'person', id).map((entry) => toStoredPhone(entry, id));
 
     return { id, phones };
+}
+
+/** Reads one stored phone of a person. */
+function toStoredPhone(raw: unknown, personId: string): StoredPhone {
+    const phone = requireRecord(raw, 'person', personId);
+
+    return {
+        digits: toDigits(requireString(phone, 'phone', 'person', personId)),
+        isWhatsapp: requireBoolean(phone, 'is_whatsapp', 'person', personId),
+    };
 }
 
 /** Reads a person from the v2 search, with blocking, owners and followers. */

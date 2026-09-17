@@ -54,7 +54,7 @@ describe('toPersonSnapshot (v2 search)', () => {
             isBlocked: false,
             ownerIds: ['69cc0e5cf6aaa7942e1fd8fe', '6a1cfbb1b0975d16c88fac56', '6a4bb5ded86135c308cfc876'],
             followerIds: ['6a1cfbbe18795d48f05c07d0'],
-            phones: ['5551999990001'],
+            phones: [{ digits: '5551999990001', isWhatsapp: true }],
         });
     });
 
@@ -65,7 +65,7 @@ describe('toPersonSnapshot (v2 search)', () => {
 
 describe('toPersonIdentity (v1 listing)', () => {
     it('reads id and phones without is_blocked', () => {
-        expect(toPersonIdentity(personsV1.results[0])).toEqual({ id: '6a207e428e3c5e6651860144', phones: ['5551999990001'] });
+        expect(toPersonIdentity(personsV1.results[0])).toEqual({ id: '6a207e428e3c5e6651860144', phones: [{ digits: '5551999990001', isWhatsapp: true }] });
     });
 
     it('throws when the id is missing', () => {

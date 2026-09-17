@@ -1,3 +1,4 @@
+import type { StoredPhone } from './payloads';
 import type { OwnerChange, SystemOwnerPolicy, TargetOwner } from './types';
 
 /** An existing person as the lookup read it. */
@@ -6,8 +7,7 @@ export interface PersonSnapshot {
     isBlocked: boolean;
     ownerIds: readonly string[];
     followerIds: readonly string[];
-    /** Stored phone digits, as returned by Hablla. */
-    phones: readonly string[];
+    phones: readonly StoredPhone[];
 }
 
 /**
