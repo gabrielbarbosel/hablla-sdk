@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as routes from './routes';
+import { EXCLUSION_PAGE_LIMIT } from './constants';
 
 const PERSON = '6a207e428e3c5e6651860144';
 const SEGMENTATION = '6a589ac29c70672890006862';
@@ -20,6 +21,7 @@ describe('routes', () => {
         ['addSegmentationItem', routes.addSegmentationItem(SEGMENTATION, PERSON), 'POST', '/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items', 'workspace'],
         ['findSegmentationItemsOfPerson', routes.findSegmentationItemsOfPerson(SEGMENTATION, PERSON), 'GET', '/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items', 'workspace'],
         ['countAudience', routes.countAudience([]), 'POST', '/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/count', 'bearer'],
+        ['listFilteredPersonsPage', routes.listFilteredPersonsPage([], 1), 'POST', '/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list', 'bearer'],
         ['findCampaignsByName', routes.findCampaignsByName('label [job]'), 'GET', '/v1/workspaces/{workspace_id}/campaigns', 'bearer'],
     ])('%s pins method, path and strategy', (_name, call, method, rawPath, strategy) => {
         expect(call).toMatchObject({ method, rawPath, strategy });
@@ -42,6 +44,12 @@ describe('routes', () => {
     it('filters segmentation items and campaigns with the flat query the API honors', () => {
         expect(routes.findSegmentationItemsOfPerson(SEGMENTATION, PERSON)).toMatchObject({ pathParams: { segmentation_id: SEGMENTATION }, query: { person: PERSON } });
         expect(routes.findCampaignsByName('label [job]').query).toMatchObject({ name: 'label [job]' });
+    });
+
+    it('pages the filtered persons at the largest limit the report route accepts, with the filters in the body', () => {
+        const filters = [{ type: 'in_segmentation', segmentation: SEGMENTATION }];
+
+        expect(routes.listFilteredPersonsPage(filters, 3)).toMatchObject({ query: { limit: EXCLUSION_PAGE_LIMIT, page: 3 }, body: { filters } });
     });
 
     it('sends owner and follower changes as id lists', () => {

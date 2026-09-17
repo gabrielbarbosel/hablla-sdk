@@ -4,6 +4,7 @@ import {
     toCampaignSummary,
     toCreatedId,
     toCustomFieldDefinition,
+    toFilteredPersonPage,
     toPayloadPage,
     toPersonIdentity,
     toPersonSnapshot,
@@ -34,6 +35,37 @@ describe('toPayloadPage', () => {
 
     it('throws when results is missing', () => {
         expect(() => toPayloadPage({ totalPages: 1 }, 'users')).toThrow(UnexpectedPayloadError);
+    });
+});
+
+describe('toFilteredPersonPage', () => {
+    /** The phone entries probe 07 recorded in `results[].phones`, the only proven part of the payload. */
+    const page = {
+        results: [
+            { phones: [{ type: 'personal', phone: '5551982781694', is_whatsapp: true }] },
+            { phones: [] },
+            { phones: [{ type: 'personal', phone: '555133334444', is_whatsapp: false }, { type: 'work', phone: '5551982781695', is_whatsapp: true }] },
+        ],
+        count: 3,
+        limit: 1000,
+        page: 1,
+    };
+
+    it('reads every phone of every listed person and the page size', () => {
+        expect(toFilteredPersonPage(page, 'exclusion listing')).toEqual({
+            phones: ['5551982781694', '555133334444', '5551982781695'],
+            size: 3,
+        });
+    });
+
+    it('reads an empty page without needing a page total', () => {
+        expect(toFilteredPersonPage({ results: [] }, 'exclusion listing')).toEqual({ phones: [], size: 0 });
+    });
+
+    it('throws when the page, a person or a phone is not shaped as captured', () => {
+        expect(() => toFilteredPersonPage({ count: 1 }, 'exclusion listing')).toThrow(UnexpectedPayloadError);
+        expect(() => toFilteredPersonPage({ results: [{ id: 'x' }] }, 'exclusion listing')).toThrow(UnexpectedPayloadError);
+        expect(() => toFilteredPersonPage({ results: [{ phones: [{ type: 'personal' }] }] }, 'exclusion listing')).toThrow(UnexpectedPayloadError);
     });
 });
 

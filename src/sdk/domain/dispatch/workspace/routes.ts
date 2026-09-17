@@ -11,6 +11,7 @@ import {
     ATTENDANCE_LOOKUP_LIMIT,
     CAMPAIGN_RECONCILE_PAGE_LIMIT,
     CATALOG_PAGE_LIMIT,
+    EXCLUSION_PAGE_LIMIT,
     OPEN_ATTENDANCE_STATUSES,
     PERSON_LOOKUP_LIMIT,
     SEGMENTATION_ITEM_LOOKUP_LIMIT,
@@ -101,6 +102,21 @@ export function findSegmentationItemsOfPerson(segmentationId: string, personId: 
 /** Counts the persons matching report filters, the same resolution a campaign uses (Bearer only). */
 export function countAudience(filters: readonly SegmentationFilter[]): HttpCall {
     return { method: 'POST', rawPath: '/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/count', body: { filters }, strategy: 'bearer' };
+}
+
+/**
+ * One page of the persons matching report filters, with their phones, from the same report
+ * engine the count uses (Bearer only). The route caps `limit` at
+ * {@link EXCLUSION_PAGE_LIMIT}, so a page that comes back full may be followed by another.
+ */
+export function listFilteredPersonsPage(filters: readonly SegmentationFilter[], page: number): HttpCall {
+    return {
+        method: 'POST',
+        rawPath: '/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/message-stats/list',
+        query: { limit: EXCLUSION_PAGE_LIMIT, page },
+        body: { filters },
+        strategy: 'bearer',
+    };
 }
 
 /** Creates a v2 campaign, which fans the template out server side (Bearer only). */

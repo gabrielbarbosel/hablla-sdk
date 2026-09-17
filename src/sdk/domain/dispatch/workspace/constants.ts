@@ -72,5 +72,11 @@ export const CAMPAIGN_RECONCILE_PAGE_LIMIT = 50;
 /** Page size of the segmentation-item lookup by person. */
 export const SEGMENTATION_ITEM_LOOKUP_LIMIT = 50;
 
+/** Persons per page of the exclusion listing; the report route caps `limit` at this value (probe 07). */
+export const EXCLUSION_PAGE_LIMIT = 1000;
+
+/** First page of the exclusion listing; the report routes are 1-based. */
+export const FIRST_EXCLUSION_PAGE = 1;
+
 /** Longest failure detail kept on a contact or a job. */
 export const FAILURE_DETAIL_MAX_LENGTH = 300;

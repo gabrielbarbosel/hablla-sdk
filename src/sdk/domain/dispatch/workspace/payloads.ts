@@ -59,6 +59,12 @@ export interface PayloadPage {
     totalPages: number;
 }
 
+/** A page of the report listing of persons: the phones it named and how many persons it listed. */
+export interface FilteredPersonPage {
+    phones: readonly string[];
+    size: number;
+}
+
 type PayloadRecord = Readonly<Record<string, unknown>>;
 
 /** Reads a paginated listing (`results` array plus `totalPages`). */
@@ -69,6 +75,24 @@ export function toPayloadPage(data: unknown, payload: string): PayloadPage {
         results: requireArray(page, 'results', payload, 'page'),
         totalPages: requireNumber(page, 'totalPages', payload, 'page'),
     };
+}
+
+/**
+ * Reads a page of the report listing of persons, keeping only the phones of each person.
+ * The payload carries no page total, so the caller decides whether a page is the last one
+ * from its size.
+ */
+export function toFilteredPersonPage(data: unknown, payload: string): FilteredPersonPage {
+    const results = requireArray(requireRecord(data, payload, 'page'), 'results', payload, 'page');
+
+    return { phones: results.flatMap((raw) => toPersonPhoneNumbers(raw, payload)), size: results.length };
+}
+
+/** Reads the phone numbers of one listed person. */
+function toPersonPhoneNumbers(raw: unknown, payload: string): string[] {
+    const phones = requireArray(requireRecord(raw, payload, 'person'), 'phones', payload, 'person');
+
+    return phones.map((entry) => requireString(requireRecord(entry, payload, 'phone'), 'phone', payload, 'phone'));
 }
 
 /** Reads the id of a created resource. */
