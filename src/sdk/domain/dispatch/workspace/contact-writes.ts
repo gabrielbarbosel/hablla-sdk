@@ -8,7 +8,7 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { ContactResolution, StopCause } from './call-failures';
-import type { DispatchContact, DispatchJob, PendingWrite, PersonCreateBody } from './types';
+import type { DispatchContact, DispatchJob, PendingWrite } from './types';
 import { phoneIdentity } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt, truncateDetail } from './call-failures';
 import { RECONCILIATION_DELAY_MS } from './constants';

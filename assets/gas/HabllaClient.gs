@@ -7179,15 +7179,29 @@
   var NATIONAL_PHONE_LENGTHS = [10, 11];
   var INTERNATIONAL_PHONE_LENGTHS = [12, 13];
   var CANONICAL_PHONE_LENGTH = 13;
+  var LOCAL_NUMBER_START = 4;
+  var NINTH_DIGIT = "9";
+  var MOBILE_FIRST_DIGITS = ["6", "7", "8", "9"];
+  var LANDLINE_FIRST_DIGITS = ["2", "3", "4", "5"];
   var brazilianPhoneVariants = (value) => {
-    const digits = toDigits(value);
-    if (NATIONAL_PHONE_LENGTHS.includes(digits.length)) {
-      return phoneVariants(BRAZIL_COUNTRY_CODE + digits);
+    const digits = withCountryCode(toDigits(value));
+    if (digits === void 0) {
+      return void 0;
     }
-    if (INTERNATIONAL_PHONE_LENGTHS.includes(digits.length) && digits.startsWith(BRAZIL_COUNTRY_CODE)) {
+    const localFirstDigit = digits[LOCAL_NUMBER_START];
+    if (digits.length === CANONICAL_PHONE_LENGTH) {
+      return localFirstDigit === NINTH_DIGIT ? phoneVariants(digits) : void 0;
+    }
+    if (MOBILE_FIRST_DIGITS.includes(localFirstDigit)) {
       return phoneVariants(digits);
     }
-    return void 0;
+    return LANDLINE_FIRST_DIGITS.includes(localFirstDigit) ? { digits, alternate: digits } : void 0;
+  };
+  var withCountryCode = (digits) => {
+    if (NATIONAL_PHONE_LENGTHS.includes(digits.length)) {
+      return BRAZIL_COUNTRY_CODE + digits;
+    }
+    return INTERNATIONAL_PHONE_LENGTHS.includes(digits.length) && digits.startsWith(BRAZIL_COUNTRY_CODE) ? digits : void 0;
   };
   var phoneIdentity = (variants) => variants.digits.length === CANONICAL_PHONE_LENGTH ? variants.digits : variants.alternate;
 
@@ -8288,6 +8302,26 @@
     }
   };
 
+  // src/sdk/domain/dispatch/workspace/types.ts
+  var CONTACT_OUTCOMES = [
+    "invalidPhone",
+    "repeatedPhone",
+    "excluded",
+    "missingName",
+    "unresolvedAdvisor",
+    "pendingLookup",
+    "lookupFailed",
+    "inAttendance",
+    "duplicatePersons",
+    "blocked",
+    "noWhatsapp",
+    "repeatedPerson",
+    "ready",
+    "writeFailed",
+    "inAudience"
+  ];
+  var RESUMABLE_PHASES = ["resolving", "materializing", "awaitingAudience", "sending"];
+
   // src/sdk/domain/dispatch/workspace/audience.ts
   function prepareAudience(request, roster) {
     const seenPhones = /* @__PURE__ */ new Set();
@@ -8379,6 +8413,7 @@
   var RECONCILIATION_DELAY_MS = 6e4;
   var THROTTLE_COOLDOWN_MS = 6e4;
   var TRANSPORT_COOLDOWN_MS = 6e4;
+  var INTERRUPTED_ROUNDS_BEFORE_ATTEMPT = 5;
   var AUDIENCE_POLL_INTERVAL_MS = 5e3;
   var AUDIENCE_READY_TIMEOUT_MS = 18e4;
   var CHUNK_TIME_RESERVE_MS = 6e4;
@@ -8395,11 +8430,11 @@
   var LOOKUPS_PER_CONTACT = 2;
   var MAX_WRITES_PER_CONTACT = 5;
   var LARGEST_STEP_CALLS = 2;
-  var WORST_CASE_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
+  var ESTIMATED_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
   var FIXED_BEARER_CALLS = 1 + Math.ceil(AUDIENCE_READY_TIMEOUT_MS / AUDIENCE_POLL_INTERVAL_MS) + 1 + 1;
   function estimateCallBudget(contacts, catalogPages) {
     const contactsToProcess = contacts.filter((contact) => contact.outcome === "pendingLookup").length;
-    const workspace = catalogPages.roster + contactsToProcess * WORST_CASE_CALLS_PER_CONTACT;
+    const workspace = catalogPages.roster + contactsToProcess * ESTIMATED_CALLS_PER_CONTACT;
     const bearer = catalogPages.customFields + FIXED_BEARER_CALLS;
     return { workspace, bearer, total: workspace + bearer };
   }
@@ -8412,25 +8447,44 @@
   function isSuccess(result) {
     return result.kind === "completed" && result.status >= SUCCESS_STATUS_MIN && result.status <= SUCCESS_STATUS_MAX;
   }
-  function classifyCallFailures(results, strategy) {
-    if (results.some((result) => result.kind === "throttled" || result.kind === "unsent")) {
+  function classifyCallFailures(results) {
+    if (results.some((result) => result.kind === "throttled")) {
       return { kind: "stopBlock", cause: "throttled" };
     }
     if (results.some((result) => result.kind === "interrupted")) {
       return { kind: "stopBlock", cause: "interrupted" };
     }
-    if (results.some((result) => result.kind === "completed" && TOKEN_REJECTED_STATUSES.includes(result.status))) {
-      return { kind: "tokenRejected", strategy };
+    if (results.some(isTokenRejection)) {
+      return { kind: "tokenRejected" };
     }
-    const unknownOutcome = results.find((result) => result.kind === "transportFailed" || result.kind === "completed" && result.status >= SERVER_ERROR_STATUS_MIN);
+    const unknownOutcome = results.find(hasUnknownOutcome);
     if (unknownOutcome) {
       return { kind: "outcomeUnknown", failure: failureOf(unknownOutcome) };
     }
-    const refused = results.find((result) => !isSuccess(result));
+    if (results.some((result) => result.kind === "unsent")) {
+      return { kind: "stopBlock", cause: "throttled" };
+    }
+    const refused = results.find(isRefusal);
     if (refused) {
       return { kind: "rejected", failure: failureOf(refused) };
     }
     return void 0;
+  }
+  function hasUnknownOutcome(result) {
+    return result.kind === "transportFailed" || result.kind === "completed" && result.status >= SERVER_ERROR_STATUS_MIN;
+  }
+  function isRefusal(result) {
+    return result.kind === "completed" && !isSuccess(result);
+  }
+  function rejectedTokenStrategy(calls, results) {
+    const refused = results.findIndex(isTokenRejection);
+    if (refused < 0) {
+      throw new Error("No call was refused for its token");
+    }
+    return calls[refused].strategy;
+  }
+  function isTokenRejection(result) {
+    return result.kind === "completed" && TOKEN_REJECTED_STATUSES.includes(result.status);
   }
   function spendAttempt(contact, failure, exhaustedOutcome, now) {
     const attempts = contact.attempts + 1;
@@ -8444,13 +8498,7 @@
   }
   function failureOf(result) {
     var _a;
-    if (result.kind === "completed") {
-      return { status: result.status, detail: truncateDetail((_a = JSON.stringify(result.data)) != null ? _a : "") };
-    }
-    if (result.kind === "transportFailed" || result.kind === "interrupted") {
-      return { status: "transport", detail: truncateDetail(result.message) };
-    }
-    return { status: "transport", detail: result.kind };
+    return result.kind === "completed" ? { status: result.status, detail: truncateDetail((_a = JSON.stringify(result.data)) != null ? _a : "") } : { status: "transport", detail: truncateDetail(result.message) };
   }
   function truncateDetail(detail) {
     return detail.slice(0, FAILURE_DETAIL_MAX_LENGTH);
@@ -8459,7 +8507,7 @@
     return result.kind === "completed" ? result.data : void 0;
   }
 
-  // src/sdk/domain/dispatch/workspace/contact-requirements.ts
+  // src/sdk/domain/dispatch/workspace/requirements.ts
   function requirePhone(contact) {
     if (!contact.phone) {
       throw new Error(`Contact ${contact.index} has no phone`);
@@ -8484,6 +8532,30 @@
     }
     return contact.ownerChange;
   }
+  function requireSegmentationId(job) {
+    if (!job.segmentationId) {
+      throw new Error(`Dispatch job ${job.id} has no segmentation`);
+    }
+    return job.segmentationId;
+  }
+  function requireDispatchConfig(job) {
+    if (!job.dispatchConfig) {
+      throw new Error(`Dispatch job ${job.id} has no dispatch config`);
+    }
+    return job.dispatchConfig;
+  }
+  function requireAudienceSize(job) {
+    if (job.audienceSize === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no audience size`);
+    }
+    return job.audienceSize;
+  }
+  function requireAudienceDeadline(job) {
+    if (job.audienceDeadlineAt === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no audience deadline`);
+    }
+    return job.audienceDeadlineAt;
+  }
 
   // src/sdk/domain/dispatch/workspace/errors.ts
   var DispatchValidationError = class extends Error {
@@ -8498,6 +8570,14 @@
       super(`Hablla rate limited ${route}; try again in one minute`);
       __publicField(this, "route", route);
       this.name = "DispatchThrottledError";
+    }
+  };
+  var DispatchTransportError = class extends Error {
+    constructor(route, detail) {
+      super(`Hablla did not answer ${route}: ${detail}`);
+      __publicField(this, "route", route);
+      __publicField(this, "detail", detail);
+      this.name = "DispatchTransportError";
     }
   };
   var DuplicateDispatchError = class extends Error {
@@ -8542,7 +8622,7 @@
   };
   var CallBudgetExceededError = class extends Error {
     constructor(budget, dailyCallQuota) {
-      super(`Dispatch may need up to ${budget.total} HTTP calls, above the daily quota of ${dailyCallQuota}`);
+      super(`Dispatch is estimated to need ${budget.total} HTTP calls, above the daily quota of ${dailyCallQuota}`);
       __publicField(this, "budget", budget);
       __publicField(this, "dailyCallQuota", dailyCallQuota);
       this.name = "CallBudgetExceededError";
@@ -8571,8 +8651,15 @@
   function toPersonIdentity(raw) {
     const person = requireRecord(raw, "person", "item");
     const id = requireString(person, "id", "person", "item");
-    const phones = requireArray(person, "phones", "person", id).map((entry) => toDigits(requireString(requireRecord(entry, "person", id), "phone", "person", id)));
+    const phones = requireArray(person, "phones", "person", id).map((entry) => toStoredPhone(entry, id));
     return { id, phones };
+  }
+  function toStoredPhone(raw, personId) {
+    const phone = requireRecord(raw, "person", personId);
+    return {
+      digits: toDigits(requireString(phone, "phone", "person", personId)),
+      isWhatsapp: requireBoolean(phone, "is_whatsapp", "person", personId)
+    };
   }
   function toPersonSnapshot(raw) {
     const identity = toPersonIdentity(raw);
@@ -8663,6 +8750,56 @@
     return values;
   }
 
+  // src/sdk/domain/dispatch/workspace/campaign.ts
+  var SECONDS_PER_MINUTE = 60;
+  function toDispatchConfig(pacing) {
+    return { batch_size: pacing.batchSize, batch_interval: pacing.intervalSeconds / SECONDS_PER_MINUTE };
+  }
+  function dispatchName(job) {
+    return `${job.settings.label} [${job.id}]`;
+  }
+  function buildAudienceQuery(job) {
+    const membership = [{ type: "in_segmentation", segmentation: requireSegmentationId(job) }];
+    return { membership, query: [...membership, { type: "whatsapp" }] };
+  }
+  function buildSegmentationBody(job) {
+    const name = dispatchName(job);
+    return { name, description: name, type: "person", result_type: "fixed" };
+  }
+  function buildCampaignBody(job) {
+    const audience = buildAudienceQuery(job);
+    return {
+      send_type: "immediate",
+      send_mode: "fractional",
+      type: "whatsapp",
+      name: dispatchName(job),
+      dispatch_config: requireDispatchConfig(job),
+      types: ["whatsapp", "gupshup"],
+      connection: job.settings.connectionId,
+      template: job.settings.templateId,
+      arrayFilter: audience.membership,
+      query: audience.query,
+      query_type: "person",
+      variables: { body: [`{{person.custom_fields.${job.settings.firstNameFieldId}}}`] },
+      properties: { variables: { whatsapp: { components: { examples: { body: { "0_is_expression": false } } } } } }
+    };
+  }
+  function readAudienceCount(result) {
+    const data = isSuccess(result) ? payloadOf(result) : void 0;
+    const count = data == null ? void 0 : data.count;
+    if (typeof count !== "number" || !Number.isFinite(count)) {
+      throw new UnexpectedPayloadError("audience count", `expected a 2xx with a numeric count, got ${JSON.stringify(result)}`);
+    }
+    return count;
+  }
+  function findCampaignByName(result, name) {
+    if (!isSuccess(result)) {
+      throw new UnexpectedPayloadError("campaign listing", `expected a 2xx, got ${JSON.stringify(result)}`);
+    }
+    const campaign = toPayloadPage(payloadOf(result), "campaign listing").results.map(toCampaignSummary).find((candidate) => candidate.name === name);
+    return campaign ? { id: campaign.id, quantity: campaign.quantity } : void 0;
+  }
+
   // src/sdk/domain/dispatch/workspace/routes.ts
   var PERSONS_V1 = "/v1/workspaces/{workspace_id}/persons";
   var PERSONS_V2 = "/v2/workspaces/{workspace_id}/persons";
@@ -8730,7 +8867,6 @@
   }
 
   // src/sdk/domain/dispatch/workspace/contact-writes.ts
-  var WRITE_STRATEGY = "workspace";
   var CREATED_PHONE_TYPE = "personal";
   function planContactWrites(contact) {
     if (!contact.person || !contact.person.existed) {
@@ -8786,14 +8922,14 @@
     }
   }
   function applyWriteResult(contact, write, results, now) {
-    const failure = classifyCallFailures(results, WRITE_STRATEGY);
+    const failure = classifyCallFailures(results);
     switch (failure == null ? void 0 : failure.kind) {
       case void 0:
         return applyConfirmedWrite(contact, write, results[0]);
       case "stopBlock":
         return stopWrite(contact, write, failure.cause, now);
       case "tokenRejected":
-        return { kind: "tokenRejected", strategy: failure.strategy, contact: isWriteAhead(write) ? undoWriteAhead(contact, write) : void 0 };
+        return { kind: "tokenRejected", contact: isWriteAhead(write) ? undoWriteAhead(contact, write) : void 0 };
       case "rejected":
         return { kind: "decided", contact: failContact(clearWriteAhead(contact), "writeFailed", failure.failure) };
       case "outcomeUnknown":
@@ -8850,74 +8986,6 @@
   function statusOf2(result) {
     return result.kind === "completed" ? result.status : "transport";
   }
-  function requireSegmentationId(job) {
-    if (!job.segmentationId) {
-      throw new Error(`Dispatch job ${job.id} has no segmentation`);
-    }
-    return job.segmentationId;
-  }
-
-  // src/sdk/domain/dispatch/workspace/campaign.ts
-  var SECONDS_PER_MINUTE = 60;
-  var AUDIENCE_NOT_PROPAGATED_STATUS = 500;
-  var AUDIENCE_NOT_PROPAGATED_MESSAGE = "Erro ao resolver segmentações";
-  function toDispatchConfig(pacing) {
-    return { batch_size: pacing.batchSize, batch_interval: pacing.intervalSeconds / SECONDS_PER_MINUTE };
-  }
-  function dispatchName(job) {
-    return `${job.settings.label} [${job.id}]`;
-  }
-  function buildAudienceQuery(job) {
-    const membership = [{ type: "in_segmentation", segmentation: requireSegmentationId(job) }];
-    return { membership, query: [...membership, { type: "whatsapp" }] };
-  }
-  function buildSegmentationBody(job) {
-    const name = dispatchName(job);
-    return { name, description: name, type: "person", result_type: "fixed" };
-  }
-  function buildCampaignBody(job) {
-    const audience = buildAudienceQuery(job);
-    if (!job.dispatchConfig) {
-      throw new Error(`Dispatch job ${job.id} has no dispatch config`);
-    }
-    return {
-      send_type: "immediate",
-      send_mode: "fractional",
-      type: "whatsapp",
-      name: dispatchName(job),
-      dispatch_config: job.dispatchConfig,
-      types: ["whatsapp", "gupshup"],
-      connection: job.settings.connectionId,
-      template: job.settings.templateId,
-      arrayFilter: audience.membership,
-      query: audience.query,
-      query_type: "person",
-      variables: { body: [`{{person.custom_fields.${job.settings.firstNameFieldId}}}`] },
-      properties: { variables: { whatsapp: { components: { examples: { body: { "0_is_expression": false } } } } } }
-    };
-  }
-  function readAudienceCount(result) {
-    const data = isSuccess(result) ? payloadOf(result) : void 0;
-    const count = data == null ? void 0 : data.count;
-    if (typeof count !== "number" || !Number.isFinite(count)) {
-      throw new UnexpectedPayloadError("audience count", `expected a 2xx with a numeric count, got ${JSON.stringify(result)}`);
-    }
-    return count;
-  }
-  function isAudienceNotPropagated(result) {
-    if (result.kind !== "completed" || result.status !== AUDIENCE_NOT_PROPAGATED_STATUS) {
-      return false;
-    }
-    const data = result.data;
-    return (data == null ? void 0 : data.message) === AUDIENCE_NOT_PROPAGATED_MESSAGE;
-  }
-  function findCampaignByName(result, name) {
-    if (!isSuccess(result)) {
-      throw new UnexpectedPayloadError("campaign listing", `expected a 2xx, got ${JSON.stringify(result)}`);
-    }
-    const campaign = toPayloadPage(payloadOf(result), "campaign listing").results.map(toCampaignSummary).find((candidate) => candidate.name === name);
-    return campaign ? { id: campaign.id, quantity: campaign.quantity } : void 0;
-  }
 
   // src/sdk/domain/dispatch/workspace/owner-policy.ts
   function decideOwnerChange(person, target, systemUserIds, policy) {
@@ -8936,21 +9004,19 @@
       return {
         kind: "replaceSystemOwners",
         unfollowFirst,
-        removedOwnerIds: person.ownerIds.filter((ownerId) => ownerId !== target.userId)
+        removedOwnerIds: person.ownerIds
       };
     }
     return { kind: "addBesideSystemOwners", unfollowFirst };
   }
 
   // src/sdk/domain/dispatch/workspace/lookup.ts
-  var LOOKUP_STRATEGY = "workspace";
   function personLookupCalls(contact) {
     return phoneShapes(contact).map((shape) => findPersonsByPhone(shape));
   }
   function attendanceLookupCalls(person, contact, connectionId) {
-    const phone = requirePhone(contact);
-    const storedPhones = person.phones.filter((storedPhone) => matchesPhone(storedPhone, phone));
-    return [...new Set(storedPhones)].map((storedPhone) => findOpenAttendances(connectionId, storedPhone));
+    const matching = matchingStoredPhones(person, requirePhone(contact));
+    return [...new Set(matching.map((storedPhone) => storedPhone.digits))].map((digits) => findOpenAttendances(connectionId, digits));
   }
   function resolvePersonLookup(contact, results, purpose, now) {
     const failure = resolveLookupFailure(contact, results, now);
@@ -8962,7 +9028,7 @@
     for (const result of results) {
       for (const raw of toPayloadPage(payloadOf(result), "person search").results) {
         const person2 = toPersonSnapshot(raw);
-        if (person2.phones.some((storedPhone) => matchesPhone(storedPhone, phone))) {
+        if (matchingStoredPhones(person2, phone).length > 0) {
           persons.set(person2.id, person2);
         }
       }
@@ -8976,6 +9042,9 @@
     }
     if (person.isBlocked) {
       return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "blocked" }) };
+    }
+    if (!matchingStoredPhones(person, phone).some((storedPhone) => storedPhone.isWhatsapp)) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "noWhatsapp" }) };
     }
     return { kind: "checkAttendance", person };
   }
@@ -8998,7 +9067,7 @@
     };
   }
   function resolveLookupFailure(contact, results, now) {
-    const failure = classifyCallFailures(results, LOOKUP_STRATEGY);
+    const failure = classifyCallFailures(results);
     switch (failure == null ? void 0 : failure.kind) {
       case void 0:
         return void 0;
@@ -9014,12 +9083,19 @@
   function settledLookup(contact, purpose, now) {
     return __spreadProps(__spreadValues({}, contact), { resolvedAt: now, lookupPurpose: purpose, attempts: 0, retryNotBefore: void 0, failure: void 0 });
   }
+  function matchingStoredPhones(person, phone) {
+    return person.phones.filter((storedPhone) => matchesPhone(storedPhone.digits, phone));
+  }
   function phoneShapes(contact) {
     const phone = requirePhone(contact);
     return [.../* @__PURE__ */ new Set([phone.digits, phone.alternate])];
   }
 
   // src/sdk/domain/dispatch/workspace/person-claims.ts
+  var CLAIMING_OUTCOMES = ["ready", "inAudience"];
+  function holdsPersonClaim(outcome) {
+    return CLAIMING_OUTCOMES.includes(outcome);
+  }
   function claimPerson(claims, personId, contactIndex) {
     const holder = claims.get(personId);
     if (holder !== void 0 && holder !== contactIndex) {
@@ -9031,7 +9107,6 @@
   }
 
   // src/sdk/domain/dispatch/workspace/reconciliation.ts
-  var RECONCILIATION_STRATEGY = "workspace";
   function reconciliationCalls(contact, job) {
     if (contact.pendingWrite === "createPerson") {
       return phoneShapes(contact).map((shape) => findPersonsByPhoneFresh(shape));
@@ -9039,7 +9114,7 @@
     return [findSegmentationItemsOfPerson(requireSegmentationId(job), requirePerson(contact).id)];
   }
   function applyReconciliation(contact, results, now) {
-    const failure = classifyCallFailures(results, RECONCILIATION_STRATEGY);
+    const failure = classifyCallFailures(results);
     switch (failure == null ? void 0 : failure.kind) {
       case void 0:
         return contact.pendingWrite === "createPerson" ? reconcileCreate(contact, results) : reconcileJoin(contact, results);
@@ -9058,7 +9133,7 @@
     for (const result of results) {
       for (const raw of toPayloadPage(payloadOf(result), "person listing").results) {
         const person = toPersonIdentity(raw);
-        if (person.phones.some((storedPhone) => matchesPhone(storedPhone, phone))) {
+        if (person.phones.some((storedPhone) => matchesPhone(storedPhone.digits, phone))) {
           personIds.add(person.id);
         }
       }
@@ -9128,6 +9203,10 @@
     return withWriteAhead(block.contact, step.purpose.write);
   }
   function applyContactStep(block, step, results, context) {
+    const outcome = applyStepResults(block, step, results, context);
+    return outcome.kind === "tokenRejected" ? __spreadProps(__spreadValues({}, outcome), { strategy: rejectedTokenStrategy(step.calls, results) }) : outcome;
+  }
+  function applyStepResults(block, step, results, context) {
     const { contact } = block;
     const purpose = lookupPurposeOf(context.phase);
     if (step.purpose === "personLookup") {
@@ -9165,7 +9244,7 @@
       case "stopBlock":
         return { kind: "stopBlock", cause: resolution.cause, block: { contact: (_a = resolution.contact) != null ? _a : before } };
       case "tokenRejected":
-        return { kind: "tokenRejected", strategy: resolution.strategy, block: { contact: (_b = resolution.contact) != null ? _b : before } };
+        return { kind: "tokenRejected", block: { contact: (_b = resolution.contact) != null ? _b : before } };
       case "retryLater":
         return { kind: "applied", block: { contact: resolution.contact }, claims: context.claims };
       case "decided":
@@ -9173,8 +9252,7 @@
     }
   }
   function claimResolvedPerson(contact, context) {
-    const holdsPerson = contact.person !== void 0 && (contact.outcome === "ready" || contact.outcome === "inAudience");
-    if (!holdsPerson) {
+    if (contact.person === void 0 || !holdsPersonClaim(contact.outcome)) {
       return { kind: "applied", block: { contact }, claims: context.claims };
     }
     const claim = claimPerson(context.claims, contact.person.id, contact.index);
@@ -9199,25 +9277,17 @@
     return block.attendanceCheck;
   }
 
+  // src/sdk/domain/dispatch/workspace/job-id.ts
+  var JOB_ID_PATTERN = /^[0-9a-f]{16}-\d+-[0-9a-z]+$/;
+  function jobIdOf(fingerprint, createdAt) {
+    return `${fingerprint}-${createdAt.toString(36)}`;
+  }
+  function isJobId(value) {
+    return JOB_ID_PATTERN.test(value);
+  }
+
   // src/sdk/domain/dispatch/workspace/job-machine.ts
-  var RESUMABLE_PHASES = ["resolving", "materializing", "awaitingAudience", "sending"];
   var TERMINAL_PHASES = ["completed", "superseded", "abandoned"];
-  var CONTACT_OUTCOMES = [
-    "invalidPhone",
-    "repeatedPhone",
-    "excluded",
-    "missingName",
-    "unresolvedAdvisor",
-    "pendingLookup",
-    "lookupFailed",
-    "inAttendance",
-    "duplicatePersons",
-    "blocked",
-    "repeatedPerson",
-    "ready",
-    "writeFailed",
-    "inAudience"
-  ];
   function emptyCounts() {
     return Object.fromEntries(CONTACT_OUTCOMES.map((outcome) => [outcome, 0]));
   }
@@ -9242,7 +9312,7 @@
     const _a = request, { rows: _rows, exclusion } = _a, settings = __objRest(_a, ["rows", "exclusion"]);
     const firstPending = prepared.contacts.find((contact) => contact.outcome === "pendingLookup");
     return {
-      id: `${prepared.fingerprint}-${now.toString(36)}`,
+      id: jobIdOf(prepared.fingerprint, now),
       revision: 0,
       fingerprint: prepared.fingerprint,
       settings,
@@ -9255,11 +9325,13 @@
       pass: 0,
       counts: countOutcomes(prepared.contacts),
       revalidationShifts: {},
+      consecutiveInterruptedRounds: 0,
       warnings: []
     };
   }
   function duplicateVerdict(existing, repeatOfJobId, now) {
     const supersede = [];
+    const latestSent = latestSentJob(existing);
     let busy;
     for (const job of existing) {
       switch (job.phase) {
@@ -9277,7 +9349,7 @@
         case "failed":
           return { kind: "refuse", job };
         case "completed":
-          if (job.campaignId !== void 0 && repeatOfJobId !== job.id) {
+          if (job === latestSent && repeatOfJobId !== job.id) {
             return { kind: "refuse", job };
           }
           break;
@@ -9288,14 +9360,33 @@
     }
     return busy ? { kind: "busy", job: busy } : { kind: "create", supersede };
   }
+  function latestSentJob(jobs) {
+    return jobs.filter((job) => job.phase === "completed" && job.campaignId !== void 0).reduce((latest, job) => latest === void 0 || job.createdAt > latest.createdAt ? job : latest, void 0);
+  }
+  function trackInterruptedRounds(job, results) {
+    if (!results.some((result) => result.kind === "interrupted")) {
+      return { job: job.consecutiveInterruptedRounds === 0 ? job : __spreadProps(__spreadValues({}, job), { consecutiveInterruptedRounds: 0 }), results };
+    }
+    const rounds = job.consecutiveInterruptedRounds + 1;
+    const tracked = __spreadProps(__spreadValues({}, job), { consecutiveInterruptedRounds: rounds });
+    if (rounds <= INTERRUPTED_ROUNDS_BEFORE_ATTEMPT) {
+      return { job: tracked, results };
+    }
+    return {
+      job: tracked,
+      results: results.map((result) => result.kind === "interrupted" ? { kind: "transportFailed", message: result.message } : result)
+    };
+  }
+  function isResumablePhase(phase) {
+    return RESUMABLE_PHASES.some((resumable) => resumable === phase);
+  }
   function isLeased(job, now) {
     return job.leaseUntil !== void 0 && job.leaseUntil > now;
   }
   function hasPhaseWork(job, phase) {
     return job.counts[workOutcomeOf(phase)] > 0;
   }
-  function advanceCursor(job, chunk, now) {
-    const phase = job.phase;
+  function advanceCursor(job, phase, chunk, now) {
     const chunkDeferrals = chunk.filter((contact) => contact.outcome === workOutcomeOf(phase) && contact.retryNotBefore !== void 0 && contact.retryNotBefore > now).map((contact) => contact.retryNotBefore);
     const passDeferredUntil = earliest([job.passDeferredUntil, ...chunkDeferrals]);
     const nextCursor2 = job.cursor + chunk.length;
@@ -9359,8 +9450,11 @@
       updatedAt: now
     });
   }
+  function tokenRejectedReason(strategy) {
+    return strategy === "bearer" ? "bearer_token_rejected" : "workspace_token_rejected";
+  }
   function toFailed(job, failure, now) {
-    assertPhase(job, ["resolving", "materializing", "awaitingAudience", "sending"], "fail");
+    assertPhase(job, RESUMABLE_PHASES, "fail");
     return __spreadProps(__spreadValues({}, job), { phase: "failed", failure, updatedAt: now });
   }
   function toResumed(job, now) {
@@ -9380,6 +9474,9 @@
   function toAbandoned(job, operatorEmail, now) {
     if (TERMINAL_PHASES.includes(job.phase)) {
       throw new InvalidJobTransitionError(job.id, job.phase, "be abandoned");
+    }
+    if (job.campaignSendState === "inFlight") {
+      throw new InvalidJobTransitionError(job.id, job.phase, "be abandoned before its in-flight campaign is reconciled");
     }
     return __spreadProps(__spreadValues({}, job), { phase: "abandoned", abandonedBy: operatorEmail, abandonedAt: now, updatedAt: now });
   }
@@ -9417,16 +9514,9 @@
     const defined = values.filter((value) => value !== void 0);
     return defined.length > 0 ? Math.min(...defined) : void 0;
   }
-  function requireAudienceSize(job) {
-    if (job.audienceSize === void 0) {
-      throw new Error(`Dispatch job ${job.id} has no audience size`);
-    }
-    return job.audienceSize;
-  }
 
   // src/sdk/domain/dispatch/workspace/request-validation.ts
   var HABLLA_ID_PATTERN = /^[0-9a-f]{24}$/;
-  var JOB_ID_PATTERN = /^[0-9a-f]{16}-\d+-[0-9a-z]+$/;
   var PERSON_TARGET = "person";
   var FIRST_NAME_FIELD_TYPE = "string";
   function indexRoster(users) {
@@ -9476,7 +9566,7 @@
     if (request.unresolvedAdvisorPolicy.kind === "assignReserve") {
       requireHabllaId("unresolvedAdvisorPolicy.reserveOwnerId", request.unresolvedAdvisorPolicy.reserveOwnerId);
     }
-    if (request.repeatOfJobId !== void 0 && !JOB_ID_PATTERN.test(request.repeatOfJobId)) {
+    if (request.repeatOfJobId !== void 0 && !isJobId(request.repeatOfJobId)) {
       problems.push(`repeatOfJobId must be a job id, got ${JSON.stringify(request.repeatOfJobId)}`);
     }
     if (typeof request.label !== "string" || request.label.trim() === "") {
@@ -9578,44 +9668,38 @@
   }
 
   // src/sdk/domain/dispatch/workspace/send-phases.ts
-  var SEND_PHASE_STRATEGY = "bearer";
-  function resolveAudienceCount(job, result, now) {
-    const audienceSize = requireAudienceSize(job);
-    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
-    if ((failure == null ? void 0 : failure.kind) === "stopBlock") {
-      return { kind: "stop", cause: failure.cause, job };
-    }
+  function resolveAudienceCount(job, call, result, now) {
+    const failure = classifyCallFailures([result]);
     if ((failure == null ? void 0 : failure.kind) === "tokenRejected") {
-      return { kind: "advanced", job: toFailed(job, { reason: "bearer_token_rejected", detail: "audience count refused the Bearer token", resumePhase: "awaitingAudience" }, now) };
+      return { kind: "advanced", job: toFailed(job, tokenRejectedFailure([call], [result], "audience count", "awaitingAudience"), now) };
     }
-    if (result.kind === "transportFailed") {
-      return { kind: "stop", cause: "interrupted", job };
+    if ((failure == null ? void 0 : failure.kind) === "rejected") {
+      throw new UnexpectedPayloadError("audience count", `refused with ${failure.failure.status}: ${failure.failure.detail}`);
     }
-    const count = isAudienceNotPropagated(result) ? void 0 : readAudienceCount(result);
+    if ((failure == null ? void 0 : failure.kind) === "stopBlock") {
+      return pastAudienceDeadline(job, now) ? { kind: "advanced", job: audienceTimedOut(job, now) } : { kind: "stop", cause: failure.cause, job };
+    }
+    if (failure) {
+      return waitForAudience(job, job.lastAudienceCount, now);
+    }
+    const audienceSize = requireAudienceSize(job);
+    const count = readAudienceCount(result);
     if (count === audienceSize) {
       return { kind: "advanced", job: toSending(job, count, now) };
     }
-    if (count !== void 0 && count > audienceSize) {
+    if (count > audienceSize) {
       return {
         kind: "advanced",
         job: toFailed(__spreadProps(__spreadValues({}, job), { lastAudienceCount: count }), { reason: "audience_mismatch", detail: `audience counts ${count}, expected ${audienceSize}`, resumePhase: "awaitingAudience" }, now)
       };
     }
-    const waiting = __spreadProps(__spreadValues({}, job), { lastAudienceCount: count != null ? count : job.lastAudienceCount, updatedAt: now });
-    if (now >= requireAudienceDeadline(job)) {
-      const lastCount = waiting.lastAudienceCount === void 0 ? "never resolved" : String(waiting.lastAudienceCount);
-      return {
-        kind: "advanced",
-        job: toFailed(waiting, { reason: "audience_timeout", detail: `audience not ready: last count ${lastCount}, expected ${audienceSize}`, resumePhase: "awaitingAudience" }, now)
-      };
-    }
-    return { kind: "wait", job: waiting };
+    return waitForAudience(job, count, now);
   }
   function withCampaignInFlight(job, now) {
     return __spreadProps(__spreadValues({}, job), { campaignSendState: "inFlight", campaignReconcileAttempts: 0, updatedAt: now });
   }
-  function resolveCampaignCreation(job, result, now) {
-    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+  function resolveCampaignCreation(job, call, result, now) {
+    const failure = classifyCallFailures([result]);
     switch (failure == null ? void 0 : failure.kind) {
       case void 0: {
         const campaign = toCampaignSummary(payloadOf(result));
@@ -9627,16 +9711,16 @@
         }
         return { kind: "stop", cause: "interrupted", job: withCampaignReconcileAt(job, now + RECONCILIATION_DELAY_MS, now) };
       case "tokenRejected":
-        return { kind: "advanced", job: toFailed(withoutCampaignInFlight(job, now), { reason: "bearer_token_rejected", detail: "campaign creation refused the Bearer token", resumePhase: "sending" }, now) };
+        return { kind: "advanced", job: toFailed(withoutCampaignInFlight(job, now), tokenRejectedFailure([call], [result], "campaign creation", "sending"), now) };
       case "rejected":
         return { kind: "advanced", job: toFailed(withoutCampaignInFlight(job, now), { reason: "campaign_rejected", detail: failure.failure.detail, resumePhase: "sending" }, now) };
       case "outcomeUnknown":
         return { kind: "wait", job: withCampaignReconcileAt(job, now + RECONCILIATION_DELAY_MS, now) };
     }
   }
-  function resolveCampaignReconciliation(job, result, now) {
+  function resolveCampaignReconciliation(job, call, result, now) {
     var _a;
-    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+    const failure = classifyCallFailures([result]);
     switch (failure == null ? void 0 : failure.kind) {
       case void 0: {
         const campaign = findCampaignByName(result, dispatchName(job));
@@ -9648,7 +9732,7 @@
       case "stopBlock":
         return { kind: "stop", cause: failure.cause, job };
       case "tokenRejected":
-        return { kind: "advanced", job: toFailed(job, { reason: "bearer_token_rejected", detail: "campaign reconciliation refused the Bearer token", resumePhase: "sending" }, now) };
+        return { kind: "advanced", job: toFailed(job, tokenRejectedFailure([call], [result], "campaign reconciliation", "sending"), now) };
       case "rejected":
       case "outcomeUnknown": {
         const attempts = ((_a = job.campaignReconcileAttempts) != null ? _a : 0) + 1;
@@ -9662,6 +9746,21 @@
       }
     }
   }
+  function tokenRejectedFailure(calls, results, step, resumePhase) {
+    const strategy = rejectedTokenStrategy(calls, results);
+    return { reason: tokenRejectedReason(strategy), detail: `${step} refused the ${strategy} token`, resumePhase };
+  }
+  function waitForAudience(job, lastAudienceCount, now) {
+    const waiting = __spreadProps(__spreadValues({}, job), { lastAudienceCount, updatedAt: now });
+    return pastAudienceDeadline(job, now) ? { kind: "advanced", job: audienceTimedOut(waiting, now) } : { kind: "wait", job: waiting };
+  }
+  function audienceTimedOut(job, now) {
+    const lastCount = job.lastAudienceCount === void 0 ? "never resolved" : String(job.lastAudienceCount);
+    return toFailed(job, { reason: "audience_timeout", detail: `audience not ready: last count ${lastCount}, expected ${requireAudienceSize(job)}`, resumePhase: "awaitingAudience" }, now);
+  }
+  function pastAudienceDeadline(job, now) {
+    return now >= requireAudienceDeadline(job);
+  }
   function isCampaignReconcileDue(job, now) {
     return job.campaignReconcileNotBefore === void 0 || job.campaignReconcileNotBefore <= now;
   }
@@ -9670,12 +9769,6 @@
   }
   function withoutCampaignInFlight(job, now) {
     return __spreadProps(__spreadValues({}, job), { campaignSendState: void 0, campaignReconcileNotBefore: void 0, campaignReconcileAttempts: void 0, updatedAt: now });
-  }
-  function requireAudienceDeadline(job) {
-    if (job.audienceDeadlineAt === void 0) {
-      throw new Error(`Dispatch job ${job.id} has no audience deadline`);
-    }
-    return job.audienceDeadlineAt;
   }
 
   // src/sdk/domain/dispatch/workspace/workspace-dispatch.ts
@@ -9754,7 +9847,7 @@
           throw new RangeError(`WorkspaceDispatch.continue: leaseUntil (${options.leaseUntil}) must be later than deadlineAt (${options.deadlineAt})`);
         }
         const leased = yield this.acquireLease(jobId, options.leaseUntil);
-        if (!RESUMABLE_PHASES.includes(leased.phase)) {
+        if (!isResumablePhase(leased.phase)) {
           return this.progressOf(leased);
         }
         const session = { job: leased };
@@ -9882,7 +9975,7 @@
       return __async(this, null, function* () {
         return this.ports.store.withExclusiveAccess(() => __async(this, null, function* () {
           const job = yield this.loadIdle(jobId);
-          if (!RESUMABLE_PHASES.includes(job.phase)) {
+          if (!isResumablePhase(job.phase)) {
             return job;
           }
           return this.ports.store.update(__spreadProps(__spreadValues({}, job), { leaseUntil }), []);
@@ -9904,7 +9997,7 @@
     /** Runs the job's phases while a chunk still fits before the deadline. */
     runUntilDeadline(session, deadlineAt) {
       return __async(this, null, function* () {
-        while (RESUMABLE_PHASES.includes(session.job.phase) && this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt) {
+        while (isResumablePhase(session.job.phase) && this.hasTimeLeft(deadlineAt)) {
           const signal = yield this.runPhaseStep(session, deadlineAt);
           if (signal.kind === "stop") {
             return signal.stop;
@@ -9922,7 +10015,7 @@
         switch (session.job.phase) {
           case "resolving":
           case "materializing":
-            return this.runChunk(session, session.job.phase);
+            return this.runChunk(session, session.job.phase, deadlineAt);
           case "awaitingAudience":
             return this.waitForAudience(session, deadlineAt);
           case "sending":
@@ -9935,9 +10028,11 @@
     /**
      * Processes one chunk of contacts from the cursor in rounds until every contact is
      * settled or deferred, then advances the cursor and closes the phase when no work is
-     * left.
+     * left. A round only starts while the execution window has room for it; the cursor
+     * stays put, so the next execution picks the same block up (every round persists what
+     * it learned).
      */
-    runChunk(session, phase) {
+    runChunk(session, phase, deadlineAt) {
       return __async(this, null, function* () {
         var _a;
         const store = this.ports.store;
@@ -9950,6 +10045,9 @@
           const steps = blocks.map((block) => nextContactStep(block, session.job, now));
           if (!steps.some((step) => step.kind === "calls")) {
             break;
+          }
+          if (!this.hasTimeLeft(deadlineAt)) {
+            return { kind: "yield" };
           }
           blocks = yield this.persistWriteAheads(session, blocks, steps);
           const round = yield this.runRound(session, phase, blocks, steps);
@@ -9979,7 +10077,7 @@
     runRound(session, phase, blocks, steps) {
       return __async(this, null, function* () {
         const calls = steps.flatMap((step) => step.kind === "calls" ? step.calls : []);
-        const results = yield this.ports.executor.executeAll(calls);
+        const results = yield this.executeRound(session, calls);
         const now = this.ports.clock.now();
         const shifts = __spreadValues({}, session.job.revalidationShifts);
         let claims = session.claims;
@@ -10017,8 +10115,7 @@
           updatedAt: now
         });
         if (rejectedStrategy !== void 0) {
-          const reason = rejectedStrategy === "bearer" ? "bearer_token_rejected" : "workspace_token_rejected";
-          job = toFailed(job, { reason, detail: `Hablla refused the ${rejectedStrategy} token during ${phase}`, resumePhase: phase }, now);
+          job = toFailed(job, { reason: tokenRejectedReason(rejectedStrategy), detail: `Hablla refused the ${rejectedStrategy} token during ${phase}`, resumePhase: phase }, now);
         }
         session.job = yield this.ports.store.update(job, changedPositions.map((position) => after[position]));
         if (rejectedStrategy !== void 0) {
@@ -10027,11 +10124,23 @@
         return { blocks: updated, signal: stopCause ? { kind: "stop", stop: { cause: stopCause } } : void 0 };
       });
     }
+    /** True while the execution window still has room for a block or a round. */
+    hasTimeLeft(deadlineAt) {
+      return this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt;
+    }
+    /** Runs one round of calls, keeping the job's interrupted-round bookkeeping. */
+    executeRound(session, calls) {
+      return __async(this, null, function* () {
+        const tracked = trackInterruptedRounds(session.job, yield this.ports.executor.executeAll(calls));
+        session.job = tracked.job;
+        return tracked.results;
+      });
+    }
     /** Advances the cursor past a settled chunk and closes the phase when its work is done. */
     closeChunk(session, phase, chunk) {
       return __async(this, null, function* () {
         const now = this.ports.clock.now();
-        const advanced = advanceCursor(session.job, chunk, now);
+        const advanced = advanceCursor(session.job, phase, chunk, now);
         let job = advanced.job;
         if (!hasPhaseWork(job, phase)) {
           job = phase === "resolving" ? toAwaitingConfirmation(job, now) : job.counts.inAudience === 0 ? toCompleted(job, now) : toAwaitingAudience(job, now);
@@ -10047,8 +10156,9 @@
     waitForAudience(session, deadlineAt) {
       return __async(this, null, function* () {
         for (; ; ) {
-          const [result] = yield this.ports.executor.executeAll([countAudience(buildAudienceQuery(session.job).query)]);
-          const resolution = resolveAudienceCount(session.job, result, this.ports.clock.now());
+          const call = countAudience(buildAudienceQuery(session.job).query);
+          const [result] = yield this.executeRound(session, [call]);
+          const resolution = resolveAudienceCount(session.job, call, result, this.ports.clock.now());
           if (resolution.kind !== "wait" || this.ports.clock.now() + AUDIENCE_POLL_INTERVAL_MS + CHUNK_TIME_RESERVE_MS >= deadlineAt) {
             return this.persistSendPhase(session, resolution);
           }
@@ -10065,12 +10175,30 @@
           if (!isCampaignReconcileDue(session.job, now)) {
             return { kind: "yield" };
           }
-          const [result2] = yield this.ports.executor.executeAll([findCampaignsByName(dispatchName(session.job))]);
-          return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, result2, this.ports.clock.now()));
+          const call2 = findCampaignsByName(dispatchName(session.job));
+          const [result2] = yield this.executeRound(session, [call2]);
+          return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, call2, result2, this.ports.clock.now()));
         }
         session.job = yield this.ports.store.update(withCampaignInFlight(session.job, now), []);
-        const [result] = yield this.ports.executor.executeAll([createCampaign(buildCampaignBody(session.job))]);
-        return this.persistSendPhase(session, resolveCampaignCreation(session.job, result, this.ports.clock.now()));
+        const call = createCampaign(buildCampaignBody(session.job));
+        const result = yield this.postCampaignOrClearMarker(session, call);
+        return this.persistSendPhase(session, resolveCampaignCreation(session.job, call, result, this.ports.clock.now()));
+      });
+    }
+    /**
+     * Posts the campaign. An executor rejection means nothing was sent (see
+     * {@link CallExecutor}), so the marker is cleared before the error propagates and no
+     * reconciliation is left behind for a POST that never happened.
+     */
+    postCampaignOrClearMarker(session, call) {
+      return __async(this, null, function* () {
+        try {
+          const [result] = yield this.executeRound(session, [call]);
+          return result;
+        } catch (error) {
+          session.job = yield this.ports.store.update(withoutCampaignInFlight(session.job, this.ports.clock.now()), []);
+          throw error;
+        }
       });
     }
     /** Persists a Bearer phase resolution and turns it into a loop signal. */
@@ -10090,8 +10218,11 @@
   };
   function requireSuccess(result, route) {
     var _a;
-    if (result.kind !== "completed") {
+    if (result.kind === "throttled" || result.kind === "unsent") {
       throw new DispatchThrottledError(route);
+    }
+    if (result.kind !== "completed") {
+      throw new DispatchTransportError(route, result.message);
     }
     if (!isSuccess(result)) {
       throw new DispatchValidationError([`${route} answered ${result.status}: ${truncateDetail((_a = JSON.stringify(result.data)) != null ? _a : "")}`]);
@@ -11043,6 +11174,19 @@
 
   // src/sdk/core/call-executor.ts
   var TOO_MANY_REQUESTS_STATUS = 429;
+  var JSON_MEDIA_TYPE = "application/json";
+  function wireRequestOf(call, headers, options) {
+    const authorization = headers.get(call.strategy);
+    if (authorization === void 0) {
+      throw new Error(`No authorization was resolved for the ${call.strategy} strategy`);
+    }
+    const request = {
+      method: call.method,
+      url: urlOfCall(call, options),
+      headers: { Accept: JSON_MEDIA_TYPE, Authorization: authorization }
+    };
+    return call.body === void 0 ? request : __spreadProps(__spreadValues({}, request), { contentType: JSON_MEDIA_TYPE, body: call.body });
+  }
   function executeInWaves(calls, concurrency, sendWave) {
     return __async(this, null, function* () {
       const results = [];
@@ -11126,17 +11270,18 @@
         }));
       });
     }
-    /** The `fetchAll` request of a call. */
+    /** The `fetchAll` request of a call, with the content type and the body as `fetchAll` takes them. */
     fetchRequestOf(call, headers) {
+      const wire = wireRequestOf(call, headers, this.options);
       const request = {
-        url: urlOfCall(call, this.options),
-        method: call.method.toLowerCase(),
-        headers: { Accept: "application/json", Authorization: headers.get(call.strategy) },
+        url: wire.url,
+        method: wire.method.toLowerCase(),
+        headers: wire.headers,
         muteHttpExceptions: true
       };
-      if (call.body !== void 0) {
-        request.contentType = "application/json";
-        request.payload = JSON.stringify(call.body);
+      if (wire.contentType !== void 0) {
+        request.contentType = wire.contentType;
+        request.payload = JSON.stringify(wire.body);
       }
       return request;
     }
@@ -11245,7 +11390,7 @@
           const personId = String(values[contactColumn("personId")]);
           const outcome = String(values[contactColumn("outcome")]);
           const index = Number(values[contactColumn("index")]);
-          if (personId !== "" && (outcome === "ready" || outcome === "inAudience") && !claims.has(personId)) {
+          if (personId !== "" && holdsPersonClaim(outcome) && !claims.has(personId)) {
             claims.set(personId, index);
           }
         }
@@ -11594,6 +11739,9 @@
       { dailyCallQuota: options.dailyCallQuota }
     );
   }
+  function archiveWorkspaceDispatchJob(spreadsheetId, jobId) {
+    runSync(() => new SheetDispatchJobStore({ spreadsheetId }).archive(jobId, gasClock.now()));
+  }
   function installHabllaClient() {
     var _a;
     const vars = readVariables();
@@ -11615,6 +11763,7 @@
       store: makeStore(),
       utils: utils_exports,
       createWorkspaceDispatch: (options) => createWorkspaceDispatch(client, baseUrl, vars.workspaceId, options),
+      archiveWorkspaceDispatchJob,
       executionWindow
     };
     return client;

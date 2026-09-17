@@ -128,15 +128,29 @@ class W_Utils {
   var NATIONAL_PHONE_LENGTHS = [10, 11];
   var INTERNATIONAL_PHONE_LENGTHS = [12, 13];
   var CANONICAL_PHONE_LENGTH = 13;
+  var LOCAL_NUMBER_START = 4;
+  var NINTH_DIGIT = "9";
+  var MOBILE_FIRST_DIGITS = ["6", "7", "8", "9"];
+  var LANDLINE_FIRST_DIGITS = ["2", "3", "4", "5"];
   var brazilianPhoneVariants = (value) => {
-    const digits = toDigits(value);
-    if (NATIONAL_PHONE_LENGTHS.includes(digits.length)) {
-      return phoneVariants(BRAZIL_COUNTRY_CODE + digits);
+    const digits = withCountryCode(toDigits(value));
+    if (digits === void 0) {
+      return void 0;
     }
-    if (INTERNATIONAL_PHONE_LENGTHS.includes(digits.length) && digits.startsWith(BRAZIL_COUNTRY_CODE)) {
+    const localFirstDigit = digits[LOCAL_NUMBER_START];
+    if (digits.length === CANONICAL_PHONE_LENGTH) {
+      return localFirstDigit === NINTH_DIGIT ? phoneVariants(digits) : void 0;
+    }
+    if (MOBILE_FIRST_DIGITS.includes(localFirstDigit)) {
       return phoneVariants(digits);
     }
-    return void 0;
+    return LANDLINE_FIRST_DIGITS.includes(localFirstDigit) ? { digits, alternate: digits } : void 0;
+  };
+  var withCountryCode = (digits) => {
+    if (NATIONAL_PHONE_LENGTHS.includes(digits.length)) {
+      return BRAZIL_COUNTRY_CODE + digits;
+    }
+    return INTERNATIONAL_PHONE_LENGTHS.includes(digits.length) && digits.startsWith(BRAZIL_COUNTRY_CODE) ? digits : void 0;
   };
   var phoneIdentity = (variants) => variants.digits.length === CANONICAL_PHONE_LENGTH ? variants.digits : variants.alternate;
 
