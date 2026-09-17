@@ -44,7 +44,7 @@ export const AUDIENCE_POLL_INTERVAL_MS = 5_000;
 /** The count answers 500 for ~20-30 s after the segmentation is created; slack for large audiences. */
 export const AUDIENCE_READY_TIMEOUT_MS = 180_000;
 
-/** No block starts without this much time left before `deadlineAt`. */
+/** No block, and no round inside a block, starts without this much time left before `deadlineAt`. */
 export const CHUNK_TIME_RESERVE_MS = 60_000;
 
 /** Attendance statuses that mean the contact is in a live conversation (probe 00). */

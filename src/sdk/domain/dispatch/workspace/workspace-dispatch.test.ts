@@ -199,6 +199,35 @@ describe('WorkspaceDispatch resumption', () => {
         expect(hablla.campaigns).toHaveLength(1);
     });
 
+    it('stops between rounds when the execution window runs out and picks the same block up again', async () => {
+        const CALLS_PER_ROUND = 4;
+        const ROUND_DURATION_MS = 20_000;
+        const callsPerExecution: number[] = [];
+
+        hablla.onRequest = () => {
+            clock.current += ROUND_DURATION_MS;
+        };
+
+        let progress = await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] }));
+
+        for (let continuation = 0; progress.next.kind === 'continueAfter'; continuation++) {
+            expect(continuation).toBeLessThan(MAX_CONTINUATIONS);
+            clock.current += progress.next.delayMs;
+
+            const before = hablla.requests.length;
+
+            progress = await dispatch.continue(progress.job.id, windowNow(CHUNK_TIME_RESERVE_MS + ROUND_DURATION_MS + 10_000));
+            callsPerExecution.push(hablla.requests.length - before);
+
+            if (progress.next.kind === 'awaitConfirmation') {
+                progress = await dispatch.start(progress.job.id, OPERATOR);
+            }
+        }
+
+        expect(Math.max(...callsPerExecution)).toBeLessThanOrEqual(CALLS_PER_ROUND);
+        expect(progress.job).toMatchObject({ phase: 'completed', audienceSize: 2, campaignQuantity: 2 });
+    });
+
     it('cools down after a 429 in the middle of the writes and never repeats a confirmed write', async () => {
         hablla.faults.push({ matches: (request) => request.method === 'POST' && request.path.endsWith('/persons') && request.body.phones[0].phone === phoneOf('2'), kind: 'throttle', times: 1 });
 

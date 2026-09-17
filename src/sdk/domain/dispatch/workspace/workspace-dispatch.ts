@@ -319,7 +319,7 @@ export class WorkspaceDispatch {
 
     /** Runs the job's phases while a chunk still fits before the deadline. */
     private async runUntilDeadline(session: ContinueSession, deadlineAt: number): Promise<EarlyStop | undefined> {
-        while (RESUMABLE_PHASES.includes(session.job.phase) && this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt) {
+        while (RESUMABLE_PHASES.includes(session.job.phase) && this.hasTimeLeft(deadlineAt)) {
             const signal = await this.runPhaseStep(session, deadlineAt);
 
             if (signal.kind === 'stop') {
@@ -339,7 +339,7 @@ export class WorkspaceDispatch {
         switch (session.job.phase) {
             case 'resolving':
             case 'materializing':
-                return this.runChunk(session, session.job.phase);
+                return this.runChunk(session, session.job.phase, deadlineAt);
             case 'awaitingAudience':
                 return this.waitForAudience(session, deadlineAt);
             case 'sending':
@@ -352,9 +352,11 @@ export class WorkspaceDispatch {
     /**
      * Processes one chunk of contacts from the cursor in rounds until every contact is
      * settled or deferred, then advances the cursor and closes the phase when no work is
-     * left.
+     * left. A round only starts while the execution window has room for it; the cursor
+     * stays put, so the next execution picks the same block up (every round persists what
+     * it learned).
      */
-    private async runChunk(session: ContinueSession, phase: ChunkedPhase): Promise<LoopSignal> {
+    private async runChunk(session: ContinueSession, phase: ChunkedPhase, deadlineAt: number): Promise<LoopSignal> {
         const store = this.ports.store;
         const chunkSize = phase === 'resolving' ? LOOKUP_CHUNK_SIZE : WRITE_CHUNK_SIZE;
         const contacts = await store.loadContacts(session.job.id, { offset: session.job.cursor, limit: chunkSize });
@@ -368,6 +370,10 @@ export class WorkspaceDispatch {
 
             if (!steps.some((step) => step.kind === 'calls')) {
                 break;
+            }
+
+            if (!this.hasTimeLeft(deadlineAt)) {
+                return { kind: 'yield' };
             }
 
             blocks = await this.persistWriteAheads(session, blocks, steps);
@@ -461,6 +467,11 @@ export class WorkspaceDispatch {
         }
 
         return { blocks: updated, signal: stopCause ? { kind: 'stop', stop: { cause: stopCause } } : undefined };
+    }
+
+    /** True while the execution window still has room for a block or a round. */
+    private hasTimeLeft(deadlineAt: number): boolean {
+        return this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt;
     }
 
     /** Runs one round of calls, keeping the job's interrupted-round bookkeeping. */
