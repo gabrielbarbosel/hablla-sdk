@@ -28,6 +28,16 @@ export const THROTTLE_COOLDOWN_MS = 60_000;
 /** A network outage should not burn attempts on immediate rounds. */
 export const TRANSPORT_COOLDOWN_MS = 60_000;
 
+/**
+ * Consecutive rounds that may come back interrupted before the interruptions are read as
+ * transport failures. An interrupted wave consumes no attempt, so a call that always
+ * breaks its wave (in Apps Script `fetchAll` throws for the whole wave) would otherwise
+ * be retried every cooldown forever. Past this many rounds the contacts spend attempts and
+ * end in `lookupFailed` or `writeFailed`, which also means an outage longer than these
+ * rounds plus `MAX_CALL_ATTEMPTS` cooldowns fails those contacts instead of waiting.
+ */
+export const INTERRUPTED_ROUNDS_BEFORE_ATTEMPT = 5;
+
 /** Interval between audience counts (probes 03 and 04). */
 export const AUDIENCE_POLL_INTERVAL_MS = 5_000;
 

@@ -13,9 +13,11 @@ export type StopCause = 'throttled' | 'interrupted';
 
 /**
  * What failed in a contact's results, in precedence order:
- * - `stopBlock`: a call was throttled or never sent, or a wave was interrupted; nothing is consumed.
+ * - `stopBlock`: a call was throttled or a wave was interrupted; nothing is consumed.
  * - `tokenRejected`: a 401/403; the token itself is refused.
  * - `outcomeUnknown`: a 5xx or a transport failure; the request may have been applied.
+ *   It outranks a sibling call that was never sent, because an unknown outcome has to be
+ *   resolved while a call that was not sent only has to be repeated.
  * - `rejected`: another non-2xx; the request was refused and not applied.
  */
 export type CallFailure =
@@ -57,7 +59,7 @@ export function isSuccess(result: CallResult): boolean {
  * is the one the contact's calls were pinned to.
  */
 export function classifyCallFailures(results: readonly CallResult[], strategy: AuthStrategy): CallFailure | undefined {
-    if (results.some((result) => result.kind === 'throttled' || result.kind === 'unsent')) {
+    if (results.some((result) => result.kind === 'throttled')) {
         return { kind: 'stopBlock', cause: 'throttled' };
     }
 
@@ -73,6 +75,10 @@ export function classifyCallFailures(results: readonly CallResult[], strategy: A
 
     if (unknownOutcome) {
         return { kind: 'outcomeUnknown', failure: failureOf(unknownOutcome) };
+    }
+
+    if (results.some((result) => result.kind === 'unsent')) {
+        return { kind: 'stopBlock', cause: 'throttled' };
     }
 
     const refused = results.find((result) => !isSuccess(result));

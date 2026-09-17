@@ -233,6 +233,8 @@ export interface DispatchJob {
     counts: Readonly<Record<ContactOutcome, number>>;
     /** Contacts that left `ready` at the send-time lookup, by the outcome they moved to. */
     revalidationShifts: Readonly<Partial<Record<ContactOutcome, number>>>;
+    /** Rounds interrupted in a row (see `trackInterruptedRounds`); reset by the first round that is not. */
+    consecutiveInterruptedRounds: number;
     startedBy?: string;
     startedAt?: number;
     segmentationId?: string;

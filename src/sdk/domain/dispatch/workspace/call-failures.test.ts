@@ -10,11 +10,14 @@ describe('classifyCallFailures', () => {
         expect(classifyCallFailures([completed(200), completed(201)], 'workspace')).toBeUndefined();
     });
 
-    it('ranks throttled above interrupted, token rejection, unknown outcome and refusal', () => {
-        expect(classifyCallFailures([completed(401), { kind: 'interrupted', message: 'x' }, { kind: 'unsent' }], 'workspace')).toEqual({ kind: 'stopBlock', cause: 'throttled' });
+    it('ranks a throttle above an interruption, a refused token, an unknown outcome, a call never sent and a refusal', () => {
+        expect(classifyCallFailures([completed(401), { kind: 'interrupted', message: 'x' }, { kind: 'throttled' }], 'workspace')).toEqual({ kind: 'stopBlock', cause: 'throttled' });
         expect(classifyCallFailures([completed(401), { kind: 'interrupted', message: 'x' }], 'workspace')).toEqual({ kind: 'stopBlock', cause: 'interrupted' });
         expect(classifyCallFailures([completed(500), completed(403)], 'bearer')).toEqual({ kind: 'tokenRejected', strategy: 'bearer' });
+        expect(classifyCallFailures([{ kind: 'transportFailed', message: 'reset' }, { kind: 'unsent' }], 'workspace')).toMatchObject({ kind: 'outcomeUnknown' });
+        expect(classifyCallFailures([{ kind: 'throttled' }, { kind: 'transportFailed', message: 'reset' }], 'workspace')).toEqual({ kind: 'stopBlock', cause: 'throttled' });
         expect(classifyCallFailures([completed(404), completed(503, 'down')], 'workspace')).toEqual({ kind: 'outcomeUnknown', failure: { status: 503, detail: '"down"' } });
+        expect(classifyCallFailures([completed(200), { kind: 'unsent' }], 'workspace')).toEqual({ kind: 'stopBlock', cause: 'throttled' });
         expect(classifyCallFailures([completed(200), completed(422, { message: 'invalid' })], 'workspace')).toEqual({ kind: 'rejected', failure: { status: 422, detail: '{"message":"invalid"}' } });
     });
 

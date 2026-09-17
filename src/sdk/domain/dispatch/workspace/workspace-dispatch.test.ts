@@ -287,6 +287,16 @@ describe('WorkspaceDispatch resumption', () => {
         expect(resolved.job.counts.ready).toBe(2);
     });
 
+    it('gives up on a contact whose calls keep breaking the wave, instead of retrying it forever', async () => {
+        dispatch = buildDispatch(1_000_000, 1);
+        hablla.faults.push({ matches: (request) => request.query.get('phone') === phoneOf('1'), kind: 'reject', times: Number.POSITIVE_INFINITY });
+
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1'), aRow('2')] }));
+
+        expect(outcomesOf(done.job.id)).toEqual(['0:lookupFailed', '1:inAudience']);
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 1 });
+    });
+
     it('never retries a 5xx lookup in the same execution', async () => {
         hablla.faults.push({ matches: (request) => request.query.get('phone') === phoneOf('1'), kind: 'status', status: 500, times: 1 });
 

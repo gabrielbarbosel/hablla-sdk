@@ -15,12 +15,13 @@ import {
     toResumed,
     toSending,
     toSuperseded,
+    trackInterruptedRounds,
 } from './job-machine';
 import { prepareAudience } from './audience';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { InvalidJobTransitionError } from './errors';
 import { JOB_ID_PATTERN } from './request-validation';
-import { ROSTER, aContact, aRequest, aRow } from './__fixtures__/builders';
+import { ROSTER, aContact, aRequest, aRow, completed } from './__fixtures__/builders';
 import type { DispatchJob, DispatchJobPhase, JobFailure } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -91,6 +92,25 @@ describe('duplicateVerdict', () => {
 
     it('ignores completed jobs without a campaign, superseded and abandoned jobs', () => {
         expect(duplicateVerdict([job('completed'), job('superseded'), job('abandoned')], undefined, NOW)).toEqual({ kind: 'create', supersede: [] });
+    });
+});
+
+describe('trackInterruptedRounds', () => {
+    const interrupted = { kind: 'interrupted', message: 'fetchAll failed' } as const;
+
+    it('counts the interrupted rounds in a row and resets on a round without one', () => {
+        const first = trackInterruptedRounds(aJob(), [interrupted]);
+
+        expect(first.job.consecutiveInterruptedRounds).toBe(1);
+        expect(first.results).toEqual([interrupted]);
+        expect(trackInterruptedRounds(first.job, [completed(200)]).job.consecutiveInterruptedRounds).toBe(0);
+    });
+
+    it('reads the interruptions as transport failures past the limit, so attempts are spent', () => {
+        const tracked = trackInterruptedRounds(aJob({ consecutiveInterruptedRounds: INTERRUPTED_ROUNDS_BEFORE_ATTEMPT }), [interrupted, { kind: 'unsent' }]);
+
+        expect(tracked.job.consecutiveInterruptedRounds).toBe(INTERRUPTED_ROUNDS_BEFORE_ATTEMPT + 1);
+        expect(tracked.results).toEqual([{ kind: 'transportFailed', message: 'fetchAll failed' }, { kind: 'unsent' }]);
     });
 });
 

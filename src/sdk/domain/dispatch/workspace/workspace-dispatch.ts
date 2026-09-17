@@ -42,6 +42,7 @@ import {
     toMaterializing,
     toResumed,
     toSuperseded,
+    trackInterruptedRounds,
 } from './job-machine';
 import { toCreatedId, toCustomFieldDefinition, toPayloadPage, toRosterUser } from './payloads';
 import { assertValidRequest, assertValidRequestShape, indexCustomFields, indexRoster } from './request-validation';
@@ -401,7 +402,7 @@ export class WorkspaceDispatch {
     /** Sends every call of a round at once and applies each contact's results. */
     private async runRound(session: ContinueSession, phase: ChunkedPhase, blocks: readonly BlockContact[], steps: readonly ContactStep[]): Promise<{ blocks: BlockContact[]; signal?: LoopSignal }> {
         const calls = steps.flatMap((step) => (step.kind === 'calls' ? step.calls : []));
-        const results = await this.ports.executor.executeAll(calls);
+        const results = await this.executeRound(session, calls);
         const now = this.ports.clock.now();
         const shifts: Partial<Record<ContactOutcome, number>> = { ...session.job.revalidationShifts };
         let claims = session.claims!;
@@ -462,6 +463,15 @@ export class WorkspaceDispatch {
         return { blocks: updated, signal: stopCause ? { kind: 'stop', stop: { cause: stopCause } } : undefined };
     }
 
+    /** Runs one round of calls, keeping the job's interrupted-round bookkeeping. */
+    private async executeRound(session: ContinueSession, calls: readonly HttpCall[]): Promise<readonly CallResult[]> {
+        const tracked = trackInterruptedRounds(session.job, await this.ports.executor.executeAll(calls));
+
+        session.job = tracked.job;
+
+        return tracked.results;
+    }
+
     /** Advances the cursor past a settled chunk and closes the phase when its work is done. */
     private async closeChunk(session: ContinueSession, phase: ChunkedPhase, chunk: readonly DispatchContact[]): Promise<LoopSignal> {
         const now = this.ports.clock.now();
@@ -486,7 +496,7 @@ export class WorkspaceDispatch {
     /** Polls the audience count until it matches, fails, or the window closes. */
     private async waitForAudience(session: ContinueSession, deadlineAt: number): Promise<LoopSignal> {
         for (;;) {
-            const [result] = await this.ports.executor.executeAll([countAudience(buildAudienceQuery(session.job).query)]);
+            const [result] = await this.executeRound(session, [countAudience(buildAudienceQuery(session.job).query)]);
             const resolution = resolveAudienceCount(session.job, result!, this.ports.clock.now());
 
             if (resolution.kind !== 'wait' || this.ports.clock.now() + AUDIENCE_POLL_INTERVAL_MS + CHUNK_TIME_RESERVE_MS >= deadlineAt) {
@@ -507,7 +517,7 @@ export class WorkspaceDispatch {
                 return { kind: 'yield' };
             }
 
-            const [result] = await this.ports.executor.executeAll([findCampaignsByName(dispatchName(session.job))]);
+            const [result] = await this.executeRound(session, [findCampaignsByName(dispatchName(session.job))]);
 
             return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, result!, this.ports.clock.now()));
         }
@@ -526,7 +536,7 @@ export class WorkspaceDispatch {
      */
     private async postCampaignOrClearMarker(session: ContinueSession): Promise<CallResult> {
         try {
-            const [result] = await this.ports.executor.executeAll([createCampaign(buildCampaignBody(session.job))]);
+            const [result] = await this.executeRound(session, [createCampaign(buildCampaignBody(session.job))]);
             return result!;
         } catch (error) {
             session.job = await this.ports.store.update(withoutCampaignInFlight(session.job, this.ports.clock.now()), []);

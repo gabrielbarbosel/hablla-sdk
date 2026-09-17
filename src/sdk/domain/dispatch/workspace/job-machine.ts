@@ -3,6 +3,7 @@
  * counts, the chunk cursor and passes, phase transitions and the next step for callers.
  */
 
+import type { CallResult } from '../../../core/call-executor';
 import type { PreparedAudience } from './audience';
 import type { StopCause } from './call-failures';
 import type {
@@ -16,7 +17,7 @@ import type {
     WorkspaceDispatchRequest,
 } from './types';
 import { toDispatchConfig } from './campaign';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { workOutcomeOf } from './contact-step';
 import { InvalidJobTransitionError } from './errors';
 
@@ -105,6 +106,7 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
         pass: 0,
         counts: countOutcomes(prepared.contacts),
         revalidationShifts: {},
+        consecutiveInterruptedRounds: 0,
         warnings: [],
     };
 }
@@ -155,6 +157,30 @@ function latestSentJob(jobs: readonly DispatchJob[]): DispatchJob | undefined {
     return jobs
         .filter((job) => job.phase === 'completed' && job.campaignId !== undefined)
         .reduce<DispatchJob | undefined>((latest, job) => (latest === undefined || job.createdAt > latest.createdAt ? job : latest), undefined);
+}
+
+/**
+ * Bookkeeping of interrupted rounds: counts the consecutive rounds whose results hold an
+ * interruption and, past {@link INTERRUPTED_ROUNDS_BEFORE_ATTEMPT}, reports them as
+ * transport failures, so the contacts behind them spend attempts instead of being retried
+ * after every cooldown forever. A round without interruptions resets the count.
+ */
+export function trackInterruptedRounds(job: DispatchJob, results: readonly CallResult[]): { job: DispatchJob; results: readonly CallResult[] } {
+    if (!results.some((result) => result.kind === 'interrupted')) {
+        return { job: job.consecutiveInterruptedRounds === 0 ? job : { ...job, consecutiveInterruptedRounds: 0 }, results };
+    }
+
+    const rounds = job.consecutiveInterruptedRounds + 1;
+    const tracked: DispatchJob = { ...job, consecutiveInterruptedRounds: rounds };
+
+    if (rounds <= INTERRUPTED_ROUNDS_BEFORE_ATTEMPT) {
+        return { job: tracked, results };
+    }
+
+    return {
+        job: tracked,
+        results: results.map((result) => (result.kind === 'interrupted' ? { kind: 'transportFailed', message: result.message } : result)),
+    };
 }
 
 /** True while another execution holds the job's lease. */
