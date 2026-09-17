@@ -8447,7 +8447,7 @@
     return { workspace, bearer, total: workspace + bearer };
   }
   function exclusionBearerCalls(exclusionPages) {
-    return exclusionPages === 0 ? 0 : 1 + exclusionPages * EXCLUSION_RUNS_PER_DISPATCH;
+    return exclusionPages === 0 ? 0 : 1 + (1 + exclusionPages) * EXCLUSION_RUNS_PER_DISPATCH;
   }
 
   // src/sdk/domain/dispatch/workspace/call-failures.ts
@@ -8578,6 +8578,18 @@
       throw new Error(`Dispatch job ${job.id} has no exclusion attempts recorded`);
     }
     return job.exclusionAttempts;
+  }
+  function requireExclusionUniverseSize(job) {
+    if (job.exclusionUniverseSize === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no counted exclusion universe`);
+    }
+    return job.exclusionUniverseSize;
+  }
+  function requireExclusionListed(job) {
+    if (job.exclusionListed === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no listed exclusion tally`);
+    }
+    return job.exclusionListed;
   }
   function requireAudienceDeadline(job) {
     if (job.audienceDeadlineAt === void 0) {
@@ -8824,11 +8836,11 @@
       properties: { variables: { whatsapp: { components: { examples: { body: { "0_is_expression": false } } } } } }
     };
   }
-  function readAudienceCount(result) {
+  function readAudienceCount(result, payload) {
     const data = isSuccess(result) ? payloadOf(result) : void 0;
     const count = data == null ? void 0 : data.count;
     if (typeof count !== "number" || !Number.isFinite(count)) {
-      throw new UnexpectedPayloadError("audience count", `expected a 2xx with a numeric count, got ${JSON.stringify(result)}`);
+      throw new UnexpectedPayloadError(payload, `expected a 2xx with a numeric count, got ${JSON.stringify(result)}`);
     }
     return count;
   }
@@ -9385,6 +9397,8 @@
       exclusionPurpose: purpose,
       exclusionCursor: FIRST_EXCLUSION_PAGE,
       exclusionAttempts: 0,
+      exclusionUniverseSize: void 0,
+      exclusionListed: 0,
       updatedAt: now
     });
   }
@@ -9514,6 +9528,8 @@
       exclusionPurpose: void 0,
       exclusionCursor: void 0,
       exclusionAttempts: void 0,
+      exclusionUniverseSize: void 0,
+      exclusionListed: void 0,
       cursor: 0,
       pass: 0,
       passDeferredUntil: void 0,
@@ -9633,47 +9649,60 @@
 
   // src/sdk/domain/dispatch/workspace/exclusion.ts
   var EXCLUSION_LISTING = "exclusion listing";
+  var EXCLUSION_UNIVERSE_COUNT = "exclusion universe count";
   function exclusionPageCount(universeSize) {
     return Math.floor(universeSize / EXCLUSION_PAGE_LIMIT) + 1;
   }
+  function resolveExclusionUniverse(job, call, result, now) {
+    const failure = resolveExclusionReadFailure(job, call, result, EXCLUSION_UNIVERSE_COUNT, now);
+    if (failure) {
+      return failure;
+    }
+    return { kind: "universe", job: __spreadProps(__spreadValues({}, job), { exclusionUniverseSize: readAudienceCount(result, EXCLUSION_UNIVERSE_COUNT), exclusionAttempts: 0, updatedAt: now }) };
+  }
   function resolveExclusionPage(job, call, result, maxExclusionPages, now) {
-    const failure = classifyCallFailures([result]);
-    switch (failure == null ? void 0 : failure.kind) {
-      case void 0:
-        break;
-      case "stopBlock":
-        return { kind: "stop", cause: failure.cause, job };
-      case "tokenRejected":
-        return { kind: "failed", job: toFailed(job, tokenRejectedFailure([call], [result], EXCLUSION_LISTING, "resolvingExclusions"), now) };
-      case "rejected":
-        return {
-          kind: "failed",
-          job: toFailed(job, { reason: "exclusion_query_rejected", detail: `exclusion listing refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: "resolvingExclusions" }, now)
-        };
-      case "outcomeUnknown":
-        return retryExclusionPage(job, failure.failure.detail, now);
+    const failure = resolveExclusionReadFailure(job, call, result, EXCLUSION_LISTING, now);
+    if (failure) {
+      return failure;
     }
     const page = toFilteredPersonPage(payloadOf(result), EXCLUSION_LISTING);
-    const lastPage = page.size < EXCLUSION_PAGE_LIMIT;
-    if (!lastPage && requireExclusionCursor(job) >= maxExclusionPages) {
-      return {
-        kind: "failed",
-        job: toFailed(job, { reason: "exclusion_too_large", detail: `the exclusion filters list more than ${maxExclusionPages} pages of ${EXCLUSION_PAGE_LIMIT} persons`, resumePhase: "resolvingExclusions" }, now)
-      };
+    if (page.size >= EXCLUSION_PAGE_LIMIT) {
+      return requireExclusionCursor(job) >= maxExclusionPages ? tooLargeExclusion(job, maxExclusionPages, now) : { kind: "page", page, lastPage: false };
     }
-    return { kind: "page", phones: page.phones, lastPage };
+    const listed = requireExclusionListed(job) + page.size;
+    const universeSize = requireExclusionUniverseSize(job);
+    return listed < universeSize ? incompleteExclusion(job, listed, universeSize, now) : { kind: "page", page, lastPage: true };
   }
-  function applyExcludedPhones(job, contacts, phones, now) {
-    const after = excludeContacts(contacts, phones);
+  function applyExcludedPhones(job, contacts, page, now) {
+    const after = excludeContacts(contacts, page.phones);
     const excluded = after.filter((contact, position) => contact !== contacts[position]);
     return {
       job: __spreadProps(__spreadValues({}, job), {
         counts: tallyOutcomes(job.counts, contacts, after),
         revalidationShifts: exclusionShifts(job, excluded.length),
+        exclusionListed: requireExclusionListed(job) + page.size,
         updatedAt: now
       }),
       excluded
     };
+  }
+  function resolveExclusionReadFailure(job, call, result, payload, now) {
+    const failure = classifyCallFailures([result]);
+    switch (failure == null ? void 0 : failure.kind) {
+      case void 0:
+        return void 0;
+      case "stopBlock":
+        return { kind: "stop", cause: failure.cause, job };
+      case "tokenRejected":
+        return { kind: "failed", job: toFailed(job, tokenRejectedFailure([call], [result], payload, "resolvingExclusions"), now) };
+      case "rejected":
+        return {
+          kind: "failed",
+          job: toFailed(job, { reason: "exclusion_query_rejected", detail: `${payload} refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: "resolvingExclusions" }, now)
+        };
+      case "outcomeUnknown":
+        return retryExclusionRead(job, failure.failure.detail, now);
+    }
   }
   function exclusionShifts(job, excludedCount) {
     var _a;
@@ -9682,7 +9711,20 @@
     }
     return __spreadProps(__spreadValues({}, job.revalidationShifts), { excluded: ((_a = job.revalidationShifts.excluded) != null ? _a : 0) + excludedCount });
   }
-  function retryExclusionPage(job, detail, now) {
+  function tooLargeExclusion(job, maxExclusionPages, now) {
+    return {
+      kind: "failed",
+      job: toFailed(job, { reason: "exclusion_too_large", detail: `the exclusion filters list more than ${maxExclusionPages} pages of ${EXCLUSION_PAGE_LIMIT} persons`, resumePhase: "resolvingExclusions" }, now)
+    };
+  }
+  function incompleteExclusion(job, listed, universeSize, now) {
+    const restarted = __spreadProps(__spreadValues({}, job), { exclusionCursor: FIRST_EXCLUSION_PAGE, exclusionAttempts: 0, exclusionUniverseSize: void 0, exclusionListed: 0 });
+    return {
+      kind: "failed",
+      job: toFailed(restarted, { reason: "exclusion_incomplete", detail: `the exclusion listing ended at ${listed} of the ${universeSize} persons the filters count`, resumePhase: "resolvingExclusions" }, now)
+    };
+  }
+  function retryExclusionRead(job, detail, now) {
     const attempts = requireExclusionAttempts(job) + 1;
     if (attempts < MAX_CALL_ATTEMPTS) {
       return { kind: "stop", cause: "interrupted", job: __spreadProps(__spreadValues({}, job), { exclusionAttempts: attempts, updatedAt: now }) };
@@ -9860,15 +9902,16 @@
   }
 
   // src/sdk/domain/dispatch/workspace/send-phases.ts
+  var AUDIENCE_COUNT = "audience count";
   function resolveAudienceCount(job, call, result, now) {
     const failure = classifyCallFailures([result]);
     if ((failure == null ? void 0 : failure.kind) === "tokenRejected") {
-      return { kind: "advanced", job: toFailed(job, tokenRejectedFailure([call], [result], "audience count", "awaitingAudience"), now) };
+      return { kind: "advanced", job: toFailed(job, tokenRejectedFailure([call], [result], AUDIENCE_COUNT, "awaitingAudience"), now) };
     }
     if ((failure == null ? void 0 : failure.kind) === "rejected") {
       return {
         kind: "advanced",
-        job: toFailed(job, { reason: "audience_query_rejected", detail: `audience count refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: "awaitingAudience" }, now)
+        job: toFailed(job, { reason: "audience_query_rejected", detail: `${AUDIENCE_COUNT} refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: "awaitingAudience" }, now)
       };
     }
     if ((failure == null ? void 0 : failure.kind) === "stopBlock") {
@@ -9878,7 +9921,7 @@
       return waitForAudience(job, job.lastAudienceCount, now);
     }
     const audienceSize = requireAudienceSize(job);
-    const count = readAudienceCount(result);
+    const count = readAudienceCount(result, AUDIENCE_COUNT);
     if (count === audienceSize) {
       return { kind: "advanced", job: toSending(job, count, now) };
     }
@@ -10120,8 +10163,8 @@
           return 0;
         }
         const [result] = yield this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)]);
-        requireSuccess(result, "exclusion universe count");
-        const universeSize = readAudienceCount(result);
+        requireSuccess(result, EXCLUSION_UNIVERSE_COUNT);
+        const universeSize = readAudienceCount(result, EXCLUSION_UNIVERSE_COUNT);
         const pages = exclusionPageCount(universeSize);
         if (pages > this.limits.maxExclusionPages) {
           throw new DispatchValidationError([
@@ -10248,18 +10291,41 @@
       });
     }
     /**
-     * Reads one page of the exclusion listing and marks every contact it names `excluded`.
-     * The phase runs before `resolving`, so the preview already counts the excluded
-     * contacts, and again on the confirmed job before `materializing`, so nobody excluded is
-     * written to.
+     * One read of the exclusion phase: the count of the filters' universe while the run has
+     * none, then one page of the listing. The phase runs before `resolving`, so the preview
+     * already counts the excluded contacts, and again on the confirmed job before
+     * `materializing`, so nobody excluded is written to.
      */
     resolveExclusions(session) {
+      return __async(this, null, function* () {
+        return session.job.exclusionUniverseSize === void 0 ? this.countExclusionUniverse(session) : this.readExclusionPage(session);
+      });
+    }
+    /** Counts the universe the run's pages must cover and keeps it on the job as the run's reference. */
+    countExclusionUniverse(session) {
+      return __async(this, null, function* () {
+        const call = countAudience(session.job.exclusion.segmentationFilters);
+        const [result] = yield this.executeRound(session, [call]);
+        const resolution = resolveExclusionUniverse(session.job, call, result, this.ports.clock.now());
+        session.job = yield this.ports.store.update(resolution.job, []);
+        switch (resolution.kind) {
+          case "universe":
+            return { kind: "next" };
+          case "failed":
+            return { kind: "yield" };
+          case "stop":
+            return { kind: "stop", stop: { cause: resolution.cause } };
+        }
+      });
+    }
+    /** Reads the page at the cursor and marks every contact it names `excluded`. */
+    readExclusionPage(session) {
       return __async(this, null, function* () {
         const call = listFilteredPersonsPage(session.job.exclusion.segmentationFilters, requireExclusionCursor(session.job));
         const [result] = yield this.executeRound(session, [call]);
         const resolution = resolveExclusionPage(session.job, call, result, this.limits.maxExclusionPages, this.ports.clock.now());
         if (resolution.kind === "page") {
-          return this.applyExclusionPage(session, resolution.phones, resolution.lastPage);
+          return this.applyExclusionPage(session, resolution.page, resolution.lastPage);
         }
         session.job = yield this.ports.store.update(resolution.job, []);
         return resolution.kind === "failed" ? { kind: "yield" } : { kind: "stop", stop: { cause: resolution.cause } };
@@ -10268,14 +10334,14 @@
     /**
      * Applies the phones of one page to the job's contacts and persists them together with
      * the next page, or with the phase the run hands over to, in one compare-and-set. An
-     * execution that dies before it re-reads the same page, and a contact excluded twice
-     * changes nothing.
+     * execution that dies mid-page only re-reads that same page, and re-applying a page
+     * whose write never landed changes nothing.
      */
-    applyExclusionPage(session, phones, lastPage) {
+    applyExclusionPage(session, page, lastPage) {
       return __async(this, null, function* () {
         const contacts = yield this.ports.store.loadContacts(session.job.id, { offset: 0, limit: session.job.contactCount });
         const now = this.ports.clock.now();
-        const applied = applyExcludedPhones(session.job, contacts, phones, now);
+        const applied = applyExcludedPhones(session.job, contacts, page, now);
         const job = lastPage ? toAfterExclusions(applied.job, now) : toNextExclusionPage(applied.job, now);
         session.job = yield this.ports.store.update(job, applied.excluded);
         return { kind: "next" };
