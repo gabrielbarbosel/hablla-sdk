@@ -24,6 +24,18 @@
     return a;
   };
   var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+  var __objRest = (source, exclude) => {
+    var target = {};
+    for (var prop in source)
+      if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0)
+        target[prop] = source[prop];
+    if (source != null && __getOwnPropSymbols)
+      for (var prop of __getOwnPropSymbols(source)) {
+        if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
+          target[prop] = source[prop];
+      }
+    return target;
+  };
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
@@ -8275,10 +8287,107 @@
     }
   };
 
+  // src/sdk/domain/dispatch/workspace/audience.ts
+  function prepareAudience(request, roster) {
+    const seenPhones = /* @__PURE__ */ new Set();
+    const prepared = request.rows.map((row, index) => {
+      const contact = contactOfRow(row, index, request, roster, seenPhones);
+      if (contact.phone) {
+        seenPhones.add(phoneIdentity(contact.phone));
+      }
+      return contact;
+    });
+    const contacts = excludeContacts(prepared, request.exclusion.phones);
+    return { contacts, fingerprint: audienceFingerprint(request, contacts) };
+  }
+  function excludeContacts(contacts, excludedPhones) {
+    const excludedIdentities = /* @__PURE__ */ new Set();
+    for (const excludedPhone of excludedPhones) {
+      const variants = brazilianPhoneVariants(excludedPhone);
+      if (variants) {
+        excludedIdentities.add(phoneIdentity(variants));
+      }
+    }
+    return contacts.map((contact) => contact.outcome === "pendingLookup" && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone)) ? __spreadProps(__spreadValues({}, contact), { outcome: "excluded" }) : contact);
+  }
+  function audienceFingerprint(request, contacts) {
+    const identities = contacts.filter((contact) => contact.outcome === "pendingLookup" && contact.phone).map((contact) => phoneIdentity(contact.phone)).sort();
+    return `${hash64Hex([request.connectionId, request.templateId, ...identities].join("|"))}-${identities.length}`;
+  }
+  function contactOfRow(row, index, request, roster, seenPhones) {
+    const name = collapseWhitespace(row.name);
+    const phone = brazilianPhoneVariants(row.phone);
+    const advisor = assignAdvisor(row.advisorKey, request, roster);
+    return {
+      index,
+      name,
+      phone,
+      firstName: capitalizeWord(firstName(name)),
+      advisorResolution: advisor.resolution,
+      target: advisor.target,
+      customFields: row.customFields,
+      outcome: firstOutcome(name, phone === void 0 ? void 0 : phoneIdentity(phone), advisor, seenPhones),
+      writesDone: 0,
+      attempts: 0,
+      createSends: 0
+    };
+  }
+  function firstOutcome(name, identity, advisor, seenPhones) {
+    if (identity === void 0) {
+      return "invalidPhone";
+    }
+    if (seenPhones.has(identity)) {
+      return "repeatedPhone";
+    }
+    if (name === "") {
+      return "missingName";
+    }
+    if (!advisor.target) {
+      return "unresolvedAdvisor";
+    }
+    return "pendingLookup";
+  }
+  function assignAdvisor(advisorKey, request, roster) {
+    const key = advisorKey.trim();
+    if (key === "") {
+      return unresolvedAdvisor("missing", request);
+    }
+    const user = request.advisorKeyKind === "email" ? roster.byEmail.get(normalizeEmail(key)) : roster.byId.get(key);
+    if (!user) {
+      return unresolvedAdvisor("notFound", request);
+    }
+    if (request.systemUserIds.includes(user.id)) {
+      return unresolvedAdvisor("systemUser", request);
+    }
+    return { resolution: "matched", target: { userId: user.id, source: "advisor" } };
+  }
+  function unresolvedAdvisor(resolution, request) {
+    const policy = request.unresolvedAdvisorPolicy;
+    if (policy.kind === "assignReserve") {
+      return { resolution, target: { userId: policy.reserveOwnerId, source: "reserve" } };
+    }
+    return { resolution };
+  }
+
   // src/sdk/domain/dispatch/workspace/constants.ts
+  var LOOKUP_CHUNK_SIZE = 50;
+  var WRITE_CHUNK_SIZE = 50;
   var MAX_CALL_ATTEMPTS = 3;
+  var MAX_CREATE_SENDS = 2;
+  var CALL_RETRY_DELAY_MS = 6e4;
+  var RECONCILIATION_DELAY_MS = 6e4;
+  var THROTTLE_COOLDOWN_MS = 6e4;
+  var TRANSPORT_COOLDOWN_MS = 6e4;
   var AUDIENCE_POLL_INTERVAL_MS = 5e3;
   var AUDIENCE_READY_TIMEOUT_MS = 18e4;
+  var CHUNK_TIME_RESERVE_MS = 6e4;
+  var OPEN_ATTENDANCE_STATUSES = ["pending", "in_queue", "in_attendance", "in_bot"];
+  var PERSON_LOOKUP_LIMIT = 50;
+  var ATTENDANCE_LOOKUP_LIMIT = 50;
+  var CATALOG_PAGE_LIMIT = 50;
+  var CAMPAIGN_RECONCILE_PAGE_LIMIT = 50;
+  var SEGMENTATION_ITEM_LOOKUP_LIMIT = 50;
+  var FAILURE_DETAIL_MAX_LENGTH = 300;
 
   // src/sdk/domain/dispatch/workspace/call-budget.ts
   var LOOKUP_CALLS = 4;
@@ -8287,6 +8396,1707 @@
   var LARGEST_STEP_CALLS = 2;
   var WORST_CASE_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
   var FIXED_BEARER_CALLS = 1 + Math.ceil(AUDIENCE_READY_TIMEOUT_MS / AUDIENCE_POLL_INTERVAL_MS) + 1 + 1;
+  function estimateCallBudget(contacts, catalogPages) {
+    const contactsToProcess = contacts.filter((contact) => contact.outcome === "pendingLookup").length;
+    const workspace = catalogPages.roster + contactsToProcess * WORST_CASE_CALLS_PER_CONTACT;
+    const bearer = catalogPages.customFields + FIXED_BEARER_CALLS;
+    return { workspace, bearer, total: workspace + bearer };
+  }
+
+  // src/sdk/domain/dispatch/workspace/call-failures.ts
+  var SUCCESS_STATUS_MIN = 200;
+  var SUCCESS_STATUS_MAX = 299;
+  var TOKEN_REJECTED_STATUSES = [401, 403];
+  var SERVER_ERROR_STATUS_MIN = 500;
+  function isSuccess(result) {
+    return result.kind === "completed" && result.status >= SUCCESS_STATUS_MIN && result.status <= SUCCESS_STATUS_MAX;
+  }
+  function classifyCallFailures(results, strategy) {
+    if (results.some((result) => result.kind === "throttled" || result.kind === "unsent")) {
+      return { kind: "stopBlock", cause: "throttled" };
+    }
+    if (results.some((result) => result.kind === "interrupted")) {
+      return { kind: "stopBlock", cause: "interrupted" };
+    }
+    if (results.some((result) => result.kind === "completed" && TOKEN_REJECTED_STATUSES.includes(result.status))) {
+      return { kind: "tokenRejected", strategy };
+    }
+    const unknownOutcome = results.find((result) => result.kind === "transportFailed" || result.kind === "completed" && result.status >= SERVER_ERROR_STATUS_MIN);
+    if (unknownOutcome) {
+      return { kind: "outcomeUnknown", failure: failureOf(unknownOutcome) };
+    }
+    const refused = results.find((result) => !isSuccess(result));
+    if (refused) {
+      return { kind: "rejected", failure: failureOf(refused) };
+    }
+    return void 0;
+  }
+  function spendAttempt(contact, failure, exhaustedOutcome, now) {
+    const attempts = contact.attempts + 1;
+    if (attempts >= MAX_CALL_ATTEMPTS) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, contact), { attempts, outcome: exhaustedOutcome, failure, retryNotBefore: void 0 }) };
+    }
+    return { kind: "retryLater", contact: __spreadProps(__spreadValues({}, contact), { attempts, failure, retryNotBefore: now + CALL_RETRY_DELAY_MS }) };
+  }
+  function failContact(contact, outcome, failure) {
+    return __spreadProps(__spreadValues({}, contact), { outcome, failure, retryNotBefore: void 0 });
+  }
+  function failureOf(result) {
+    var _a;
+    if (result.kind === "completed") {
+      return { status: result.status, detail: truncateDetail((_a = JSON.stringify(result.data)) != null ? _a : "") };
+    }
+    if (result.kind === "transportFailed" || result.kind === "interrupted") {
+      return { status: "transport", detail: truncateDetail(result.message) };
+    }
+    return { status: "transport", detail: result.kind };
+  }
+  function truncateDetail(detail) {
+    return detail.slice(0, FAILURE_DETAIL_MAX_LENGTH);
+  }
+  function payloadOf(result) {
+    return result.kind === "completed" ? result.data : void 0;
+  }
+
+  // src/sdk/domain/dispatch/workspace/contact-requirements.ts
+  function requirePhone(contact) {
+    if (!contact.phone) {
+      throw new Error(`Contact ${contact.index} has no phone`);
+    }
+    return contact.phone;
+  }
+  function requireTarget(contact) {
+    if (!contact.target) {
+      throw new Error(`Contact ${contact.index} has no target owner`);
+    }
+    return contact.target;
+  }
+  function requirePerson(contact) {
+    if (!contact.person) {
+      throw new Error(`Contact ${contact.index} has no person`);
+    }
+    return contact.person;
+  }
+  function requireOwnerChange(contact) {
+    if (!contact.ownerChange) {
+      throw new Error(`Contact ${contact.index} has no owner change`);
+    }
+    return contact.ownerChange;
+  }
+
+  // src/sdk/domain/dispatch/workspace/errors.ts
+  var DispatchValidationError = class extends Error {
+    constructor(problems) {
+      super(`Invalid workspace dispatch request: ${problems.join("; ")}`);
+      __publicField(this, "problems", problems);
+      this.name = "DispatchValidationError";
+    }
+  };
+  var DispatchThrottledError = class extends Error {
+    constructor(route) {
+      super(`Hablla rate limited ${route}; try again in one minute`);
+      __publicField(this, "route", route);
+      this.name = "DispatchThrottledError";
+    }
+  };
+  var DuplicateDispatchError = class extends Error {
+    constructor(jobId, phase, resumePhase) {
+      super(`A dispatch with the same audience already exists: job ${jobId} in phase ${phase}`);
+      __publicField(this, "jobId", jobId);
+      __publicField(this, "phase", phase);
+      __publicField(this, "resumePhase", resumePhase);
+      this.name = "DuplicateDispatchError";
+    }
+  };
+  var JobNotFoundError = class extends Error {
+    constructor(jobId) {
+      super(`Dispatch job ${jobId} was not found`);
+      __publicField(this, "jobId", jobId);
+      this.name = "JobNotFoundError";
+    }
+  };
+  var JobBusyError = class extends Error {
+    constructor(jobId) {
+      super(`Dispatch job ${jobId} is being processed by another execution`);
+      __publicField(this, "jobId", jobId);
+      this.name = "JobBusyError";
+    }
+  };
+  var StaleJobError = class extends Error {
+    constructor(jobId, expectedRevision) {
+      super(`Dispatch job ${jobId} is no longer at revision ${expectedRevision}`);
+      __publicField(this, "jobId", jobId);
+      __publicField(this, "expectedRevision", expectedRevision);
+      this.name = "StaleJobError";
+    }
+  };
+  var InvalidJobTransitionError = class extends Error {
+    constructor(jobId, from, transition) {
+      super(`Dispatch job ${jobId} cannot ${transition} from phase ${from}`);
+      __publicField(this, "jobId", jobId);
+      __publicField(this, "from", from);
+      __publicField(this, "transition", transition);
+      this.name = "InvalidJobTransitionError";
+    }
+  };
+  var CallBudgetExceededError = class extends Error {
+    constructor(budget, dailyCallQuota) {
+      super(`Dispatch may need up to ${budget.total} HTTP calls, above the daily quota of ${dailyCallQuota}`);
+      __publicField(this, "budget", budget);
+      __publicField(this, "dailyCallQuota", dailyCallQuota);
+      this.name = "CallBudgetExceededError";
+    }
+  };
+  var UnexpectedPayloadError = class extends Error {
+    constructor(payload, detail) {
+      super(`Unexpected ${payload} payload: ${detail}`);
+      __publicField(this, "payload", payload);
+      __publicField(this, "detail", detail);
+      this.name = "UnexpectedPayloadError";
+    }
+  };
+
+  // src/sdk/domain/dispatch/workspace/payloads.ts
+  function toPayloadPage(data, payload) {
+    const page = requireRecord(data, payload, "page");
+    return {
+      results: requireArray(page, "results", payload, "page"),
+      totalPages: requireNumber(page, "totalPages", payload, "page")
+    };
+  }
+  function toCreatedId(data, payload) {
+    return requireString(requireRecord(data, payload, "response"), "id", payload, "response");
+  }
+  function toPersonIdentity(raw) {
+    const person = requireRecord(raw, "person", "item");
+    const id = requireString(person, "id", "person", "item");
+    const phones = requireArray(person, "phones", "person", id).map((entry) => toDigits(requireString(requireRecord(entry, "person", id), "phone", "person", id)));
+    return { id, phones };
+  }
+  function toPersonSnapshot(raw) {
+    const identity = toPersonIdentity(raw);
+    const person = raw;
+    return __spreadProps(__spreadValues({}, identity), {
+      isBlocked: requireBoolean(person, "is_blocked", "person", identity.id),
+      ownerIds: requireStringArray(person, "users", "person", identity.id),
+      followerIds: requireStringArray(person, "followers", "person", identity.id)
+    });
+  }
+  function toAttendanceStatus(raw) {
+    const service = requireRecord(raw, "service", "item");
+    const id = requireString(service, "id", "service", "item");
+    return { id, status: requireString(service, "status", "service", id) };
+  }
+  function toRosterUser(raw) {
+    const entry = requireRecord(raw, "user", "item");
+    const user = requireRecord(entry.user, "user", "item");
+    const id = requireString(user, "id", "user", "item");
+    return {
+      id,
+      email: requireString(user, "email", "user", id),
+      name: requireString(user, "name", "user", id)
+    };
+  }
+  function toCustomFieldDefinition(raw) {
+    const field = requireRecord(raw, "custom field", "item");
+    const id = requireString(field, "id", "custom field", "item");
+    return {
+      id,
+      target: requireString(field, "target", "custom field", id),
+      type: requireString(field, "type", "custom field", id)
+    };
+  }
+  function toSegmentationItem(raw) {
+    const item = requireRecord(raw, "segmentation item", "item");
+    const id = requireString(item, "id", "segmentation item", "item");
+    return { id, person: requireString(item, "person", "segmentation item", id) };
+  }
+  function toCampaignSummary(raw) {
+    const campaign = requireRecord(raw, "campaign", "item");
+    const id = requireString(campaign, "id", "campaign", "item");
+    return {
+      id,
+      name: requireString(campaign, "name", "campaign", id),
+      quantity: requireNumber(campaign, "quantity", "campaign", id)
+    };
+  }
+  function requireRecord(value, payload, item) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new UnexpectedPayloadError(payload, `${item} is not an object`);
+    }
+    return value;
+  }
+  function requireString(record, field, payload, item) {
+    const value = record[field];
+    if (typeof value !== "string") {
+      throw new UnexpectedPayloadError(payload, `${item}: field ${field} is not a string`);
+    }
+    return value;
+  }
+  function requireNumber(record, field, payload, item) {
+    const value = record[field];
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new UnexpectedPayloadError(payload, `${item}: field ${field} is not a number`);
+    }
+    return value;
+  }
+  function requireBoolean(record, field, payload, item) {
+    const value = record[field];
+    if (typeof value !== "boolean") {
+      throw new UnexpectedPayloadError(payload, `${item}: field ${field} is not a boolean`);
+    }
+    return value;
+  }
+  function requireArray(record, field, payload, item) {
+    const value = record[field];
+    if (!Array.isArray(value)) {
+      throw new UnexpectedPayloadError(payload, `${item}: field ${field} is not an array`);
+    }
+    return value;
+  }
+  function requireStringArray(record, field, payload, item) {
+    const values = requireArray(record, field, payload, item);
+    if (!values.every((value) => typeof value === "string")) {
+      throw new UnexpectedPayloadError(payload, `${item}: field ${field} holds a non-string entry`);
+    }
+    return values;
+  }
+
+  // src/sdk/domain/dispatch/workspace/routes.ts
+  var PERSONS_V1 = "/v1/workspaces/{workspace_id}/persons";
+  var PERSONS_V2 = "/v2/workspaces/{workspace_id}/persons";
+  var PERSON_V1 = "/v1/workspaces/{workspace_id}/persons/{person_id}";
+  var SEGMENTATIONS = "/v1/workspaces/{workspace_id}/segmentations";
+  var SEGMENTATION_ITEMS = "/v1/workspaces/{workspace_id}/segmentations/{segmentation_id}/segmentations-items";
+  function listUsersPage(page) {
+    return { method: "GET", rawPath: "/v1/workspaces/{workspace_id}/users", query: { limit: CATALOG_PAGE_LIMIT, page }, strategy: "workspace" };
+  }
+  function listCustomFieldsPage(page) {
+    return { method: "GET", rawPath: "/v1/workspaces/{workspace_id}/custom-fields", query: { limit: CATALOG_PAGE_LIMIT, page }, strategy: "bearer" };
+  }
+  function findPersonsByPhone(phone) {
+    return { method: "GET", rawPath: PERSONS_V2, query: { phone, limit: PERSON_LOOKUP_LIMIT }, strategy: "workspace" };
+  }
+  function findPersonsByPhoneFresh(phone) {
+    return { method: "GET", rawPath: PERSONS_V1, query: { phone, limit: PERSON_LOOKUP_LIMIT }, strategy: "workspace" };
+  }
+  function findOpenAttendances(connectionId, storedPhone) {
+    return {
+      method: "GET",
+      rawPath: "/v2/workspaces/{workspace_id}/services",
+      query: { key: `${connectionId}_${storedPhone}`, statuses: OPEN_ATTENDANCE_STATUSES.join(","), limit: ATTENDANCE_LOOKUP_LIMIT },
+      strategy: "workspace"
+    };
+  }
+  function createPerson(body) {
+    return { method: "POST", rawPath: PERSONS_V1, body, strategy: "workspace" };
+  }
+  function updatePerson(personId, body) {
+    return { method: "PUT", rawPath: PERSON_V1, pathParams: { person_id: personId }, body, strategy: "workspace" };
+  }
+  function removePersonFollowers(personId, followerIds) {
+    return { method: "PUT", rawPath: `${PERSON_V1}/remove-followers`, pathParams: { person_id: personId }, body: { followers: followerIds }, strategy: "workspace" };
+  }
+  function addPersonOwners(personId, userIds) {
+    return { method: "PUT", rawPath: `${PERSON_V1}/add-users`, pathParams: { person_id: personId }, body: { users: userIds }, strategy: "workspace" };
+  }
+  function removePersonOwners(personId, userIds) {
+    return { method: "PUT", rawPath: `${PERSON_V1}/remove-users`, pathParams: { person_id: personId }, body: { users: userIds }, strategy: "workspace" };
+  }
+  function createSegmentation(body) {
+    return { method: "POST", rawPath: SEGMENTATIONS, body, strategy: "bearer" };
+  }
+  function addSegmentationItem(segmentationId, personId) {
+    return { method: "POST", rawPath: SEGMENTATION_ITEMS, pathParams: { segmentation_id: segmentationId }, body: { person: personId }, strategy: "workspace" };
+  }
+  function findSegmentationItemsOfPerson(segmentationId, personId) {
+    return {
+      method: "GET",
+      rawPath: SEGMENTATION_ITEMS,
+      pathParams: { segmentation_id: segmentationId },
+      query: { person: personId, limit: SEGMENTATION_ITEM_LOOKUP_LIMIT },
+      strategy: "workspace"
+    };
+  }
+  function countAudience(filters) {
+    return { method: "POST", rawPath: "/v1/workspaces/{workspace_id}/reports/alloy-reports/segmentations/count", body: { filters }, strategy: "bearer" };
+  }
+  function createCampaign(body) {
+    return { method: "POST", rawPath: "/v2/workspaces/{workspace_id}/campaigns", body, strategy: "bearer" };
+  }
+  function findCampaignsByName(name) {
+    return { method: "GET", rawPath: "/v1/workspaces/{workspace_id}/campaigns", query: { name, limit: CAMPAIGN_RECONCILE_PAGE_LIMIT }, strategy: "bearer" };
+  }
+
+  // src/sdk/domain/dispatch/workspace/contact-writes.ts
+  var WRITE_STRATEGY = "workspace";
+  var CREATED_PHONE_TYPE = "personal";
+  function planContactWrites(contact) {
+    if (!contact.person || !contact.person.existed) {
+      return [{ kind: "createPerson" }, { kind: "joinAudience" }];
+    }
+    const writes = [{ kind: "setFirstName" }];
+    const ownerChange = requireOwnerChange(contact);
+    if (ownerChange.kind !== "keep") {
+      if (ownerChange.unfollowFirst) {
+        writes.push({ kind: "unfollowTarget" });
+      }
+      writes.push({ kind: "addTargetOwner" });
+      if (ownerChange.kind === "replaceSystemOwners") {
+        writes.push({ kind: "removeSystemOwners", userIds: ownerChange.removedOwnerIds });
+      }
+    }
+    writes.push({ kind: "joinAudience" });
+    return writes;
+  }
+  function isWriteAhead(write) {
+    return write.kind === "createPerson" || write.kind === "joinAudience";
+  }
+  function withWriteAhead(contact, write) {
+    return __spreadProps(__spreadValues({}, contact), {
+      pendingWrite: write.kind,
+      createSends: write.kind === "createPerson" ? contact.createSends + 1 : contact.createSends
+    });
+  }
+  function writeCallFor(write, contact, job) {
+    const settings = job.settings;
+    switch (write.kind) {
+      case "createPerson":
+        return createPerson({
+          name: contact.name.toLocaleUpperCase("pt-BR"),
+          phones: [{ phone: phoneIdentity(requirePhone(contact)), is_whatsapp: true, type: CREATED_PHONE_TYPE }],
+          users: [requireTarget(contact).userId],
+          sectors: [settings.sectorId],
+          custom_fields: [
+            { custom_field: settings.firstNameFieldId, value: contact.firstName },
+            ...Object.entries(contact.customFields).map(([customField, value]) => ({ custom_field: customField, value }))
+          ]
+        });
+      case "setFirstName":
+        return updatePerson(requirePerson(contact).id, { custom_fields: [{ custom_field: settings.firstNameFieldId, value: contact.firstName }] });
+      case "unfollowTarget":
+        return removePersonFollowers(requirePerson(contact).id, [requireTarget(contact).userId]);
+      case "addTargetOwner":
+        return addPersonOwners(requirePerson(contact).id, [requireTarget(contact).userId]);
+      case "removeSystemOwners":
+        return removePersonOwners(requirePerson(contact).id, write.userIds);
+      case "joinAudience":
+        return addSegmentationItem(requireSegmentationId(job), requirePerson(contact).id);
+    }
+  }
+  function applyWriteResult(contact, write, results, now) {
+    const failure = classifyCallFailures(results, WRITE_STRATEGY);
+    switch (failure == null ? void 0 : failure.kind) {
+      case void 0:
+        return applyConfirmedWrite(contact, write, results[0]);
+      case "stopBlock":
+        return stopWrite(contact, write, failure.cause, now);
+      case "tokenRejected":
+        return { kind: "tokenRejected", strategy: failure.strategy, contact: isWriteAhead(write) ? undoWriteAhead(contact, write) : void 0 };
+      case "rejected":
+        return { kind: "decided", contact: failContact(clearWriteAhead(contact), "writeFailed", failure.failure) };
+      case "outcomeUnknown":
+        if (isWriteAhead(write)) {
+          return { kind: "retryLater", contact: awaitReconciliation(__spreadProps(__spreadValues({}, contact), { attempts: contact.attempts + 1, failure: failure.failure }), now) };
+        }
+        return spendAttempt(contact, failure.failure, "writeFailed", now);
+    }
+  }
+  function applyConfirmedWrite(contact, write, result) {
+    const advanced = __spreadProps(__spreadValues({}, clearWriteAhead(contact)), { writesDone: contact.writesDone + 1, attempts: 0, failure: void 0, retryNotBefore: void 0 });
+    if (write.kind !== "createPerson" && write.kind !== "joinAudience") {
+      return { kind: "decided", contact: advanced };
+    }
+    const createdId = createdIdOf(result, write.kind);
+    if (createdId === void 0) {
+      return { kind: "decided", contact: failContact(clearWriteAhead(contact), "writeFailed", { status: statusOf2(result), detail: truncateDetail(`${write.kind} response has no id`) }) };
+    }
+    if (write.kind === "createPerson") {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, advanced), { person: { id: createdId, existed: false } }) };
+    }
+    return { kind: "decided", contact: __spreadProps(__spreadValues({}, advanced), { audienceItemId: createdId, outcome: "inAudience" }) };
+  }
+  function stopWrite(contact, write, cause, now) {
+    if (!isWriteAhead(write)) {
+      return { kind: "stopBlock", cause };
+    }
+    if (cause === "throttled") {
+      return { kind: "stopBlock", cause, contact: undoWriteAhead(contact, write) };
+    }
+    return { kind: "stopBlock", cause, contact: awaitReconciliation(contact, now) };
+  }
+  function awaitReconciliation(contact, now) {
+    return __spreadProps(__spreadValues({}, contact), { retryNotBefore: now + RECONCILIATION_DELAY_MS });
+  }
+  function undoWriteAhead(contact, write) {
+    return __spreadProps(__spreadValues({}, clearWriteAhead(contact)), {
+      createSends: write.kind === "createPerson" ? contact.createSends - 1 : contact.createSends
+    });
+  }
+  function clearWriteAhead(contact) {
+    return __spreadProps(__spreadValues({}, contact), { pendingWrite: void 0 });
+  }
+  function createdIdOf(result, payload) {
+    try {
+      return toCreatedId(payloadOf(result), payload);
+    } catch (error) {
+      if (error instanceof UnexpectedPayloadError) {
+        return void 0;
+      }
+      throw error;
+    }
+  }
+  function statusOf2(result) {
+    return result.kind === "completed" ? result.status : "transport";
+  }
+  function requireSegmentationId(job) {
+    if (!job.segmentationId) {
+      throw new Error(`Dispatch job ${job.id} has no segmentation`);
+    }
+    return job.segmentationId;
+  }
+
+  // src/sdk/domain/dispatch/workspace/campaign.ts
+  var SECONDS_PER_MINUTE = 60;
+  var AUDIENCE_NOT_PROPAGATED_STATUS = 500;
+  var AUDIENCE_NOT_PROPAGATED_MESSAGE = "Erro ao resolver segmentações";
+  function toDispatchConfig(pacing) {
+    return { batch_size: pacing.batchSize, batch_interval: pacing.intervalSeconds / SECONDS_PER_MINUTE };
+  }
+  function dispatchName(job) {
+    return `${job.settings.label} [${job.id}]`;
+  }
+  function buildAudienceQuery(job) {
+    const membership = [{ type: "in_segmentation", segmentation: requireSegmentationId(job) }];
+    return { membership, query: [...membership, { type: "whatsapp" }] };
+  }
+  function buildSegmentationBody(job) {
+    const name = dispatchName(job);
+    return { name, description: name, type: "person", result_type: "fixed" };
+  }
+  function buildCampaignBody(job) {
+    const audience = buildAudienceQuery(job);
+    if (!job.dispatchConfig) {
+      throw new Error(`Dispatch job ${job.id} has no dispatch config`);
+    }
+    return {
+      send_type: "immediate",
+      send_mode: "fractional",
+      type: "whatsapp",
+      name: dispatchName(job),
+      dispatch_config: job.dispatchConfig,
+      types: ["whatsapp", "gupshup"],
+      connection: job.settings.connectionId,
+      template: job.settings.templateId,
+      arrayFilter: audience.membership,
+      query: audience.query,
+      query_type: "person",
+      variables: { body: [`{{person.custom_fields.${job.settings.firstNameFieldId}}}`] },
+      properties: { variables: { whatsapp: { components: { examples: { body: { "0_is_expression": false } } } } } }
+    };
+  }
+  function readAudienceCount(result) {
+    const data = isSuccess(result) ? payloadOf(result) : void 0;
+    const count = data == null ? void 0 : data.count;
+    if (typeof count !== "number" || !Number.isFinite(count)) {
+      throw new UnexpectedPayloadError("audience count", `expected a 2xx with a numeric count, got ${JSON.stringify(result)}`);
+    }
+    return count;
+  }
+  function isAudienceNotPropagated(result) {
+    if (result.kind !== "completed" || result.status !== AUDIENCE_NOT_PROPAGATED_STATUS) {
+      return false;
+    }
+    const data = result.data;
+    return (data == null ? void 0 : data.message) === AUDIENCE_NOT_PROPAGATED_MESSAGE;
+  }
+  function findCampaignByName(result, name) {
+    if (!isSuccess(result)) {
+      throw new UnexpectedPayloadError("campaign listing", `expected a 2xx, got ${JSON.stringify(result)}`);
+    }
+    const campaign = toPayloadPage(payloadOf(result), "campaign listing").results.map(toCampaignSummary).find((candidate) => candidate.name === name);
+    return campaign ? { id: campaign.id, quantity: campaign.quantity } : void 0;
+  }
+
+  // src/sdk/domain/dispatch/workspace/owner-policy.ts
+  function decideOwnerChange(person, target, systemUserIds, policy) {
+    if (person.ownerIds.includes(target.userId)) {
+      return { kind: "keep" };
+    }
+    const unfollowFirst = person.followerIds.includes(target.userId);
+    if (person.ownerIds.length === 0) {
+      return { kind: "assign", unfollowFirst };
+    }
+    const humanOwnerIds = person.ownerIds.filter((ownerId) => !systemUserIds.includes(ownerId));
+    if (humanOwnerIds.length > 0) {
+      return { kind: "keep" };
+    }
+    if (policy === "replace") {
+      return {
+        kind: "replaceSystemOwners",
+        unfollowFirst,
+        removedOwnerIds: person.ownerIds.filter((ownerId) => ownerId !== target.userId)
+      };
+    }
+    return { kind: "addBesideSystemOwners", unfollowFirst };
+  }
+
+  // src/sdk/domain/dispatch/workspace/lookup.ts
+  var LOOKUP_STRATEGY = "workspace";
+  function personLookupCalls(contact) {
+    return phoneShapes(contact).map((shape) => findPersonsByPhone(shape));
+  }
+  function attendanceLookupCalls(person, contact, connectionId) {
+    const phone = requirePhone(contact);
+    const storedPhones = person.phones.filter((storedPhone) => matchesPhone(storedPhone, phone));
+    return [...new Set(storedPhones)].map((storedPhone) => findOpenAttendances(connectionId, storedPhone));
+  }
+  function resolvePersonLookup(contact, results, purpose, now) {
+    const failure = resolveLookupFailure(contact, results, now);
+    if (failure) {
+      return failure;
+    }
+    const phone = requirePhone(contact);
+    const persons = /* @__PURE__ */ new Map();
+    for (const result of results) {
+      for (const raw of toPayloadPage(payloadOf(result), "person search").results) {
+        const person2 = toPersonSnapshot(raw);
+        if (person2.phones.some((storedPhone) => matchesPhone(storedPhone, phone))) {
+          persons.set(person2.id, person2);
+        }
+      }
+    }
+    if (persons.size > 1) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "duplicatePersons" }) };
+    }
+    const [person] = persons.values();
+    if (!person) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "ready", person: void 0, ownerChange: void 0 }) };
+    }
+    if (person.isBlocked) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "blocked" }) };
+    }
+    return { kind: "checkAttendance", person };
+  }
+  function resolveAttendanceLookup(contact, person, results, settings, purpose, now) {
+    const failure = resolveLookupFailure(contact, results, now);
+    if (failure) {
+      return failure;
+    }
+    const hasOpenAttendance = results.some((result) => toPayloadPage(payloadOf(result), "attendance search").results.map(toAttendanceStatus).some((attendance) => OPEN_ATTENDANCE_STATUSES.includes(attendance.status)));
+    if (hasOpenAttendance) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), { outcome: "inAttendance" }) };
+    }
+    return {
+      kind: "decided",
+      contact: __spreadProps(__spreadValues({}, settledLookup(contact, purpose, now)), {
+        outcome: "ready",
+        person: { id: person.id, existed: true },
+        ownerChange: decideOwnerChange(person, requireTarget(contact), settings.systemUserIds, settings.systemOwnerPolicy)
+      })
+    };
+  }
+  function resolveLookupFailure(contact, results, now) {
+    const failure = classifyCallFailures(results, LOOKUP_STRATEGY);
+    switch (failure == null ? void 0 : failure.kind) {
+      case void 0:
+        return void 0;
+      case "stopBlock":
+      case "tokenRejected":
+        return failure;
+      case "outcomeUnknown":
+        return spendAttempt(contact, failure.failure, "lookupFailed", now);
+      case "rejected":
+        return { kind: "decided", contact: failContact(contact, "lookupFailed", failure.failure) };
+    }
+  }
+  function settledLookup(contact, purpose, now) {
+    return __spreadProps(__spreadValues({}, contact), { resolvedAt: now, lookupPurpose: purpose, attempts: 0, retryNotBefore: void 0, failure: void 0 });
+  }
+  function phoneShapes(contact) {
+    const phone = requirePhone(contact);
+    return [.../* @__PURE__ */ new Set([phone.digits, phone.alternate])];
+  }
+
+  // src/sdk/domain/dispatch/workspace/person-claims.ts
+  function claimPerson(claims, personId, contactIndex) {
+    const holder = claims.get(personId);
+    if (holder !== void 0 && holder !== contactIndex) {
+      return { kind: "claimedByOther", index: holder };
+    }
+    const updated = new Map(claims);
+    updated.set(personId, contactIndex);
+    return { kind: "claimed", claims: updated };
+  }
+
+  // src/sdk/domain/dispatch/workspace/reconciliation.ts
+  var RECONCILIATION_STRATEGY = "workspace";
+  function reconciliationCalls(contact, job) {
+    if (contact.pendingWrite === "createPerson") {
+      return phoneShapes(contact).map((shape) => findPersonsByPhoneFresh(shape));
+    }
+    return [findSegmentationItemsOfPerson(requireSegmentationId(job), requirePerson(contact).id)];
+  }
+  function applyReconciliation(contact, results, now) {
+    const failure = classifyCallFailures(results, RECONCILIATION_STRATEGY);
+    switch (failure == null ? void 0 : failure.kind) {
+      case void 0:
+        return contact.pendingWrite === "createPerson" ? reconcileCreate(contact, results) : reconcileJoin(contact, results);
+      case "stopBlock":
+      case "tokenRejected":
+        return failure;
+      case "outcomeUnknown":
+        return spendAttempt(contact, failure.failure, "writeFailed", now);
+      case "rejected":
+        return { kind: "decided", contact: failContact(contact, "writeFailed", failure.failure) };
+    }
+  }
+  function reconcileCreate(contact, results) {
+    const phone = requirePhone(contact);
+    const personIds = /* @__PURE__ */ new Set();
+    for (const result of results) {
+      for (const raw of toPayloadPage(payloadOf(result), "person listing").results) {
+        const person = toPersonIdentity(raw);
+        if (person.phones.some((storedPhone) => matchesPhone(storedPhone, phone))) {
+          personIds.add(person.id);
+        }
+      }
+    }
+    if (personIds.size > 1) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, clearWriteAhead(contact)), { outcome: "duplicatePersons", retryNotBefore: void 0 }) };
+    }
+    const [personId] = personIds;
+    if (personId !== void 0) {
+      return { kind: "decided", contact: confirmPendingWrite(__spreadProps(__spreadValues({}, contact), { person: { id: personId, existed: false } })) };
+    }
+    if (contact.createSends < MAX_CREATE_SENDS) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, clearWriteAhead(contact)), { retryNotBefore: void 0 }) };
+    }
+    return {
+      kind: "decided",
+      contact: failContact(contact, "writeFailed", { status: "transport", detail: `person not found after ${contact.createSends} create sends with lost responses` })
+    };
+  }
+  function reconcileJoin(contact, results) {
+    const personId = requirePerson(contact).id;
+    const item = results.flatMap((result) => toPayloadPage(payloadOf(result), "segmentation items").results.map(toSegmentationItem)).find((candidate) => candidate.person === personId);
+    if (item) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, confirmPendingWrite(contact)), { audienceItemId: item.id, outcome: "inAudience" }) };
+    }
+    if (contact.attempts < MAX_CALL_ATTEMPTS) {
+      return { kind: "decided", contact: __spreadProps(__spreadValues({}, clearWriteAhead(contact)), { retryNotBefore: void 0 }) };
+    }
+    return {
+      kind: "decided",
+      contact: failContact(contact, "writeFailed", { status: "transport", detail: `segmentation item not found after ${contact.attempts} joins with lost responses` })
+    };
+  }
+  function confirmPendingWrite(contact) {
+    return __spreadProps(__spreadValues({}, clearWriteAhead(contact)), { writesDone: contact.writesDone + 1, attempts: 0, failure: void 0, retryNotBefore: void 0 });
+  }
+
+  // src/sdk/domain/dispatch/workspace/contact-step.ts
+  function workOutcomeOf(phase) {
+    return phase === "resolving" ? "pendingLookup" : "ready";
+  }
+  function nextContactStep(block, job, now) {
+    const { contact } = block;
+    const phase = chunkedPhaseOf(job);
+    if (contact.outcome !== workOutcomeOf(phase)) {
+      return { kind: "settled" };
+    }
+    if (contact.retryNotBefore !== void 0 && contact.retryNotBefore > now) {
+      return { kind: "deferred", until: contact.retryNotBefore };
+    }
+    if (phase === "resolving") {
+      return lookupStep(block, job);
+    }
+    if (contact.pendingWrite) {
+      return { kind: "calls", purpose: "reconcile", calls: reconciliationCalls(contact, job) };
+    }
+    if (contact.writesDone === 0 && contact.lookupPurpose !== "send") {
+      return lookupStep(block, job);
+    }
+    const write = planContactWrites(contact)[contact.writesDone];
+    return { kind: "calls", purpose: { write }, calls: [writeCallFor(write, contact, job)] };
+  }
+  function writeAheadOf(block, step) {
+    if (step.kind !== "calls" || typeof step.purpose !== "object" || !isWriteAhead(step.purpose.write)) {
+      return void 0;
+    }
+    return withWriteAhead(block.contact, step.purpose.write);
+  }
+  function applyContactStep(block, step, results, context) {
+    const { contact } = block;
+    const purpose = lookupPurposeOf(context.phase);
+    if (step.purpose === "personLookup") {
+      const resolution = resolvePersonLookup(contact, results, purpose, context.now);
+      if (resolution.kind === "checkAttendance") {
+        return { kind: "applied", block: { contact, attendanceCheck: resolution.person }, claims: context.claims };
+      }
+      return applyLookupResolution(contact, resolution, context);
+    }
+    if (step.purpose === "attendanceLookup") {
+      const person = requireAttendanceCheck(block);
+      return applyLookupResolution(contact, resolveAttendanceLookup(contact, person, results, context.settings, purpose, context.now), context);
+    }
+    if (step.purpose === "reconcile") {
+      return applyResolution(contact, applyReconciliation(contact, results, context.now), context);
+    }
+    return applyResolution(contact, applyWriteResult(contact, step.purpose.write, results, context.now), context);
+  }
+  function lookupStep(block, job) {
+    if (block.attendanceCheck) {
+      return { kind: "calls", purpose: "attendanceLookup", calls: attendanceLookupCalls(block.attendanceCheck, block.contact, job.settings.connectionId) };
+    }
+    return { kind: "calls", purpose: "personLookup", calls: personLookupCalls(block.contact) };
+  }
+  function applyLookupResolution(before, resolution, context) {
+    const application = applyResolution(before, resolution, context);
+    if (application.kind !== "applied" || context.phase !== "materializing" || application.block.contact.outcome === "ready") {
+      return application;
+    }
+    return __spreadProps(__spreadValues({}, application), { shiftedTo: application.block.contact.outcome });
+  }
+  function applyResolution(before, resolution, context) {
+    var _a, _b;
+    switch (resolution.kind) {
+      case "stopBlock":
+        return { kind: "stopBlock", cause: resolution.cause, block: { contact: (_a = resolution.contact) != null ? _a : before } };
+      case "tokenRejected":
+        return { kind: "tokenRejected", strategy: resolution.strategy, block: { contact: (_b = resolution.contact) != null ? _b : before } };
+      case "retryLater":
+        return { kind: "applied", block: { contact: resolution.contact }, claims: context.claims };
+      case "decided":
+        return claimResolvedPerson(resolution.contact, context);
+    }
+  }
+  function claimResolvedPerson(contact, context) {
+    const holdsPerson = contact.person !== void 0 && (contact.outcome === "ready" || contact.outcome === "inAudience");
+    if (!holdsPerson) {
+      return { kind: "applied", block: { contact }, claims: context.claims };
+    }
+    const claim = claimPerson(context.claims, contact.person.id, contact.index);
+    if (claim.kind === "claimedByOther") {
+      return { kind: "applied", block: { contact: __spreadProps(__spreadValues({}, contact), { outcome: "repeatedPerson" }) }, claims: context.claims };
+    }
+    return { kind: "applied", block: { contact }, claims: claim.claims };
+  }
+  function lookupPurposeOf(phase) {
+    return phase === "resolving" ? "preview" : "send";
+  }
+  function chunkedPhaseOf(job) {
+    if (job.phase !== "resolving" && job.phase !== "materializing") {
+      throw new Error(`Dispatch job ${job.id} is not in a chunked phase (${job.phase})`);
+    }
+    return job.phase;
+  }
+  function requireAttendanceCheck(block) {
+    if (!block.attendanceCheck) {
+      throw new Error(`Contact ${block.contact.index} has no person to check attendances for`);
+    }
+    return block.attendanceCheck;
+  }
+
+  // src/sdk/domain/dispatch/workspace/job-machine.ts
+  var RESUMABLE_PHASES = ["resolving", "materializing", "awaitingAudience", "sending"];
+  var TERMINAL_PHASES = ["completed", "superseded", "abandoned"];
+  var CONTACT_OUTCOMES = [
+    "invalidPhone",
+    "repeatedPhone",
+    "excluded",
+    "missingName",
+    "unresolvedAdvisor",
+    "pendingLookup",
+    "lookupFailed",
+    "inAttendance",
+    "duplicatePersons",
+    "blocked",
+    "repeatedPerson",
+    "ready",
+    "writeFailed",
+    "inAudience"
+  ];
+  function emptyCounts() {
+    return Object.fromEntries(CONTACT_OUTCOMES.map((outcome) => [outcome, 0]));
+  }
+  function countOutcomes(contacts) {
+    const counts = emptyCounts();
+    for (const contact of contacts) {
+      counts[contact.outcome]++;
+    }
+    return counts;
+  }
+  function tallyOutcomes(counts, before, after) {
+    const tallied = __spreadValues({}, counts);
+    before.forEach((previous, position) => {
+      const current = after[position];
+      tallied[previous.outcome]--;
+      tallied[current.outcome]++;
+    });
+    return tallied;
+  }
+  function createJob(prepared, request, now) {
+    var _b;
+    const _a = request, { rows: _rows, exclusion } = _a, settings = __objRest(_a, ["rows", "exclusion"]);
+    const firstPending = prepared.contacts.find((contact) => contact.outcome === "pendingLookup");
+    return {
+      id: `${prepared.fingerprint}-${now.toString(36)}`,
+      revision: 0,
+      fingerprint: prepared.fingerprint,
+      settings,
+      exclusion: { phoneCount: exclusion.phones.length, segmentationFilters: exclusion.segmentationFilters },
+      phase: firstPending ? "resolving" : "awaitingConfirmation",
+      createdAt: now,
+      updatedAt: now,
+      contactCount: prepared.contacts.length,
+      cursor: (_b = firstPending == null ? void 0 : firstPending.index) != null ? _b : 0,
+      pass: 0,
+      counts: countOutcomes(prepared.contacts),
+      revalidationShifts: {},
+      warnings: []
+    };
+  }
+  function duplicateVerdict(existing, repeatOfJobId, now) {
+    const supersede = [];
+    let busy;
+    for (const job of existing) {
+      switch (job.phase) {
+        case "resolving":
+        case "awaitingConfirmation":
+          if (isLeased(job, now)) {
+            busy != null ? busy : busy = job;
+          } else {
+            supersede.push(job);
+          }
+          break;
+        case "materializing":
+        case "awaitingAudience":
+        case "sending":
+        case "failed":
+          return { kind: "refuse", job };
+        case "completed":
+          if (job.campaignId !== void 0 && repeatOfJobId !== job.id) {
+            return { kind: "refuse", job };
+          }
+          break;
+        case "superseded":
+        case "abandoned":
+          break;
+      }
+    }
+    return busy ? { kind: "busy", job: busy } : { kind: "create", supersede };
+  }
+  function isLeased(job, now) {
+    return job.leaseUntil !== void 0 && job.leaseUntil > now;
+  }
+  function hasPhaseWork(job, phase) {
+    return job.counts[workOutcomeOf(phase)] > 0;
+  }
+  function advanceCursor(job, chunk, now) {
+    const phase = job.phase;
+    const chunkDeferrals = chunk.filter((contact) => contact.outcome === workOutcomeOf(phase) && contact.retryNotBefore !== void 0 && contact.retryNotBefore > now).map((contact) => contact.retryNotBefore);
+    const passDeferredUntil = earliest([job.passDeferredUntil, ...chunkDeferrals]);
+    const nextCursor2 = job.cursor + chunk.length;
+    if (nextCursor2 < job.contactCount) {
+      return { job: __spreadProps(__spreadValues({}, job), { cursor: nextCursor2, passDeferredUntil }) };
+    }
+    if (!hasPhaseWork(job, phase)) {
+      return { job: __spreadProps(__spreadValues({}, job), { cursor: job.contactCount, passDeferredUntil: void 0 }) };
+    }
+    return {
+      job: __spreadProps(__spreadValues({}, job), { cursor: 0, pass: job.pass + 1, passDeferredUntil: void 0 }),
+      waitUntil: passDeferredUntil
+    };
+  }
+  function toAwaitingConfirmation(job, now) {
+    assertPhase(job, ["resolving"], "await confirmation");
+    return __spreadProps(__spreadValues({}, job), { phase: "awaitingConfirmation", cursor: 0, pass: 0, passDeferredUntil: void 0, updatedAt: now });
+  }
+  function toMaterializing(job, segmentationId, operatorEmail, now) {
+    assertPhase(job, ["awaitingConfirmation"], "start materializing");
+    return __spreadProps(__spreadValues({}, job), {
+      phase: "materializing",
+      segmentationId,
+      cursor: 0,
+      pass: 0,
+      passDeferredUntil: void 0,
+      dispatchConfig: toDispatchConfig(job.settings.pacing),
+      startedBy: operatorEmail,
+      startedAt: now,
+      updatedAt: now
+    });
+  }
+  function toAwaitingAudience(job, now) {
+    assertPhase(job, ["materializing"], "await the audience");
+    return __spreadProps(__spreadValues({}, job), {
+      phase: "awaitingAudience",
+      audienceSize: job.counts.inAudience,
+      audienceDeadlineAt: now + AUDIENCE_READY_TIMEOUT_MS,
+      updatedAt: now
+    });
+  }
+  function toSending(job, audienceCount, now) {
+    assertPhase(job, ["awaitingAudience"], "send");
+    return __spreadProps(__spreadValues({}, job), { phase: "sending", lastAudienceCount: audienceCount, updatedAt: now });
+  }
+  function toCompleted(job, now, campaign) {
+    assertPhase(job, campaign ? ["sending"] : ["awaitingConfirmation", "materializing"], "complete");
+    if (!campaign) {
+      return __spreadProps(__spreadValues({}, job), { phase: "completed", audienceSize: job.counts.inAudience, updatedAt: now });
+    }
+    const audienceSize = requireAudienceSize(job);
+    const warnings = campaign.quantity === audienceSize ? job.warnings : [...job.warnings, { kind: "campaignQuantityMismatch", campaignQuantity: campaign.quantity, audienceSize }];
+    return __spreadProps(__spreadValues({}, job), {
+      phase: "completed",
+      campaignId: campaign.id,
+      campaignQuantity: campaign.quantity,
+      campaignSendState: void 0,
+      campaignReconcileNotBefore: void 0,
+      campaignReconcileAttempts: void 0,
+      warnings,
+      updatedAt: now
+    });
+  }
+  function toFailed(job, failure, now) {
+    assertPhase(job, ["resolving", "materializing", "awaitingAudience", "sending"], "fail");
+    return __spreadProps(__spreadValues({}, job), { phase: "failed", failure, updatedAt: now });
+  }
+  function toResumed(job, now) {
+    assertPhase(job, ["failed"], "resume");
+    const resumePhase = job.failure.resumePhase;
+    return __spreadProps(__spreadValues({}, job), {
+      phase: resumePhase,
+      failure: void 0,
+      audienceDeadlineAt: resumePhase === "awaitingAudience" ? now + AUDIENCE_READY_TIMEOUT_MS : job.audienceDeadlineAt,
+      updatedAt: now
+    });
+  }
+  function toSuperseded(job, now) {
+    assertPhase(job, ["resolving", "awaitingConfirmation"], "be superseded");
+    return __spreadProps(__spreadValues({}, job), { phase: "superseded", updatedAt: now });
+  }
+  function toAbandoned(job, operatorEmail, now) {
+    if (TERMINAL_PHASES.includes(job.phase)) {
+      throw new InvalidJobTransitionError(job.id, job.phase, "be abandoned");
+    }
+    return __spreadProps(__spreadValues({}, job), { phase: "abandoned", abandonedBy: operatorEmail, abandonedAt: now, updatedAt: now });
+  }
+  function nextStepOf(job, stop, now) {
+    var _a;
+    if (stop && "cause" in stop) {
+      return { kind: "continueAfter", delayMs: stop.cause === "throttled" ? THROTTLE_COOLDOWN_MS : TRANSPORT_COOLDOWN_MS };
+    }
+    if (stop) {
+      return { kind: "continueAfter", delayMs: Math.max(0, stop.waitUntil - now) };
+    }
+    switch (job.phase) {
+      case "awaitingConfirmation":
+        return { kind: "awaitConfirmation" };
+      case "completed":
+      case "failed":
+      case "superseded":
+      case "abandoned":
+        return { kind: "finished" };
+      case "awaitingAudience":
+        return { kind: "continueAfter", delayMs: AUDIENCE_POLL_INTERVAL_MS };
+      case "sending":
+        return { kind: "continueAfter", delayMs: Math.max(0, ((_a = job.campaignReconcileNotBefore) != null ? _a : now) - now) };
+      case "resolving":
+      case "materializing":
+        return { kind: "continueAfter", delayMs: 0 };
+    }
+  }
+  function assertPhase(job, allowed, transition) {
+    if (!allowed.includes(job.phase)) {
+      throw new InvalidJobTransitionError(job.id, job.phase, transition);
+    }
+  }
+  function earliest(values) {
+    const defined = values.filter((value) => value !== void 0);
+    return defined.length > 0 ? Math.min(...defined) : void 0;
+  }
+  function requireAudienceSize(job) {
+    if (job.audienceSize === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no audience size`);
+    }
+    return job.audienceSize;
+  }
+
+  // src/sdk/domain/dispatch/workspace/request-validation.ts
+  var HABLLA_ID_PATTERN = /^[0-9a-f]{24}$/;
+  var JOB_ID_PATTERN = /^[0-9a-f]{16}-\d+-[0-9a-z]+$/;
+  var PERSON_TARGET = "person";
+  var FIRST_NAME_FIELD_TYPE = "string";
+  function indexRoster(users) {
+    const byId = /* @__PURE__ */ new Map();
+    const byEmail = /* @__PURE__ */ new Map();
+    const problems = [];
+    for (const user of users) {
+      const email = normalizeEmail(user.email);
+      const sameEmail = byEmail.get(email);
+      if (sameEmail && sameEmail.id !== user.id) {
+        problems.push(`users ${sameEmail.id} and ${user.id} share the email ${email}`);
+      }
+      byId.set(user.id, user);
+      byEmail.set(email, user);
+    }
+    if (problems.length > 0) {
+      throw new DispatchValidationError(problems);
+    }
+    return { byId, byEmail };
+  }
+  function indexCustomFields(fields) {
+    return new Map(fields.map((field) => [field.id, field]));
+  }
+  function assertValidRequestShape(request) {
+    throwWhenAny(requestShapeProblems(request));
+  }
+  function assertValidRequest(request, roster, customFields) {
+    throwWhenAny([...requestShapeProblems(request), ...referenceProblems(request, roster, customFields)]);
+  }
+  function throwWhenAny(problems) {
+    if (problems.length > 0) {
+      throw new DispatchValidationError(problems);
+    }
+  }
+  function requestShapeProblems(request) {
+    const problems = [];
+    const requireHabllaId = (field, value) => {
+      if (typeof value !== "string" || !HABLLA_ID_PATTERN.test(value)) {
+        problems.push(`${field} must be a Hablla id, got ${JSON.stringify(value)}`);
+      }
+    };
+    requireHabllaId("connectionId", request.connectionId);
+    requireHabllaId("templateId", request.templateId);
+    requireHabllaId("sectorId", request.sectorId);
+    requireHabllaId("firstNameFieldId", request.firstNameFieldId);
+    request.systemUserIds.forEach((userId, position) => requireHabllaId(`systemUserIds[${position}]`, userId));
+    if (request.unresolvedAdvisorPolicy.kind === "assignReserve") {
+      requireHabllaId("unresolvedAdvisorPolicy.reserveOwnerId", request.unresolvedAdvisorPolicy.reserveOwnerId);
+    }
+    if (request.repeatOfJobId !== void 0 && !JOB_ID_PATTERN.test(request.repeatOfJobId)) {
+      problems.push(`repeatOfJobId must be a job id, got ${JSON.stringify(request.repeatOfJobId)}`);
+    }
+    if (typeof request.label !== "string" || request.label.trim() === "") {
+      problems.push("label must not be empty");
+    }
+    if (request.rows.length === 0) {
+      problems.push("rows must hold at least one row");
+    }
+    problems.push(...rowProblems(request));
+    problems.push(...pacingProblems(request));
+    problems.push(...exclusionProblems(request));
+    return problems;
+  }
+  function rowProblems(request) {
+    const problems = [];
+    request.rows.forEach((row, index) => {
+      for (const field of ["name", "phone", "advisorKey"]) {
+        if (typeof row[field] !== "string") {
+          problems.push(`rows[${index}].${field} must be a string`);
+        }
+      }
+      if (row.customFields === null || typeof row.customFields !== "object") {
+        problems.push(`rows[${index}].customFields must be an object`);
+        return;
+      }
+      for (const [fieldId, value] of Object.entries(row.customFields)) {
+        if (typeof value !== "string") {
+          problems.push(`rows[${index}].customFields.${fieldId} must be a string`);
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(row.customFields, request.firstNameFieldId)) {
+        problems.push(`rows[${index}].customFields must not set the first-name field ${request.firstNameFieldId}; it is computed from the name`);
+      }
+    });
+    return problems;
+  }
+  function pacingProblems(request) {
+    const problems = [];
+    for (const field of ["batchSize", "intervalSeconds"]) {
+      const value = request.pacing[field];
+      if (!Number.isInteger(value) || value < 1) {
+        problems.push(`pacing.${field} must be an integer >= 1, got ${JSON.stringify(value)}`);
+      }
+    }
+    return problems;
+  }
+  function exclusionProblems(request) {
+    const problems = [];
+    request.exclusion.segmentationFilters.forEach((filter, position) => {
+      if (typeof (filter == null ? void 0 : filter.type) !== "string" || filter.type.trim() === "") {
+        problems.push(`exclusion.segmentationFilters[${position}].type must not be empty`);
+      }
+    });
+    if (request.exclusion.segmentationFilters.length > 0) {
+      problems.push("exclusion.segmentationFilters is not supported yet: exclude by explicit phones");
+    }
+    return problems;
+  }
+  function referenceProblems(request, roster, customFields) {
+    const problems = [];
+    request.systemUserIds.forEach((userId, position) => {
+      if (!roster.byId.has(userId)) {
+        problems.push(`systemUserIds[${position}] ${userId} is not a workspace user`);
+      }
+    });
+    if (request.unresolvedAdvisorPolicy.kind === "assignReserve") {
+      const reserveOwnerId = request.unresolvedAdvisorPolicy.reserveOwnerId;
+      if (!roster.byId.has(reserveOwnerId)) {
+        problems.push(`reserve owner ${reserveOwnerId} is not a workspace user`);
+      }
+      if (request.systemUserIds.includes(reserveOwnerId)) {
+        problems.push(`reserve owner ${reserveOwnerId} must not be a system user`);
+      }
+    }
+    const firstNameField = customFields.get(request.firstNameFieldId);
+    if (!firstNameField) {
+      problems.push(`first-name field ${request.firstNameFieldId} does not exist`);
+    } else if (firstNameField.target !== PERSON_TARGET || firstNameField.type !== FIRST_NAME_FIELD_TYPE) {
+      problems.push(`first-name field ${request.firstNameFieldId} must be a ${PERSON_TARGET} field of type ${FIRST_NAME_FIELD_TYPE}, got ${firstNameField.target}/${firstNameField.type}`);
+    }
+    for (const fieldId of rowCustomFieldIds(request)) {
+      const field = customFields.get(fieldId);
+      if (!field) {
+        problems.push(`custom field ${fieldId} used by the rows does not exist`);
+      } else if (field.target !== PERSON_TARGET) {
+        problems.push(`custom field ${fieldId} used by the rows is not a ${PERSON_TARGET} field`);
+      }
+    }
+    return problems;
+  }
+  function rowCustomFieldIds(request) {
+    const ids = /* @__PURE__ */ new Set();
+    for (const row of request.rows) {
+      if (row.customFields !== null && typeof row.customFields === "object") {
+        Object.keys(row.customFields).forEach((fieldId) => ids.add(fieldId));
+      }
+    }
+    return ids;
+  }
+
+  // src/sdk/domain/dispatch/workspace/send-phases.ts
+  var SEND_PHASE_STRATEGY = "bearer";
+  function resolveAudienceCount(job, result, now) {
+    const audienceSize = requireAudienceSize(job);
+    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+    if ((failure == null ? void 0 : failure.kind) === "stopBlock") {
+      return { kind: "stop", cause: failure.cause, job };
+    }
+    if ((failure == null ? void 0 : failure.kind) === "tokenRejected") {
+      return { kind: "advanced", job: toFailed(job, { reason: "bearer_token_rejected", detail: "audience count refused the Bearer token", resumePhase: "awaitingAudience" }, now) };
+    }
+    if (result.kind === "transportFailed") {
+      return { kind: "stop", cause: "interrupted", job };
+    }
+    const count = isAudienceNotPropagated(result) ? void 0 : readAudienceCount(result);
+    if (count === audienceSize) {
+      return { kind: "advanced", job: toSending(job, count, now) };
+    }
+    if (count !== void 0 && count > audienceSize) {
+      return {
+        kind: "advanced",
+        job: toFailed(__spreadProps(__spreadValues({}, job), { lastAudienceCount: count }), { reason: "audience_mismatch", detail: `audience counts ${count}, expected ${audienceSize}`, resumePhase: "awaitingAudience" }, now)
+      };
+    }
+    const waiting = __spreadProps(__spreadValues({}, job), { lastAudienceCount: count != null ? count : job.lastAudienceCount, updatedAt: now });
+    if (now >= requireAudienceDeadline(job)) {
+      const lastCount = waiting.lastAudienceCount === void 0 ? "never resolved" : String(waiting.lastAudienceCount);
+      return {
+        kind: "advanced",
+        job: toFailed(waiting, { reason: "audience_timeout", detail: `audience not ready: last count ${lastCount}, expected ${audienceSize}`, resumePhase: "awaitingAudience" }, now)
+      };
+    }
+    return { kind: "wait", job: waiting };
+  }
+  function withCampaignInFlight(job, now) {
+    return __spreadProps(__spreadValues({}, job), { campaignSendState: "inFlight", campaignReconcileAttempts: 0, updatedAt: now });
+  }
+  function resolveCampaignCreation(job, result, now) {
+    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+    switch (failure == null ? void 0 : failure.kind) {
+      case void 0: {
+        const campaign = toCampaignSummary(payloadOf(result));
+        return { kind: "advanced", job: toCompleted(job, now, campaign) };
+      }
+      case "stopBlock":
+        if (failure.cause === "throttled") {
+          return { kind: "stop", cause: "throttled", job: withoutCampaignInFlight(job, now) };
+        }
+        return { kind: "stop", cause: "interrupted", job: withCampaignReconcileAt(job, now + RECONCILIATION_DELAY_MS, now) };
+      case "tokenRejected":
+        return { kind: "advanced", job: toFailed(withoutCampaignInFlight(job, now), { reason: "bearer_token_rejected", detail: "campaign creation refused the Bearer token", resumePhase: "sending" }, now) };
+      case "rejected":
+        return { kind: "advanced", job: toFailed(withoutCampaignInFlight(job, now), { reason: "campaign_rejected", detail: failure.failure.detail, resumePhase: "sending" }, now) };
+      case "outcomeUnknown":
+        return { kind: "wait", job: withCampaignReconcileAt(job, now + RECONCILIATION_DELAY_MS, now) };
+    }
+  }
+  function resolveCampaignReconciliation(job, result, now) {
+    var _a;
+    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+    switch (failure == null ? void 0 : failure.kind) {
+      case void 0: {
+        const campaign = findCampaignByName(result, dispatchName(job));
+        if (campaign) {
+          return { kind: "advanced", job: toCompleted(job, now, campaign) };
+        }
+        return { kind: "advanced", job: toFailed(withoutCampaignInFlight(job, now), { reason: "campaign_rejected", detail: "not created", resumePhase: "sending" }, now) };
+      }
+      case "stopBlock":
+        return { kind: "stop", cause: failure.cause, job };
+      case "tokenRejected":
+        return { kind: "advanced", job: toFailed(job, { reason: "bearer_token_rejected", detail: "campaign reconciliation refused the Bearer token", resumePhase: "sending" }, now) };
+      case "rejected":
+      case "outcomeUnknown": {
+        const attempts = ((_a = job.campaignReconcileAttempts) != null ? _a : 0) + 1;
+        if (attempts >= MAX_CALL_ATTEMPTS) {
+          return {
+            kind: "advanced",
+            job: toFailed(__spreadProps(__spreadValues({}, job), { campaignReconcileAttempts: 0 }), { reason: "campaign_outcome_unknown", detail: truncateDetail(failure.failure.detail), resumePhase: "sending" }, now)
+          };
+        }
+        return { kind: "wait", job: __spreadProps(__spreadValues({}, withCampaignReconcileAt(job, now + CALL_RETRY_DELAY_MS, now)), { campaignReconcileAttempts: attempts }) };
+      }
+    }
+  }
+  function isCampaignReconcileDue(job, now) {
+    return job.campaignReconcileNotBefore === void 0 || job.campaignReconcileNotBefore <= now;
+  }
+  function withCampaignReconcileAt(job, reconcileAt, now) {
+    return __spreadProps(__spreadValues({}, job), { campaignSendState: "inFlight", campaignReconcileNotBefore: reconcileAt, updatedAt: now });
+  }
+  function withoutCampaignInFlight(job, now) {
+    return __spreadProps(__spreadValues({}, job), { campaignSendState: void 0, campaignReconcileNotBefore: void 0, campaignReconcileAttempts: void 0, updatedAt: now });
+  }
+  function requireAudienceDeadline(job) {
+    if (job.audienceDeadlineAt === void 0) {
+      throw new Error(`Dispatch job ${job.id} has no audience deadline`);
+    }
+    return job.audienceDeadlineAt;
+  }
+
+  // src/sdk/domain/dispatch/workspace/workspace-dispatch.ts
+  var WorkspaceDispatch = class {
+    constructor(ports, limits) {
+      __publicField(this, "ports", ports);
+      __publicField(this, "limits", limits);
+      if (!Number.isInteger(limits.dailyCallQuota) || limits.dailyCallQuota < 1) {
+        throw new RangeError(`WorkspaceDispatch: dailyCallQuota must be an integer >= 1, got ${limits.dailyCallQuota}`);
+      }
+    }
+    /**
+     * Validates the request against the roster and the custom fields, prepares the
+     * audience, checks the call budget and the duplicate verdict, and inserts the job.
+     *
+     * @throws DispatchValidationError, DispatchThrottledError, CallBudgetExceededError,
+     *   DuplicateDispatchError or JobBusyError, always before any write.
+     */
+    plan(request) {
+      return __async(this, null, function* () {
+        assertValidRequestShape(request);
+        const roster = yield this.readCatalog(listUsersPage, toRosterUser, "users");
+        const customFields = yield this.readCatalog(listCustomFieldsPage, toCustomFieldDefinition, "custom fields");
+        const rosterIndex = indexRoster(roster.items);
+        assertValidRequest(request, rosterIndex, indexCustomFields(customFields.items));
+        const prepared = prepareAudience(request, rosterIndex);
+        const catalogPages = { roster: roster.pages, customFields: customFields.pages };
+        const budget = estimateCallBudget(prepared.contacts, catalogPages);
+        if (budget.total > this.limits.dailyCallQuota) {
+          throw new CallBudgetExceededError(budget, this.limits.dailyCallQuota);
+        }
+        const job = createJob(prepared, request, this.ports.clock.now());
+        const inserted = yield this.ports.store.withExclusiveAccess(() => this.insertUnlessDuplicate(job, prepared.contacts, request.repeatOfJobId));
+        return this.progressOf(inserted);
+      });
+    }
+    /**
+     * Confirms a job awaiting confirmation (creating its segmentation) or resumes a failed
+     * job at its resume phase.
+     *
+     * @throws JobBusyError, DuplicateDispatchError or InvalidJobTransitionError.
+     */
+    start(jobId, options) {
+      return __async(this, null, function* () {
+        const started = yield this.ports.store.withExclusiveAccess(() => __async(this, null, function* () {
+          const job = yield this.loadIdle(jobId);
+          const now = this.ports.clock.now();
+          if (job.phase === "failed") {
+            return this.ports.store.update(toResumed(job, now), []);
+          }
+          if (job.phase !== "awaitingConfirmation") {
+            throw new InvalidJobTransitionError(job.id, job.phase, "start");
+          }
+          yield this.assertNoOtherActiveJob(job, now);
+          if (job.counts.ready === 0) {
+            return this.ports.store.update(toCompleted(job, now), []);
+          }
+          const segmentationId = yield this.createSegmentation(job);
+          return this.ports.store.update(toMaterializing(job, segmentationId, options.operatorEmail, this.ports.clock.now()), []);
+        }));
+        return this.progressOf(started);
+      });
+    }
+    /**
+     * Works on a resumable job inside the execution window: takes the lease, runs chunks
+     * and the Bearer phases while time is left, and releases the lease. A lost
+     * compare-and-set means another execution owns the job: it stops without writing and
+     * reports the stored state.
+     *
+     * @throws RangeError when the lease does not outlive the deadline; JobBusyError when
+     *   another execution holds the lease.
+     */
+    continue(jobId, options) {
+      return __async(this, null, function* () {
+        if (!(options.leaseUntil > options.deadlineAt)) {
+          throw new RangeError(`WorkspaceDispatch.continue: leaseUntil (${options.leaseUntil}) must be later than deadlineAt (${options.deadlineAt})`);
+        }
+        const leased = yield this.acquireLease(jobId, options.leaseUntil);
+        if (!RESUMABLE_PHASES.includes(leased.phase)) {
+          return this.progressOf(leased);
+        }
+        const session = { job: leased };
+        try {
+          const stop = yield this.runUntilDeadline(session, options.deadlineAt);
+          const released = yield this.ports.store.update(__spreadProps(__spreadValues({}, session.job), { leaseUntil: void 0 }), []);
+          return { job: released, next: nextStepOf(released, stop, this.ports.clock.now()) };
+        } catch (error) {
+          if (error instanceof StaleJobError) {
+            return this.progressOf(yield this.ports.store.load(jobId));
+          }
+          yield this.releaseLeaseAfterFailure(session.job);
+          throw error;
+        }
+      });
+    }
+    /**
+     * Ends a job that is not over; nothing written is undone.
+     *
+     * @throws JobBusyError or InvalidJobTransitionError.
+     */
+    abandon(jobId, options) {
+      return __async(this, null, function* () {
+        const abandoned = yield this.ports.store.withExclusiveAccess(() => __async(this, null, function* () {
+          const job = yield this.loadIdle(jobId);
+          return this.ports.store.update(toAbandoned(job, options.operatorEmail, this.ports.clock.now()), []);
+        }));
+        return this.progressOf(abandoned);
+      });
+    }
+    /** The job and a page of its contacts, read from the store only. */
+    status(jobId, page) {
+      return __async(this, null, function* () {
+        const job = yield this.ports.store.load(jobId);
+        const contacts = yield this.ports.store.loadContacts(jobId, page);
+        return __spreadProps(__spreadValues({}, this.progressOf(job)), { contacts });
+      });
+    }
+    /** Ids of the jobs a continuation should work on. */
+    resumableJobIds() {
+      return __async(this, null, function* () {
+        return (yield this.ports.store.findByPhases(RESUMABLE_PHASES)).map((job) => job.id);
+      });
+    }
+    /** The job with the next step computed now. */
+    progressOf(job) {
+      return { job, next: nextStepOf(job, void 0, this.ports.clock.now()) };
+    }
+    /**
+     * Reads every page of a catalog; any non-2xx fails the plan before a write.
+     *
+     * @throws DispatchThrottledError or DispatchValidationError.
+     */
+    readCatalog(pageCall, parse, catalog) {
+      return __async(this, null, function* () {
+        const [first] = yield this.ports.executor.executeAll([pageCall(1)]);
+        const firstPage = toPayloadPage(requireSuccess(first, catalog), catalog);
+        const laterCalls = Array.from({ length: Math.max(0, firstPage.totalPages - 1) }, (_unused, offset) => pageCall(offset + 2));
+        const laterResults = laterCalls.length > 0 ? yield this.ports.executor.executeAll(laterCalls) : [];
+        const laterItems = laterResults.flatMap((result) => toPayloadPage(requireSuccess(result, catalog), catalog).results);
+        return { items: [...firstPage.results, ...laterItems].map(parse), pages: 1 + laterCalls.length };
+      });
+    }
+    /** Inserts the job unless a duplicate blocks it, superseding idle jobs of the same audience. */
+    insertUnlessDuplicate(job, contacts, repeatOfJobId) {
+      return __async(this, null, function* () {
+        var _a;
+        const verdict = duplicateVerdict(yield this.ports.store.findByFingerprint(job.fingerprint), repeatOfJobId, job.createdAt);
+        if (verdict.kind === "refuse") {
+          throw new DuplicateDispatchError(verdict.job.id, verdict.job.phase, (_a = verdict.job.failure) == null ? void 0 : _a.resumePhase);
+        }
+        if (verdict.kind === "busy") {
+          throw new JobBusyError(verdict.job.id);
+        }
+        for (const idle of verdict.supersede) {
+          yield this.supersede(idle, job.createdAt);
+        }
+        return this.ports.store.insert(job, contacts);
+      });
+    }
+    /** Supersedes an idle job; losing the compare-and-set means it just got busy. */
+    supersede(job, now) {
+      return __async(this, null, function* () {
+        try {
+          yield this.ports.store.update(toSuperseded(job, now), []);
+        } catch (error) {
+          if (error instanceof StaleJobError) {
+            throw new JobBusyError(job.id);
+          }
+          throw error;
+        }
+      });
+    }
+    /** Loads a job that no execution holds. */
+    loadIdle(jobId) {
+      return __async(this, null, function* () {
+        const job = yield this.ports.store.load(jobId);
+        if (isLeased(job, this.ports.clock.now())) {
+          throw new JobBusyError(job.id);
+        }
+        return job;
+      });
+    }
+    /** Refuses to start while another job of the same audience is active or was sent. */
+    assertNoOtherActiveJob(job, now) {
+      return __async(this, null, function* () {
+        var _a;
+        const others = (yield this.ports.store.findByFingerprint(job.fingerprint)).filter((other) => other.id !== job.id);
+        const verdict = duplicateVerdict(others, job.settings.repeatOfJobId, now);
+        const blocking = verdict.kind === "create" ? verdict.supersede[0] : verdict.job;
+        if (blocking) {
+          throw new DuplicateDispatchError(blocking.id, blocking.phase, (_a = blocking.failure) == null ? void 0 : _a.resumePhase);
+        }
+      });
+    }
+    /** Creates the job's segmentation on Bearer; a non-2xx leaves the job awaiting confirmation. */
+    createSegmentation(job) {
+      return __async(this, null, function* () {
+        const [result] = yield this.ports.executor.executeAll([createSegmentation(buildSegmentationBody(job))]);
+        return toCreatedId(requireSuccess(result, "segmentation creation"), "segmentation");
+      });
+    }
+    /** Takes the lease of a resumable job; other phases are returned untouched. */
+    acquireLease(jobId, leaseUntil) {
+      return __async(this, null, function* () {
+        return this.ports.store.withExclusiveAccess(() => __async(this, null, function* () {
+          const job = yield this.loadIdle(jobId);
+          if (!RESUMABLE_PHASES.includes(job.phase)) {
+            return job;
+          }
+          return this.ports.store.update(__spreadProps(__spreadValues({}, job), { leaseUntil }), []);
+        }));
+      });
+    }
+    /** Releases the lease after an unexpected error, unless another execution already owns the job. */
+    releaseLeaseAfterFailure(job) {
+      return __async(this, null, function* () {
+        try {
+          yield this.ports.store.update(__spreadProps(__spreadValues({}, job), { leaseUntil: void 0 }), []);
+        } catch (releaseError) {
+          if (!(releaseError instanceof StaleJobError)) {
+            throw releaseError;
+          }
+        }
+      });
+    }
+    /** Runs the job's phases while a chunk still fits before the deadline. */
+    runUntilDeadline(session, deadlineAt) {
+      return __async(this, null, function* () {
+        while (RESUMABLE_PHASES.includes(session.job.phase) && this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt) {
+          const signal = yield this.runPhaseStep(session, deadlineAt);
+          if (signal.kind === "stop") {
+            return signal.stop;
+          }
+          if (signal.kind === "yield") {
+            return void 0;
+          }
+        }
+        return void 0;
+      });
+    }
+    /** One step of the current phase. */
+    runPhaseStep(session, deadlineAt) {
+      return __async(this, null, function* () {
+        switch (session.job.phase) {
+          case "resolving":
+          case "materializing":
+            return this.runChunk(session, session.job.phase);
+          case "awaitingAudience":
+            return this.waitForAudience(session, deadlineAt);
+          case "sending":
+            return this.sendCampaign(session);
+          default:
+            return { kind: "yield" };
+        }
+      });
+    }
+    /**
+     * Processes one chunk of contacts from the cursor in rounds until every contact is
+     * settled or deferred, then advances the cursor and closes the phase when no work is
+     * left.
+     */
+    runChunk(session, phase) {
+      return __async(this, null, function* () {
+        var _a;
+        const store = this.ports.store;
+        const chunkSize = phase === "resolving" ? LOOKUP_CHUNK_SIZE : WRITE_CHUNK_SIZE;
+        const contacts = yield store.loadContacts(session.job.id, { offset: session.job.cursor, limit: chunkSize });
+        let blocks = contacts.map((contact) => ({ contact }));
+        (_a = session.claims) != null ? _a : session.claims = yield store.loadPersonClaims(session.job.id);
+        for (; ; ) {
+          const now = this.ports.clock.now();
+          const steps = blocks.map((block) => nextContactStep(block, session.job, now));
+          if (!steps.some((step) => step.kind === "calls")) {
+            break;
+          }
+          blocks = yield this.persistWriteAheads(session, blocks, steps);
+          const round = yield this.runRound(session, phase, blocks, steps);
+          blocks = round.blocks;
+          if (round.signal) {
+            return round.signal;
+          }
+        }
+        return this.closeChunk(session, phase, blocks.map((block) => block.contact));
+      });
+    }
+    /** Persists the write-ahead markers of a round before its calls are sent. */
+    persistWriteAheads(session, blocks, steps) {
+      return __async(this, null, function* () {
+        const marked = blocks.map((block, position) => {
+          const writeAhead = writeAheadOf(block, steps[position]);
+          return writeAhead ? __spreadProps(__spreadValues({}, block), { contact: writeAhead }) : block;
+        });
+        const changed = marked.filter((block, position) => block !== blocks[position]).map((block) => block.contact);
+        if (changed.length > 0) {
+          session.job = yield this.ports.store.update(__spreadProps(__spreadValues({}, session.job), { updatedAt: this.ports.clock.now() }), changed);
+        }
+        return marked;
+      });
+    }
+    /** Sends every call of a round at once and applies each contact's results. */
+    runRound(session, phase, blocks, steps) {
+      return __async(this, null, function* () {
+        const calls = steps.flatMap((step) => step.kind === "calls" ? step.calls : []);
+        const results = yield this.ports.executor.executeAll(calls);
+        const now = this.ports.clock.now();
+        const shifts = __spreadValues({}, session.job.revalidationShifts);
+        let claims = session.claims;
+        let stopCause;
+        let rejectedStrategy;
+        let offset = 0;
+        const updated = blocks.map((block, position) => {
+          var _a;
+          const step = steps[position];
+          if (step.kind !== "calls") {
+            return block;
+          }
+          const slice = results.slice(offset, offset + step.calls.length);
+          offset += step.calls.length;
+          const application = applyContactStep(block, step, slice, { settings: session.job.settings, claims, now, phase });
+          if (application.kind === "applied") {
+            claims = application.claims;
+            if (application.shiftedTo) {
+              shifts[application.shiftedTo] = ((_a = shifts[application.shiftedTo]) != null ? _a : 0) + 1;
+            }
+          } else if (application.kind === "stopBlock") {
+            stopCause != null ? stopCause : stopCause = application.cause;
+          } else {
+            rejectedStrategy != null ? rejectedStrategy : rejectedStrategy = application.strategy;
+          }
+          return application.block;
+        });
+        session.claims = claims;
+        const before = blocks.map((block) => block.contact);
+        const after = updated.map((block) => block.contact);
+        const changedPositions = after.map((contact, position) => contact !== before[position] ? position : -1).filter((position) => position >= 0);
+        let job = __spreadProps(__spreadValues({}, session.job), {
+          counts: tallyOutcomes(session.job.counts, changedPositions.map((position) => before[position]), changedPositions.map((position) => after[position])),
+          revalidationShifts: shifts,
+          updatedAt: now
+        });
+        if (rejectedStrategy !== void 0) {
+          const reason = rejectedStrategy === "bearer" ? "bearer_token_rejected" : "workspace_token_rejected";
+          job = toFailed(job, { reason, detail: `Hablla refused the ${rejectedStrategy} token during ${phase}`, resumePhase: phase }, now);
+        }
+        session.job = yield this.ports.store.update(job, changedPositions.map((position) => after[position]));
+        if (rejectedStrategy !== void 0) {
+          return { blocks: updated, signal: { kind: "yield" } };
+        }
+        return { blocks: updated, signal: stopCause ? { kind: "stop", stop: { cause: stopCause } } : void 0 };
+      });
+    }
+    /** Advances the cursor past a settled chunk and closes the phase when its work is done. */
+    closeChunk(session, phase, chunk) {
+      return __async(this, null, function* () {
+        const now = this.ports.clock.now();
+        const advanced = advanceCursor(session.job, chunk, now);
+        let job = advanced.job;
+        if (!hasPhaseWork(job, phase)) {
+          job = phase === "resolving" ? toAwaitingConfirmation(job, now) : job.counts.inAudience === 0 ? toCompleted(job, now) : toAwaitingAudience(job, now);
+        }
+        session.job = yield this.ports.store.update(job, []);
+        if (advanced.waitUntil !== void 0 && advanced.waitUntil > now && hasPhaseWork(session.job, phase)) {
+          return { kind: "stop", stop: { waitUntil: advanced.waitUntil } };
+        }
+        return { kind: "next" };
+      });
+    }
+    /** Polls the audience count until it matches, fails, or the window closes. */
+    waitForAudience(session, deadlineAt) {
+      return __async(this, null, function* () {
+        for (; ; ) {
+          const [result] = yield this.ports.executor.executeAll([countAudience(buildAudienceQuery(session.job).query)]);
+          const resolution = resolveAudienceCount(session.job, result, this.ports.clock.now());
+          if (resolution.kind !== "wait" || this.ports.clock.now() + AUDIENCE_POLL_INTERVAL_MS + CHUNK_TIME_RESERVE_MS >= deadlineAt) {
+            return this.persistSendPhase(session, resolution);
+          }
+          session.job = resolution.job;
+          yield this.ports.clock.sleep(AUDIENCE_POLL_INTERVAL_MS);
+        }
+      });
+    }
+    /** Creates the campaign under a write-ahead marker, or reconciles an in-flight one once due. */
+    sendCampaign(session) {
+      return __async(this, null, function* () {
+        const now = this.ports.clock.now();
+        if (session.job.campaignSendState === "inFlight") {
+          if (!isCampaignReconcileDue(session.job, now)) {
+            return { kind: "yield" };
+          }
+          const [result2] = yield this.ports.executor.executeAll([findCampaignsByName(dispatchName(session.job))]);
+          return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, result2, this.ports.clock.now()));
+        }
+        session.job = yield this.ports.store.update(withCampaignInFlight(session.job, now), []);
+        const [result] = yield this.ports.executor.executeAll([createCampaign(buildCampaignBody(session.job))]);
+        return this.persistSendPhase(session, resolveCampaignCreation(session.job, result, this.ports.clock.now()));
+      });
+    }
+    /** Persists a Bearer phase resolution and turns it into a loop signal. */
+    persistSendPhase(session, resolution) {
+      return __async(this, null, function* () {
+        session.job = yield this.ports.store.update(resolution.job, []);
+        switch (resolution.kind) {
+          case "advanced":
+            return { kind: "next" };
+          case "wait":
+            return { kind: "yield" };
+          case "stop":
+            return { kind: "stop", stop: { cause: resolution.cause } };
+        }
+      });
+    }
+  };
+  function requireSuccess(result, route) {
+    var _a;
+    if (result.kind !== "completed") {
+      throw new DispatchThrottledError(route);
+    }
+    if (!isSuccess(result)) {
+      throw new DispatchValidationError([`${route} answered ${result.status}: ${truncateDetail((_a = JSON.stringify(result.data)) != null ? _a : "")}`]);
+    }
+    return payloadOf(result);
+  }
 
   // src/sdk/domain/index.ts
   var HabllaDomain = class {
@@ -9227,6 +11037,388 @@
     return value;
   }
 
+  // src/sdk/core/call-executor.ts
+  var TOO_MANY_REQUESTS_STATUS = 429;
+  function executeInWaves(calls, concurrency, sendWave) {
+    return __async(this, null, function* () {
+      const results = [];
+      for (let start = 0; start < calls.length; start += concurrency) {
+        const wave = calls.slice(start, start + concurrency);
+        const waveResults = yield sendWaveOrInterrupt(wave, sendWave);
+        results.push(...waveResults);
+        if (waveResults.some(stopsTheBatch)) {
+          break;
+        }
+      }
+      while (results.length < calls.length) {
+        results.push({ kind: "unsent" });
+      }
+      return results;
+    });
+  }
+  function sendWaveOrInterrupt(wave, sendWave) {
+    return __async(this, null, function* () {
+      try {
+        return yield sendWave(wave);
+      } catch (error) {
+        const message = errorMessageOf(error);
+        return wave.map(() => ({ kind: "interrupted", message }));
+      }
+    });
+  }
+  function stopsTheBatch(result) {
+    return result.kind === "throttled" || result.kind === "interrupted";
+  }
+  function resultOfResponse(status, data) {
+    if (status === TOO_MANY_REQUESTS_STATUS) {
+      return { kind: "throttled" };
+    }
+    return { kind: "completed", status, data };
+  }
+  function authorizationsFor(calls, auth) {
+    return __async(this, null, function* () {
+      const headers = /* @__PURE__ */ new Map();
+      for (const call of calls) {
+        if (!headers.has(call.strategy)) {
+          headers.set(call.strategy, yield auth.authorization(call.strategy));
+        }
+      }
+      return headers;
+    });
+  }
+  function urlOfCall(call, options) {
+    return buildRequestUrl({
+      baseUrl: options.baseUrl,
+      workspaceId: options.workspaceId,
+      rawPath: call.rawPath,
+      pathParams: call.pathParams,
+      query: call.query
+    });
+  }
+  function assertValidExecutorOptions(options) {
+    if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
+      throw new RangeError(`CallExecutor: concurrency must be an integer >= 1, got ${options.concurrency}`);
+    }
+  }
+  function errorMessageOf(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  // src/runtime/gas/url-fetch-call-executor.ts
+  var UrlFetchCallExecutor = class {
+    constructor(auth, options) {
+      __publicField(this, "auth", auth);
+      __publicField(this, "options", options);
+      assertValidExecutorOptions(options);
+    }
+    executeAll(calls) {
+      return __async(this, null, function* () {
+        if (calls.length === 0) {
+          return [];
+        }
+        const headers = yield authorizationsFor(calls, this.auth);
+        return executeInWaves(calls, this.options.concurrency, (wave) => __async(this, null, function* () {
+          return UrlFetchApp.fetchAll(wave.map((call) => this.fetchRequestOf(call, headers))).map((response) => resultOfResponse(response.getResponseCode(), parseBody(response.getContentText())));
+        }));
+      });
+    }
+    /** The `fetchAll` request of a call. */
+    fetchRequestOf(call, headers) {
+      const request = {
+        url: urlOfCall(call, this.options),
+        method: call.method.toLowerCase(),
+        headers: { Accept: "application/json", Authorization: headers.get(call.strategy) },
+        muteHttpExceptions: true
+      };
+      if (call.body !== void 0) {
+        request.contentType = "application/json";
+        request.payload = JSON.stringify(call.body);
+      }
+      return request;
+    }
+  };
+  function parseBody(text) {
+    if (text === "") {
+      return null;
+    }
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return text;
+    }
+  }
+
+  // src/runtime/gas/sheet-dispatch-job-store.ts
+  var JOBS_SHEET = "dispatch_jobs";
+  var CONTACTS_SHEET = "dispatch_job_contacts";
+  var JOB_COLUMNS = ["id", "revision", "fingerprint", "phase", "createdAt", "updatedAt", "contactsFirstRow", "contactCount", "leaseUntil", "archivedAt", "_raw"];
+  var CONTACT_COLUMNS = ["jobId", "index", "phone", "name", "outcome", "personId", "ownerChange", "ownerSource", "_raw"];
+  var EXCLUSIVE_ACCESS_WAIT_MS = 1e4;
+  var FIRST_DATA_ROW = 2;
+  var ARCHIVABLE_PHASES = ["completed", "superseded", "abandoned"];
+  var CorruptedJobStoreError = class extends Error {
+    constructor(jobId, row, detail) {
+      super(`Dispatch job store is corrupted at ${CONTACTS_SHEET} row ${row} of job ${jobId}: ${detail}`);
+      __publicField(this, "jobId", jobId);
+      __publicField(this, "row", row);
+      __publicField(this, "detail", detail);
+      this.name = "CorruptedJobStoreError";
+    }
+  };
+  var SheetDispatchJobStore = class {
+    constructor(options) {
+      __publicField(this, "options", options);
+      __publicField(this, "holdsLock", false);
+      if (typeof options.spreadsheetId !== "string" || options.spreadsheetId === "") {
+        throw new Error("SheetDispatchJobStore: spreadsheetId is required");
+      }
+    }
+    withExclusiveAccess(action) {
+      return __async(this, null, function* () {
+        if (this.holdsLock) {
+          return action();
+        }
+        const lock = LockService.getScriptLock();
+        lock.waitLock(EXCLUSIVE_ACCESS_WAIT_MS);
+        this.holdsLock = true;
+        try {
+          return yield action();
+        } finally {
+          this.holdsLock = false;
+          lock.releaseLock();
+        }
+      });
+    }
+    insert(job, contacts) {
+      return __async(this, null, function* () {
+        return this.withExclusiveAccess(() => __async(this, null, function* () {
+          const contactsSheet = this.sheet(CONTACTS_SHEET, CONTACT_COLUMNS);
+          const jobsSheet = this.sheet(JOBS_SHEET, JOB_COLUMNS);
+          const contactsFirstRow = contactsSheet.getLastRow() + 1;
+          const stored = __spreadProps(__spreadValues({}, job), { revision: 0 });
+          if (contacts.length > 0) {
+            writeRows(contactsSheet, contactsFirstRow, contacts.map((contact) => contactRow(job.id, contact)));
+          }
+          writeRows(jobsSheet, jobsSheet.getLastRow() + 1, [jobRow(stored, contactsFirstRow, contacts.length, "")]);
+          return stored;
+        }));
+      });
+    }
+    load(jobId) {
+      return __async(this, null, function* () {
+        return this.locate(jobId).job;
+      });
+    }
+    findByFingerprint(fingerprint) {
+      return __async(this, null, function* () {
+        return this.jobRows().filter((values) => String(values[jobColumn("fingerprint")]) === fingerprint).map(jobOfRow);
+      });
+    }
+    findByPhases(phases) {
+      return __async(this, null, function* () {
+        return this.jobRows().filter((values) => phases.includes(String(values[jobColumn("phase")]))).map(jobOfRow);
+      });
+    }
+    loadContacts(jobId, page) {
+      return __async(this, null, function* () {
+        const block = this.contactBlock(this.locate(jobId));
+        const offset = Math.max(0, page.offset);
+        const count = Math.min(page.limit, block.contactCount - offset);
+        if (count <= 0) {
+          return [];
+        }
+        return this.readContactRows(jobId, block.firstRow, offset, count).map((values) => JSON.parse(String(values[contactColumn("_raw")])));
+      });
+    }
+    loadPersonClaims(jobId) {
+      return __async(this, null, function* () {
+        const block = this.contactBlock(this.locate(jobId));
+        const claims = /* @__PURE__ */ new Map();
+        if (block.contactCount === 0) {
+          return claims;
+        }
+        for (const values of this.readContactRows(jobId, block.firstRow, 0, block.contactCount)) {
+          const personId = String(values[contactColumn("personId")]);
+          const outcome = String(values[contactColumn("outcome")]);
+          const index = Number(values[contactColumn("index")]);
+          if (personId !== "" && (outcome === "ready" || outcome === "inAudience") && !claims.has(personId)) {
+            claims.set(personId, index);
+          }
+        }
+        return claims;
+      });
+    }
+    update(job, changedContacts) {
+      return __async(this, null, function* () {
+        return this.withExclusiveAccess(() => __async(this, null, function* () {
+          const located = this.locate(job.id);
+          const storedRevision = Number(located.values[jobColumn("revision")]);
+          if (storedRevision !== job.revision) {
+            throw new StaleJobError(job.id, job.revision);
+          }
+          const block = this.contactBlock(located);
+          const contactsSheet = this.sheet(CONTACTS_SHEET, CONTACT_COLUMNS);
+          for (const run of consecutiveRuns(changedContacts)) {
+            this.readContactRows(job.id, block.firstRow, run[0].index, run.length);
+            writeRows(contactsSheet, block.firstRow + run[0].index, run.map((contact) => contactRow(job.id, contact)));
+          }
+          const updated = __spreadProps(__spreadValues({}, job), { revision: storedRevision + 1 });
+          writeRows(this.sheet(JOBS_SHEET, JOB_COLUMNS), located.row, [jobRow(updated, block.firstRow, block.contactCount, "")]);
+          return updated;
+        }));
+      });
+    }
+    /**
+     * Frees the contact block of a finished job that no execution holds, shifting the
+     * blocks stored after it, and keeps the header marked as archived.
+     *
+     * @throws Error when the job is not in a finished phase or is leased.
+     */
+    archive(jobId, now) {
+      return __async(this, null, function* () {
+        yield this.withExclusiveAccess(() => __async(this, null, function* () {
+          const located = this.locate(jobId);
+          const block = this.contactBlock(located);
+          if (!ARCHIVABLE_PHASES.includes(located.job.phase) || located.job.leaseUntil !== void 0 && located.job.leaseUntil > now) {
+            throw new Error(`Dispatch job ${jobId} cannot be archived in phase ${located.job.phase} or while leased`);
+          }
+          if (block.contactCount > 0) {
+            this.sheet(CONTACTS_SHEET, CONTACT_COLUMNS).deleteRows(block.firstRow, block.contactCount);
+          }
+          const jobsSheet = this.sheet(JOBS_SHEET, JOB_COLUMNS);
+          this.jobRows().forEach((values, position) => {
+            const firstRow = Number(values[jobColumn("contactsFirstRow")]);
+            if (firstRow > block.firstRow) {
+              const shifted = [...values];
+              shifted[jobColumn("contactsFirstRow")] = firstRow - block.contactCount;
+              writeRows(jobsSheet, FIRST_DATA_ROW + position, [shifted]);
+            }
+          });
+          writeRows(jobsSheet, located.row, [jobRow(located.job, 0, block.contactCount, now)]);
+        }));
+      });
+    }
+    /** The job row of an id. */
+    locate(jobId) {
+      const rows = this.jobRows();
+      const position = rows.findIndex((values) => String(values[jobColumn("id")]) === jobId);
+      if (position < 0) {
+        throw new JobNotFoundError(jobId);
+      }
+      return { row: FIRST_DATA_ROW + position, values: rows[position], job: jobOfRow(rows[position]) };
+    }
+    /** Where a job's contacts live; archived jobs have none left. */
+    contactBlock(located) {
+      if (String(located.values[jobColumn("archivedAt")]) !== "") {
+        throw new Error(`Dispatch job ${located.job.id} is archived; its contacts were removed`);
+      }
+      return { firstRow: Number(located.values[jobColumn("contactsFirstRow")]), contactCount: Number(located.values[jobColumn("contactCount")]) };
+    }
+    /** Every job row. */
+    jobRows() {
+      const sheet = this.sheet(JOBS_SHEET, JOB_COLUMNS);
+      const rows = sheet.getLastRow() - 1;
+      return rows > 0 ? sheet.getRange(FIRST_DATA_ROW, 1, rows, JOB_COLUMNS.length).getValues() : [];
+    }
+    /**
+     * Reads contact rows of a job and checks each row holds that job and index.
+     *
+     * @throws CorruptedJobStoreError on the first row that does not.
+     */
+    readContactRows(jobId, firstRow, fromIndex, count) {
+      const rows = this.sheet(CONTACTS_SHEET, CONTACT_COLUMNS).getRange(firstRow + fromIndex, 1, count, CONTACT_COLUMNS.length).getValues();
+      rows.forEach((values, offset) => {
+        const expectedIndex = fromIndex + offset;
+        if (String(values[contactColumn("jobId")]) !== jobId || Number(values[contactColumn("index")]) !== expectedIndex) {
+          throw new CorruptedJobStoreError(jobId, firstRow + expectedIndex, `expected index ${expectedIndex}, found ${String(values[contactColumn("jobId")])}#${String(values[contactColumn("index")])}`);
+        }
+      });
+      return rows;
+    }
+    /** A tab, created hidden with its header when missing. */
+    sheet(name, columns) {
+      const spreadsheet = SpreadsheetApp.openById(this.options.spreadsheetId);
+      const existing = spreadsheet.getSheetByName(name);
+      if (existing) {
+        return existing;
+      }
+      const created = spreadsheet.insertSheet(name);
+      created.hideSheet();
+      writeRows(created, 1, [[...columns]]);
+      return created;
+    }
+  };
+  function jobColumn(column) {
+    return JOB_COLUMNS.indexOf(column);
+  }
+  function contactColumn(column) {
+    return CONTACT_COLUMNS.indexOf(column);
+  }
+  function jobRow(job, contactsFirstRow, contactCount, archivedAt) {
+    var _a;
+    return [job.id, job.revision, job.fingerprint, job.phase, job.createdAt, job.updatedAt, contactsFirstRow, contactCount, (_a = job.leaseUntil) != null ? _a : "", archivedAt, JSON.stringify(job)];
+  }
+  function jobOfRow(values) {
+    return JSON.parse(String(values[jobColumn("_raw")]));
+  }
+  function contactRow(jobId, contact) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    return [
+      jobId,
+      contact.index,
+      (_b = (_a = contact.phone) == null ? void 0 : _a.digits) != null ? _b : "",
+      contact.name,
+      contact.outcome,
+      (_d = (_c = contact.person) == null ? void 0 : _c.id) != null ? _d : "",
+      (_f = (_e = contact.ownerChange) == null ? void 0 : _e.kind) != null ? _f : "",
+      (_h = (_g = contact.target) == null ? void 0 : _g.source) != null ? _h : "",
+      JSON.stringify(contact)
+    ];
+  }
+  function writeRows(sheet, firstRow, rows) {
+    const lastRow = firstRow + rows.length - 1;
+    const maxRows = sheet.getMaxRows();
+    if (lastRow > maxRows) {
+      sheet.insertRowsAfter(maxRows, lastRow - maxRows);
+    }
+    sheet.getRange(firstRow, 1, rows.length, rows[0].length).setValues(rows.map((row) => [...row]));
+  }
+  function consecutiveRuns(contacts) {
+    const sorted = [...contacts].sort((first, second) => first.index - second.index);
+    const runs = [];
+    for (const contact of sorted) {
+      const run = runs[runs.length - 1];
+      if (run && run[run.length - 1].index + 1 === contact.index) {
+        run.push(contact);
+      } else {
+        runs.push([contact]);
+      }
+    }
+    return runs;
+  }
+
+  // src/runtime/gas/gas-clock.ts
+  var gasClock = {
+    now: () => Date.now(),
+    sleep: (ms) => {
+      Utilities.sleep(ms);
+      return Promise.resolve();
+    }
+  };
+
+  // src/runtime/gas/execution-window.ts
+  var GAS_EXECUTION_LIMIT_MS = 36e4;
+  var LEASE_MARGIN_MS = 3e4;
+  function executionWindow(executionStartedAt, budgetMs) {
+    if (!Number.isInteger(budgetMs) || budgetMs <= 0 || budgetMs >= GAS_EXECUTION_LIMIT_MS) {
+      throw new RangeError(`executionWindow: budgetMs must be a positive integer below ${GAS_EXECUTION_LIMIT_MS}, got ${budgetMs}`);
+    }
+    return {
+      deadlineAt: executionStartedAt + budgetMs,
+      leaseUntil: executionStartedAt + GAS_EXECUTION_LIMIT_MS + LEASE_MARGIN_MS
+    };
+  }
+
   // src/runtime/gas/entry.ts
   var FETCH_ALL_BATCH = 100;
   var SET_TIMEOUT_CAP_MS = 15e3;
@@ -9384,6 +11576,20 @@
     const backend = new SpreadsheetTableStore({ spreadsheetId: sheetId });
     return new HabllaStore(backend, STORE_SCHEMAS);
   }
+  function createWorkspaceDispatch(client, baseUrl, workspaceId, options) {
+    const missing = ["concurrency", "spreadsheetId", "dailyCallQuota"].filter((option) => (options == null ? void 0 : options[option]) === void 0);
+    if (missing.length > 0) {
+      throw new Error(`Hablla.createWorkspaceDispatch: missing ${missing.join(", ")}`);
+    }
+    return new WorkspaceDispatch(
+      {
+        executor: new UrlFetchCallExecutor(client.auth, { baseUrl, workspaceId, concurrency: options.concurrency }),
+        store: new SheetDispatchJobStore({ spreadsheetId: options.spreadsheetId }),
+        clock: gasClock
+      },
+      { dailyCallQuota: options.dailyCallQuota }
+    );
+  }
   function installHabllaClient() {
     var _a;
     const vars = readVariables();
@@ -9393,6 +11599,7 @@
     }));
     const g = globalThis;
     const domain = new HabllaDomain(client);
+    const baseUrl = (_a = vars.baseUrl) != null ? _a : "https://api.hablla.com";
     g.hablla = client;
     g.habllaDomain = domain;
     g.Hablla = {
@@ -9400,9 +11607,11 @@
       domain,
       runSync,
       unwrap,
-      getAll: makeGetAll(client, (_a = vars.baseUrl) != null ? _a : "https://api.hablla.com", vars.workspaceId),
+      getAll: makeGetAll(client, baseUrl, vars.workspaceId),
       store: makeStore(),
-      utils: utils_exports
+      utils: utils_exports,
+      createWorkspaceDispatch: (options) => createWorkspaceDispatch(client, baseUrl, vars.workspaceId, options),
+      executionWindow
     };
     return client;
   }

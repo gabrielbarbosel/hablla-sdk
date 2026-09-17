@@ -8,6 +8,11 @@ import { UrlFetchTransport } from './transport';
 import { PropertiesStrategyCache } from './properties-strategy-cache';
 import { SpreadsheetTableStore } from './spreadsheet-table-store';
 import { SyncPromise, unwrap, drainUnhandledRejections } from './sync-promise';
+import { WorkspaceDispatch } from '../../sdk/domain/dispatch/workspace';
+import { UrlFetchCallExecutor } from './url-fetch-call-executor';
+import { SheetDispatchJobStore } from './sheet-dispatch-job-store';
+import { gasClock } from './gas-clock';
+import { executionWindow } from './execution-window';
 
 declare const PropertiesService: {
     getScriptProperties(): { getProperty(key: string): string | null };
@@ -224,6 +229,39 @@ function makeStore(): HabllaStore {
     return new HabllaStore(backend, STORE_SCHEMAS);
 }
 
+/** Typed options of the workspace dispatch, all from the app's config; none has a default. */
+export interface WorkspaceDispatchOptions {
+    /** Calls per `fetchAll` wave. */
+    concurrency: number;
+    /** Spreadsheet holding the dispatch jobs. */
+    spreadsheetId: string;
+    /** The account's daily UrlFetch quota, the ceiling of one dispatch. */
+    dailyCallQuota: number;
+}
+
+/**
+ * Composes the workspace dispatch of the GAS runtime: `fetchAll` executor over the client's
+ * auth, jobs in the spreadsheet, wall clock.
+ *
+ * @throws Error when any option is missing.
+ */
+function createWorkspaceDispatch(client: HabllaClient, baseUrl: string, workspaceId: string, options: WorkspaceDispatchOptions): WorkspaceDispatch {
+    const missing = (['concurrency', 'spreadsheetId', 'dailyCallQuota'] as const).filter((option) => options?.[option] === undefined);
+
+    if (missing.length > 0) {
+        throw new Error(`Hablla.createWorkspaceDispatch: missing ${missing.join(', ')}`);
+    }
+
+    return new WorkspaceDispatch(
+        {
+            executor: new UrlFetchCallExecutor(client.auth, { baseUrl, workspaceId, concurrency: options.concurrency }),
+            store: new SheetDispatchJobStore({ spreadsheetId: options.spreadsheetId }),
+            clock: gasClock,
+        },
+        { dailyCallQuota: options.dailyCallQuota },
+    );
+}
+
 /** Instancia o client GAS (UrlFetchApp + cache em Script Properties) e expõe os globais. */
 export function installHabllaClient(): HabllaClient {
     const vars = readVariables();
@@ -234,6 +272,7 @@ export function installHabllaClient(): HabllaClient {
     });
     const g = globalThis as unknown as GasGlobal;
     const domain = new HabllaDomain(client);
+    const baseUrl = vars.baseUrl ?? 'https://api.hablla.com';
     g.hablla = client;
     g.habllaDomain = domain;
     g.Hablla = {
@@ -241,9 +280,11 @@ export function installHabllaClient(): HabllaClient {
         domain,
         runSync,
         unwrap,
-        getAll: makeGetAll(client, vars.baseUrl ?? 'https://api.hablla.com', vars.workspaceId),
+        getAll: makeGetAll(client, baseUrl, vars.workspaceId),
         store: makeStore(),
         utils,
+        createWorkspaceDispatch: (options: WorkspaceDispatchOptions) => createWorkspaceDispatch(client, baseUrl, vars.workspaceId, options),
+        executionWindow,
     };
     return client;
 }
