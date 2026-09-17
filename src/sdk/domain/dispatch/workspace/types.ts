@@ -1,0 +1,327 @@
+import type { PhoneVariants } from '../../../utils';
+
+/** Which Hablla user attribute the advisor column of the audience holds. */
+export type AdvisorKeyKind = 'email' | 'userId';
+
+/** One audience line as the operator's sheet provides it. */
+export interface WorkspaceDispatchRow {
+    /** Full contact name; stored upper-cased on creation and the source of the first name. */
+    name: string;
+    /** Brazilian phone, with or without the 55 country code. */
+    phone: string;
+    /** Advisor identifier interpreted per {@link WorkspaceDispatchRequest.advisorKeyKind}; empty when absent. */
+    advisorKey: string;
+    /** Person custom-field values by custom-field id, written only when the person is created. */
+    customFields: Readonly<Record<string, string>>;
+}
+
+/** Operator-chosen pacing, in the units the UI shows. */
+export interface DispatchPacing {
+    /** Contacts per server-side batch; integer >= 1. */
+    batchSize: number;
+    /** Seconds between batches; integer >= 1. Converted to minutes only by `toDispatchConfig`. */
+    intervalSeconds: number;
+}
+
+/**
+ * A report filter as the segmentation query builder emits it. Only `type` is interpreted
+ * here; the remaining keys travel to Hablla untouched.
+ */
+export interface SegmentationFilter {
+    readonly type: string;
+    readonly [attribute: string]: unknown;
+}
+
+/** Everyone the operator chose to leave out. */
+export interface ExclusionCriteria {
+    /** Explicit phones (e.g. already-sent contacts). */
+    phones: readonly string[];
+    /**
+     * Report filters whose matching persons are excluded. Must be empty until the way a
+     * filter exclusion is resolved is decided; a non-empty list is refused by validation
+     * instead of being silently ignored.
+     */
+    segmentationFilters: readonly SegmentationFilter[];
+}
+
+/** Audit summary of the exclusion kept in the job (the phone list itself is not persisted). */
+export interface ExclusionSummary {
+    phoneCount: number;
+    segmentationFilters: readonly SegmentationFilter[];
+}
+
+/** What to do with an existing person whose only owners are system users. */
+export type SystemOwnerPolicy = 'replace' | 'add';
+
+/** What to do with a contact whose advisor cannot be resolved to a human Hablla user. */
+export type UnresolvedAdvisorPolicy =
+    | { kind: 'assignReserve'; reserveOwnerId: string }
+    | { kind: 'skip' };
+
+/** Everything one dispatch needs; built by the app from typed config plus operator choices. */
+export interface WorkspaceDispatchRequest {
+    /** Human label used in the segmentation and campaign names. */
+    label: string;
+    connectionId: string;
+    /** Approved WhatsApp template with exactly one body variable (the first name). */
+    templateId: string;
+    /** Sector assigned to persons created by this dispatch. */
+    sectorId: string;
+    /** Person custom field (target person, type string) that carries the computed first name; from typed config, never created here. */
+    firstNameFieldId: string;
+    advisorKeyKind: AdvisorKeyKind;
+    /** Hablla user ids treated as system owners (e.g. Martech, Kras). */
+    systemUserIds: readonly string[];
+    systemOwnerPolicy: SystemOwnerPolicy;
+    unresolvedAdvisorPolicy: UnresolvedAdvisorPolicy;
+    exclusion: ExclusionCriteria;
+    pacing: DispatchPacing;
+    /** Set only when the operator explicitly confirmed re-sending a completed job with the same fingerprint. */
+    repeatOfJobId?: string;
+    rows: readonly WorkspaceDispatchRow[];
+}
+
+/** The request as persisted in the job: rows live as contacts, exclusions as outcomes plus a summary. */
+export type DispatchSettings = Omit<WorkspaceDispatchRequest, 'rows' | 'exclusion'>;
+
+/**
+ * Per-contact outcome, stable codes read by the app (which owns the PT-BR labels).
+ * Transitional: `pendingLookup`, `ready`. Every other value is terminal.
+ */
+export type ContactOutcome =
+    | 'invalidPhone'
+    | 'repeatedPhone'
+    | 'excluded'
+    | 'missingName'
+    | 'unresolvedAdvisor'
+    | 'pendingLookup'
+    | 'lookupFailed'
+    | 'inAttendance'
+    | 'duplicatePersons'
+    | 'blocked'
+    | 'repeatedPerson'
+    | 'ready'
+    | 'writeFailed'
+    | 'inAudience';
+
+/** How the advisor column resolved; shown in the drill-down. */
+export type AdvisorResolution = 'matched' | 'missing' | 'notFound' | 'systemUser';
+
+/** Where the owner assigned to a contact came from. */
+export type OwnerSource = 'advisor' | 'reserve';
+
+/** The Hablla user that should own the contact, with provenance. */
+export interface TargetOwner {
+    userId: string;
+    source: OwnerSource;
+}
+
+/** Owner mutation decided for an existing person (see `decideOwnerChange`). */
+export type OwnerChange =
+    | { kind: 'keep' }
+    | { kind: 'assign'; unfollowFirst: boolean }
+    | { kind: 'replaceSystemOwners'; unfollowFirst: boolean; removedOwnerIds: readonly string[] }
+    | { kind: 'addBesideSystemOwners'; unfollowFirst: boolean };
+
+/** The person a contact resolved to. */
+export interface ResolvedPerson {
+    id: string;
+    /** False when this dispatch created it. */
+    existed: boolean;
+}
+
+/** Which resolution produced the contact's current `person`/`ownerChange`. */
+export type LookupPurpose = 'preview' | 'send';
+
+/** Non-idempotent write whose intent was persisted before sending. */
+export type PendingWrite = 'createPerson' | 'joinAudience';
+
+/** Why a contact's last call failed, for the drill-down. */
+export interface ContactFailure {
+    status: number | 'transport';
+    detail: string;
+}
+
+/** Serializable per-contact state of a job. */
+export interface DispatchContact {
+    /** Position in the request rows; stable identity inside the job. */
+    index: number;
+    /** Name as given (trimmed, whitespace collapsed). */
+    name: string;
+    /** Absent when the phone is invalid. */
+    phone?: PhoneVariants;
+    /** Computed first name written to the configured custom field. */
+    firstName: string;
+    advisorResolution: AdvisorResolution;
+    target?: TargetOwner;
+    customFields: Readonly<Record<string, string>>;
+    outcome: ContactOutcome;
+    person?: ResolvedPerson;
+    ownerChange?: OwnerChange;
+    /** When and for what the last complete lookup ran. */
+    resolvedAt?: number;
+    lookupPurpose?: LookupPurpose;
+    /** Number of planned writes already confirmed (see `planContactWrites`). */
+    writesDone: number;
+    /** Attempts spent on the current read or write. */
+    attempts: number;
+    /** `createPerson` sends already made for this contact (bounded by `MAX_CREATE_SENDS`). */
+    createSends: number;
+    /** Write-ahead marker: set before sending, cleared once the outcome is known. */
+    pendingWrite?: PendingWrite;
+    /** Epoch ms before which the contact is not processed again (retry or reconciliation delay). */
+    retryNotBefore?: number;
+    /** Segmentation item id returned by `joinAudience`. */
+    audienceItemId?: string;
+    failure?: ContactFailure;
+}
+
+export type DispatchJobPhase =
+    | 'resolving'
+    | 'awaitingConfirmation'
+    | 'materializing'
+    | 'awaitingAudience'
+    | 'sending'
+    | 'completed'
+    | 'failed'
+    | 'superseded'
+    | 'abandoned';
+
+/** Phases a `continue` works on. */
+export type ChunkedPhase = 'resolving' | 'materializing';
+
+export type JobFailureReason =
+    | 'workspace_token_rejected'
+    | 'bearer_token_rejected'
+    | 'audience_timeout'
+    | 'audience_mismatch'
+    | 'campaign_rejected'
+    | 'campaign_outcome_unknown';
+
+/** Phase a failed job re-enters on `start`. */
+export type ResumePhase = 'resolving' | 'materializing' | 'awaitingAudience' | 'sending';
+
+/** Failure of a job; `start` re-enters `resumePhase`, `abandon` ends it. Every failure is resumable. */
+export interface JobFailure {
+    reason: JobFailureReason;
+    detail: string;
+    resumePhase: ResumePhase;
+}
+
+/** Something that happened after the point of no return and needs a human look. */
+export type JobWarning = { kind: 'campaignQuantityMismatch'; campaignQuantity: number; audienceSize: number };
+
+/** Serializable job header (contacts are stored apart, by index). */
+export interface DispatchJob {
+    id: string;
+    /** Compare-and-set token; the store increments it on every update. */
+    revision: number;
+    fingerprint: string;
+    settings: DispatchSettings;
+    exclusion: ExclusionSummary;
+    phase: DispatchJobPhase;
+    createdAt: number;
+    updatedAt: number;
+    contactCount: number;
+    /** Next contact index for the chunked phases. */
+    cursor: number;
+    /** Pass over the contacts inside the current chunked phase (deferred contacts are picked up by the next pass). */
+    pass: number;
+    /** Earliest `retryNotBefore` of the contacts deferred during the current pass. */
+    passDeferredUntil?: number;
+    counts: Readonly<Record<ContactOutcome, number>>;
+    /** Contacts that left `ready` at the send-time lookup, by the outcome they moved to. */
+    revalidationShifts: Readonly<Partial<Record<ContactOutcome, number>>>;
+    startedBy?: string;
+    startedAt?: number;
+    segmentationId?: string;
+    audienceDeadlineAt?: number;
+    audienceSize?: number;
+    /** Last count read while waiting for the audience (for the timeout detail). */
+    lastAudienceCount?: number;
+    /** Write-ahead for the campaign POST. */
+    campaignSendState?: 'inFlight';
+    campaignReconcileNotBefore?: number;
+    /** Attempts spent reconciling an in-flight campaign. */
+    campaignReconcileAttempts?: number;
+    campaignId?: string;
+    /** `quantity` returned by the campaign creation. */
+    campaignQuantity?: number;
+    dispatchConfig?: HabllaDispatchConfig;
+    failure?: JobFailure;
+    warnings: readonly JobWarning[];
+    abandonedBy?: string;
+    abandonedAt?: number;
+    /** Epoch ms until which a `continue` holds the job. */
+    leaseUntil?: number;
+}
+
+/** Hablla's campaign pacing shape (`batch_interval` in minutes). */
+export interface HabllaDispatchConfig {
+    batch_size: number;
+    batch_interval: number;
+}
+
+/** What the caller should do after a call returns. */
+export type DispatchNextStep =
+    | { kind: 'continueAfter'; delayMs: number }
+    | { kind: 'awaitConfirmation' }
+    | { kind: 'finished' };
+
+export interface DispatchProgress {
+    job: DispatchJob;
+    next: DispatchNextStep;
+}
+
+/** A page of the per-contact drill-down. */
+export interface DispatchJobView extends DispatchProgress {
+    contacts: readonly DispatchContact[];
+}
+
+export interface ContactPage {
+    offset: number;
+    limit: number;
+}
+
+/** Absolute execution window, computed once by the runtime at the start of the execution. */
+export interface ContinueOptions {
+    /** No chunk starts unless it can finish before this epoch ms. */
+    deadlineAt: number;
+    /** Lease written on the job; must be later than `deadlineAt`. */
+    leaseUntil: number;
+}
+
+export interface OperatorOptions {
+    operatorEmail: string;
+}
+
+/** Limits from the app's typed config. */
+export interface WorkspaceDispatchLimits {
+    /** Upper bound of HTTP calls one dispatch may need (GAS: the account's daily UrlFetch quota). */
+    dailyCallQuota: number;
+}
+
+/** Persisted-shape segmentation creation body. */
+export interface SegmentationCreateBody {
+    name: string;
+    description: string;
+    type: 'person';
+    result_type: 'fixed';
+}
+
+/** Campaign v2 creation body, as validated by probe 04. */
+export interface CampaignCreateBody {
+    send_type: 'immediate';
+    send_mode: 'fractional';
+    type: 'whatsapp';
+    name: string;
+    dispatch_config: HabllaDispatchConfig;
+    types: readonly ['whatsapp', 'gupshup'];
+    connection: string;
+    template: string;
+    arrayFilter: readonly SegmentationFilter[];
+    query: readonly SegmentationFilter[];
+    query_type: 'person';
+    variables: { body: readonly [string] };
+    properties: { variables: { whatsapp: { components: { examples: { body: { '0_is_expression': false } } } } } };
+}
