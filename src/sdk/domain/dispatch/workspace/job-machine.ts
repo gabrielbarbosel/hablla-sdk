@@ -253,31 +253,52 @@ export function toSending(job: DispatchJob, audienceCount: number, now: number):
     return { ...job, phase: 'sending', lastAudienceCount: audienceCount, updatedAt: now };
 }
 
-/**
- * → `completed`: with nothing to send (no contact ready or an empty audience), or with the
- * campaign created, warning when its quantity differs from the audience.
- */
-export function toCompleted(job: DispatchJob, now: number, campaign?: { id: string; quantity: number }): DispatchJob {
-    assertPhase(job, campaign ? ['sending'] : ['awaitingConfirmation', 'materializing'], 'complete');
+/** → `completed` with nothing sent: no contact was ready, or the audience came out empty. */
+export function toCompleted(job: DispatchJob, now: number): DispatchJob {
+    assertPhase(job, ['awaitingConfirmation', 'materializing'], 'complete');
 
-    if (!campaign) {
-        return { ...job, phase: 'completed', audienceSize: job.counts.inAudience, updatedAt: now };
-    }
+    return { ...job, phase: 'completed', audienceSize: job.counts.inAudience, updatedAt: now };
+}
+
+/**
+ * `sending` → `completed` with the campaign read back from Hablla, warning when the
+ * quantity it resolved differs from the audience the dispatch prepared. The quantity never
+ * comes from the creation response, which answers before the server resolves the audience.
+ */
+export function toCampaignCompleted(job: DispatchJob, campaign: { id: string; quantity: number }, now: number): DispatchJob {
+    assertPhase(job, ['sending'], 'complete');
 
     const audienceSize = requireAudienceSize(job);
     const warnings = campaign.quantity === audienceSize
         ? job.warnings
         : [...job.warnings, { kind: 'campaignQuantityMismatch' as const, campaignQuantity: campaign.quantity, audienceSize }];
 
+    return { ...withCampaignSettled(job, now), campaignId: campaign.id, campaignQuantity: campaign.quantity, warnings };
+}
+
+/**
+ * `sending` → `completed` with the campaign created but never read back: the messages are
+ * out, so the job is over, and the check that guards against a campaign resolving beyond
+ * the audience could not run — which `campaignQuantityUnverified` records instead of the
+ * job passing for a clean dispatch.
+ */
+export function toCampaignUnverified(job: DispatchJob, detail: string, now: number): DispatchJob {
+    assertPhase(job, ['sending'], 'complete');
+
+    return {
+        ...withCampaignSettled(job, now),
+        warnings: [...job.warnings, { kind: 'campaignQuantityUnverified' as const, audienceSize: requireAudienceSize(job), detail }],
+    };
+}
+
+/** The job completed with its campaign bookkeeping closed. */
+function withCampaignSettled(job: DispatchJob, now: number): DispatchJob {
     return {
         ...job,
         phase: 'completed',
-        campaignId: campaign.id,
-        campaignQuantity: campaign.quantity,
         campaignSendState: undefined,
         campaignReconcileNotBefore: undefined,
         campaignReconcileAttempts: undefined,
-        warnings,
         updatedAt: now,
     };
 }
@@ -318,17 +339,18 @@ export function toSuperseded(job: DispatchJob, now: number): DispatchJob {
 
 /**
  * Any phase that is not over (including `failed`) → `abandoned`; nothing written is undone.
- * Refused while a campaign POST may have gone out (`campaignSendState` in flight): an
- * abandoned job no longer blocks its audience, so abandoning it before the campaign is
- * reconciled could send the same campaign twice.
+ * Refused while the campaign is unresolved (`campaignSendState` set, whether its POST
+ * outcome is unknown or it was created and not read back): an abandoned job no longer
+ * blocks its audience, so abandoning it before the campaign is resolved could send the same
+ * campaign twice.
  */
 export function toAbandoned(job: DispatchJob, operatorEmail: string, now: number): DispatchJob {
     if (TERMINAL_PHASES.includes(job.phase)) {
         throw new InvalidJobTransitionError(job.id, job.phase, 'be abandoned');
     }
 
-    if (job.campaignSendState === 'inFlight') {
-        throw new InvalidJobTransitionError(job.id, job.phase, 'be abandoned before its in-flight campaign is reconciled');
+    if (job.campaignSendState !== undefined) {
+        throw new InvalidJobTransitionError(job.id, job.phase, 'be abandoned before its campaign is read back');
     }
 
     return { ...job, phase: 'abandoned', abandonedBy: operatorEmail, abandonedAt: now, updatedAt: now };

@@ -9,6 +9,8 @@ import {
     toAbandoned,
     toAwaitingAudience,
     toAwaitingConfirmation,
+    toCampaignCompleted,
+    toCampaignUnverified,
     toCompleted,
     toFailed,
     toMaterializing,
@@ -155,7 +157,7 @@ describe('transitions', () => {
         const materializing = toMaterializing(confirmed, 'seg-1', 'operator@example.com', NOW + 2);
         const awaiting = toAwaitingAudience({ ...materializing, counts: { ...materializing.counts, inAudience: 2 } }, NOW + 3);
         const sending = toSending(awaiting, 2, NOW + 4);
-        const completed = toCompleted(sending, NOW + 5, { id: 'c1', quantity: 2 });
+        const completed = toCampaignCompleted(sending, { id: 'c1', quantity: 2 }, NOW + 5);
 
         expect(materializing).toMatchObject({ phase: 'materializing', segmentationId: 'seg-1', startedBy: 'operator@example.com', startedAt: NOW + 2, cursor: 0, pass: 0, dispatchConfig: { batch_size: 5, batch_interval: 10 / 60 } });
         expect(awaiting).toMatchObject({ phase: 'awaitingAudience', audienceSize: 2, audienceDeadlineAt: NOW + 3 + AUDIENCE_READY_TIMEOUT_MS });
@@ -163,10 +165,18 @@ describe('transitions', () => {
         expect(completed).toMatchObject({ phase: 'completed', campaignId: 'c1', campaignQuantity: 2, warnings: [] });
     });
 
-    it('warns when the campaign quantity differs from the audience', () => {
-        const sending = aJob({ phase: 'sending', audienceSize: 3 });
+    it('warns when the campaign quantity read back differs from the audience', () => {
+        const sending = aJob({ phase: 'sending', audienceSize: 3, campaignSendState: 'sent' });
 
-        expect(toCompleted(sending, NOW, { id: 'c1', quantity: 2 }).warnings).toEqual([{ kind: 'campaignQuantityMismatch', campaignQuantity: 2, audienceSize: 3 }]);
+        expect(toCampaignCompleted(sending, { id: 'c1', quantity: 2 }, NOW).warnings).toEqual([{ kind: 'campaignQuantityMismatch', campaignQuantity: 2, audienceSize: 3 }]);
+    });
+
+    it('completes a campaign whose quantity was never read back with a warning, keeping no quantity', () => {
+        const unverified = toCampaignUnverified(aJob({ phase: 'sending', audienceSize: 3, campaignId: 'c1', campaignSendState: 'sent' }), 'listing answered 500', NOW);
+
+        expect(unverified).toMatchObject({ phase: 'completed', campaignId: 'c1', campaignSendState: undefined });
+        expect(unverified.campaignQuantity).toBeUndefined();
+        expect(unverified.warnings).toEqual([{ kind: 'campaignQuantityUnverified', audienceSize: 3, detail: 'listing answered 500' }]);
     });
 
     it('completes without a campaign when nothing is left to send', () => {
@@ -197,10 +207,11 @@ describe('transitions', () => {
         }
     });
 
-    it('refuses to abandon while a campaign POST may have gone out', () => {
+    it('refuses to abandon while the campaign is unresolved, whether in flight or only created', () => {
         const unknownCampaign: JobFailure = { reason: 'campaign_outcome_unknown', detail: 'x', resumePhase: 'sending' };
 
         expect(() => toAbandoned(aJob({ phase: 'sending', campaignSendState: 'inFlight' }), 'operator@example.com', NOW)).toThrow(InvalidJobTransitionError);
+        expect(() => toAbandoned(aJob({ phase: 'sending', campaignSendState: 'sent', campaignId: 'c1' }), 'operator@example.com', NOW)).toThrow(InvalidJobTransitionError);
         expect(() => toAbandoned(aJob({ phase: 'failed', failure: unknownCampaign, campaignSendState: 'inFlight' }), 'operator@example.com', NOW)).toThrow(InvalidJobTransitionError);
     });
 

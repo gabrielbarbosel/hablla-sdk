@@ -210,7 +210,9 @@ export interface JobFailure {
 }
 
 /** Something that happened after the point of no return and needs a human look. */
-export type JobWarning = { kind: 'campaignQuantityMismatch'; campaignQuantity: number; audienceSize: number };
+export type JobWarning =
+    | { kind: 'campaignQuantityMismatch'; campaignQuantity: number; audienceSize: number }
+    | { kind: 'campaignQuantityUnverified'; audienceSize: number; detail: string };
 
 /** Serializable job header (contacts are stored apart, by index). */
 export interface DispatchJob {
@@ -242,13 +244,16 @@ export interface DispatchJob {
     audienceSize?: number;
     /** Last count read while waiting for the audience (for the timeout detail). */
     lastAudienceCount?: number;
-    /** Write-ahead for the campaign POST. */
-    campaignSendState?: 'inFlight';
+    /**
+     * Write-ahead for the campaign POST: `inFlight` while its outcome is unknown, `sent`
+     * once the creation answered and only the campaign's audience quantity is still to be read.
+     */
+    campaignSendState?: 'inFlight' | 'sent';
     campaignReconcileNotBefore?: number;
-    /** Attempts spent reconciling an in-flight campaign. */
+    /** Attempts spent reading the campaign back. */
     campaignReconcileAttempts?: number;
     campaignId?: string;
-    /** `quantity` returned by the campaign creation. */
+    /** `quantity` read back from the campaign; the creation response reports 0 and is never read. */
     campaignQuantity?: number;
     dispatchConfig?: HabllaDispatchConfig;
     failure?: JobFailure;

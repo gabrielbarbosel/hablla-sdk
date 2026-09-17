@@ -151,6 +151,7 @@ describe('WorkspaceDispatch happy path', () => {
             'POST /v1/reports/alloy-reports/segmentations/count',
             'POST /v1/reports/alloy-reports/segmentations/count',
             'POST /v2/campaigns',
+            'GET /v1/campaigns',
         ]);
 
         const created = personWithPhone(phoneOf('1'))[0]!;
@@ -508,12 +509,34 @@ describe('WorkspaceDispatch campaign', () => {
         expect(hablla.campaigns).toHaveLength(1);
     });
 
-    it('completes with a warning when the campaign quantity differs from the audience', async () => {
+    it('takes the campaign quantity from a later read, never from the creation response', async () => {
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
+        const created = hablla.requestsTo('POST', /\/campaigns$/);
+        const read = hablla.requestsTo('GET', /\/campaigns$/);
+
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 1, campaignQuantity: 1, warnings: [] });
+        expect(done.job.campaignSendState).toBeUndefined();
+        expect(created).toHaveLength(1);
+        expect(read).toHaveLength(1);
+        expect(read[0]!.query.get('name')).toBe(created[0]!.body.name);
+    });
+
+    it('completes with a warning when the campaign read reports more than the audience', async () => {
         hablla.campaignQuantityOverride = 7;
 
         const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
 
         expect(done.job).toMatchObject({ phase: 'completed', warnings: [{ kind: 'campaignQuantityMismatch', campaignQuantity: 7, audienceSize: 1 }] });
+    });
+
+    it('completes a created campaign as unverified when its quantity can never be read', async () => {
+        hablla.faults.push({ matches: (request) => request.method === 'GET' && request.path.endsWith('/campaigns'), kind: 'status', status: 500, times: Number.POSITIVE_INFINITY });
+
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
+
+        expect(done.job).toMatchObject({ phase: 'completed', campaignId: hablla.campaigns[0]!.id, warnings: [{ kind: 'campaignQuantityUnverified', audienceSize: 1 }] });
+        expect(done.job.campaignQuantity).toBeUndefined();
+        expect(hablla.requestsTo('POST', /\/campaigns$/)).toHaveLength(1);
     });
 });
 

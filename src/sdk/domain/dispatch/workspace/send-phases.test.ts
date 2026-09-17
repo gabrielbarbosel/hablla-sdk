@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isCampaignReconcileDue, resolveAudienceCount, resolveCampaignCreation, resolveCampaignReconciliation, withCampaignInFlight } from './send-phases';
-import { CALL_RETRY_DELAY_MS, RECONCILIATION_DELAY_MS } from './constants';
+import { CALL_RETRY_DELAY_MS, CAMPAIGN_FANOUT_DELAY_MS, RECONCILIATION_DELAY_MS } from './constants';
 import { UnexpectedPayloadError } from './errors';
 import { buildAudienceQuery, buildCampaignBody, dispatchName } from './campaign';
 import { countAudience, createCampaign, findCampaignsByName } from './routes';
@@ -66,11 +66,21 @@ describe('resolveAudienceCount', () => {
 });
 
 describe('resolveCampaignCreation', () => {
-    it('completes with the created campaign', () => {
-        expect(resolveCampaignCreation(SENDING, CREATE_CALL, completed(201, campaignById), NOW)).toMatchObject({
-            kind: 'advanced',
-            job: { phase: 'completed', campaignId: '6aab0ad2c6653859e764285b', campaignQuantity: 1, campaignSendState: undefined, warnings: [] },
+    it('records the created campaign and schedules the read of its quantity, ignoring the one the 201 reports', () => {
+        const resolution = resolveCampaignCreation(SENDING, CREATE_CALL, completed(201, { ...campaignById, quantity: 0 }), NOW);
+
+        expect(resolution).toMatchObject({
+            kind: 'wait',
+            job: {
+                phase: 'sending',
+                campaignId: '6aab0ad2c6653859e764285b',
+                campaignSendState: 'sent',
+                campaignReconcileNotBefore: NOW + CAMPAIGN_FANOUT_DELAY_MS,
+                campaignReconcileAttempts: 0,
+                warnings: [],
+            },
         });
+        expect(resolution.job.campaignQuantity).toBeUndefined();
     });
 
     it('clears the marker and cools down on a throttle', () => {
@@ -93,9 +103,32 @@ describe('resolveCampaignCreation', () => {
 
 describe('resolveCampaignReconciliation', () => {
     const named = { id: 'c9', name: 'Campanha [0123456789abcdef-2-mfabc]', quantity: 1 };
+    const SENT: DispatchJob = { ...SENDING, campaignSendState: 'sent', campaignId: 'c9' };
 
     it('completes when the campaign exists', () => {
         expect(resolveCampaignReconciliation(SENDING, RECONCILE_CALL, completed(200, page([named])), NOW)).toMatchObject({ kind: 'advanced', job: { phase: 'completed', campaignId: 'c9' } });
+    });
+
+    it('completes a sent campaign with the quantity it reports, warning when the audience does not explain it', () => {
+        expect(resolveCampaignReconciliation(SENT, RECONCILE_CALL, completed(200, page([named])), NOW)).toMatchObject({
+            kind: 'advanced',
+            job: { phase: 'completed', campaignQuantity: 1, campaignSendState: undefined, warnings: [] },
+        });
+        expect(resolveCampaignReconciliation(SENT, RECONCILE_CALL, completed(200, page([{ ...named, quantity: 4 }])), NOW)).toMatchObject({
+            kind: 'advanced',
+            job: { phase: 'completed', campaignQuantity: 4, warnings: [{ kind: 'campaignQuantityMismatch', campaignQuantity: 4, audienceSize: 1 }] },
+        });
+    });
+
+    it('never fails a campaign already created: retries the read and then completes it unverified', () => {
+        expect(resolveCampaignReconciliation(SENT, RECONCILE_CALL, completed(200, page([])), NOW)).toMatchObject({
+            kind: 'wait',
+            job: { phase: 'sending', campaignReconcileAttempts: 1, campaignReconcileNotBefore: NOW + CALL_RETRY_DELAY_MS },
+        });
+        expect(resolveCampaignReconciliation({ ...SENT, campaignReconcileAttempts: 2 }, RECONCILE_CALL, completed(500), NOW)).toMatchObject({
+            kind: 'advanced',
+            job: { phase: 'completed', campaignId: 'c9', campaignSendState: undefined, warnings: [{ kind: 'campaignQuantityUnverified', audienceSize: 1 }] },
+        });
     });
 
     it('clears the marker and fails as not created when it does not exist', () => {

@@ -8411,6 +8411,7 @@
   var MAX_CREATE_SENDS = 2;
   var CALL_RETRY_DELAY_MS = 6e4;
   var RECONCILIATION_DELAY_MS = 6e4;
+  var CAMPAIGN_FANOUT_DELAY_MS = 6e4;
   var THROTTLE_COOLDOWN_MS = 6e4;
   var TRANSPORT_COOLDOWN_MS = 6e4;
   var INTERRUPTED_ROUNDS_BEFORE_ATTEMPT = 5;
@@ -9432,21 +9433,28 @@
     assertPhase(job, ["awaitingAudience"], "send");
     return __spreadProps(__spreadValues({}, job), { phase: "sending", lastAudienceCount: audienceCount, updatedAt: now });
   }
-  function toCompleted(job, now, campaign) {
-    assertPhase(job, campaign ? ["sending"] : ["awaitingConfirmation", "materializing"], "complete");
-    if (!campaign) {
-      return __spreadProps(__spreadValues({}, job), { phase: "completed", audienceSize: job.counts.inAudience, updatedAt: now });
-    }
+  function toCompleted(job, now) {
+    assertPhase(job, ["awaitingConfirmation", "materializing"], "complete");
+    return __spreadProps(__spreadValues({}, job), { phase: "completed", audienceSize: job.counts.inAudience, updatedAt: now });
+  }
+  function toCampaignCompleted(job, campaign, now) {
+    assertPhase(job, ["sending"], "complete");
     const audienceSize = requireAudienceSize(job);
     const warnings = campaign.quantity === audienceSize ? job.warnings : [...job.warnings, { kind: "campaignQuantityMismatch", campaignQuantity: campaign.quantity, audienceSize }];
+    return __spreadProps(__spreadValues({}, withCampaignSettled(job, now)), { campaignId: campaign.id, campaignQuantity: campaign.quantity, warnings });
+  }
+  function toCampaignUnverified(job, detail, now) {
+    assertPhase(job, ["sending"], "complete");
+    return __spreadProps(__spreadValues({}, withCampaignSettled(job, now)), {
+      warnings: [...job.warnings, { kind: "campaignQuantityUnverified", audienceSize: requireAudienceSize(job), detail }]
+    });
+  }
+  function withCampaignSettled(job, now) {
     return __spreadProps(__spreadValues({}, job), {
       phase: "completed",
-      campaignId: campaign.id,
-      campaignQuantity: campaign.quantity,
       campaignSendState: void 0,
       campaignReconcileNotBefore: void 0,
       campaignReconcileAttempts: void 0,
-      warnings,
       updatedAt: now
     });
   }
@@ -9475,8 +9483,8 @@
     if (TERMINAL_PHASES.includes(job.phase)) {
       throw new InvalidJobTransitionError(job.id, job.phase, "be abandoned");
     }
-    if (job.campaignSendState === "inFlight") {
-      throw new InvalidJobTransitionError(job.id, job.phase, "be abandoned before its in-flight campaign is reconciled");
+    if (job.campaignSendState !== void 0) {
+      throw new InvalidJobTransitionError(job.id, job.phase, "be abandoned before its campaign is read back");
     }
     return __spreadProps(__spreadValues({}, job), { phase: "abandoned", abandonedBy: operatorEmail, abandonedAt: now, updatedAt: now });
   }
@@ -9701,10 +9709,8 @@
   function resolveCampaignCreation(job, call, result, now) {
     const failure = classifyCallFailures([result]);
     switch (failure == null ? void 0 : failure.kind) {
-      case void 0: {
-        const campaign = toCampaignSummary(payloadOf(result));
-        return { kind: "advanced", job: toCompleted(job, now, campaign) };
-      }
+      case void 0:
+        return { kind: "wait", job: withCampaignSent(job, toCreatedId(payloadOf(result), "campaign"), now) };
       case "stopBlock":
         if (failure.cause === "throttled") {
           return { kind: "stop", cause: "throttled", job: withoutCampaignInFlight(job, now) };
@@ -9719,32 +9725,35 @@
     }
   }
   function resolveCampaignReconciliation(job, call, result, now) {
-    var _a;
     const failure = classifyCallFailures([result]);
     switch (failure == null ? void 0 : failure.kind) {
       case void 0: {
         const campaign = findCampaignByName(result, dispatchName(job));
         if (campaign) {
-          return { kind: "advanced", job: toCompleted(job, now, campaign) };
+          return { kind: "advanced", job: toCampaignCompleted(job, campaign, now) };
+        }
+        if (job.campaignSendState === "sent") {
+          return retryCampaignRead(job, "campaign not listed by its name", now);
         }
         return { kind: "advanced", job: toFailed(withoutCampaignInFlight(job, now), { reason: "campaign_rejected", detail: "not created", resumePhase: "sending" }, now) };
       }
       case "stopBlock":
         return { kind: "stop", cause: failure.cause, job };
       case "tokenRejected":
-        return { kind: "advanced", job: toFailed(job, tokenRejectedFailure([call], [result], "campaign reconciliation", "sending"), now) };
+        return { kind: "advanced", job: toFailed(job, tokenRejectedFailure([call], [result], "campaign read", "sending"), now) };
       case "rejected":
-      case "outcomeUnknown": {
-        const attempts = ((_a = job.campaignReconcileAttempts) != null ? _a : 0) + 1;
-        if (attempts >= MAX_CALL_ATTEMPTS) {
-          return {
-            kind: "advanced",
-            job: toFailed(__spreadProps(__spreadValues({}, job), { campaignReconcileAttempts: 0 }), { reason: "campaign_outcome_unknown", detail: truncateDetail(failure.failure.detail), resumePhase: "sending" }, now)
-          };
-        }
-        return { kind: "wait", job: __spreadProps(__spreadValues({}, withCampaignReconcileAt(job, now + CALL_RETRY_DELAY_MS, now)), { campaignReconcileAttempts: attempts }) };
-      }
+      case "outcomeUnknown":
+        return retryCampaignRead(job, truncateDetail(failure.failure.detail), now);
     }
+  }
+  function retryCampaignRead(job, detail, now) {
+    var _a;
+    const attempts = ((_a = job.campaignReconcileAttempts) != null ? _a : 0) + 1;
+    if (attempts < MAX_CALL_ATTEMPTS) {
+      return { kind: "wait", job: __spreadProps(__spreadValues({}, withCampaignReconcileAt(job, now + CALL_RETRY_DELAY_MS, now)), { campaignReconcileAttempts: attempts }) };
+    }
+    const spent = __spreadProps(__spreadValues({}, job), { campaignReconcileAttempts: 0 });
+    return job.campaignSendState === "sent" ? { kind: "advanced", job: toCampaignUnverified(spent, detail, now) } : { kind: "advanced", job: toFailed(spent, { reason: "campaign_outcome_unknown", detail, resumePhase: "sending" }, now) };
   }
   function tokenRejectedFailure(calls, results, step, resumePhase) {
     const strategy = rejectedTokenStrategy(calls, results);
@@ -9764,8 +9773,11 @@
   function isCampaignReconcileDue(job, now) {
     return job.campaignReconcileNotBefore === void 0 || job.campaignReconcileNotBefore <= now;
   }
-  function withCampaignReconcileAt(job, reconcileAt, now) {
-    return __spreadProps(__spreadValues({}, job), { campaignSendState: "inFlight", campaignReconcileNotBefore: reconcileAt, updatedAt: now });
+  function withCampaignReconcileAt(job, readAt, now) {
+    return __spreadProps(__spreadValues({}, job), { campaignReconcileNotBefore: readAt, updatedAt: now });
+  }
+  function withCampaignSent(job, campaignId, now) {
+    return __spreadProps(__spreadValues({}, withCampaignReconcileAt(job, now + CAMPAIGN_FANOUT_DELAY_MS, now)), { campaignSendState: "sent", campaignId, campaignReconcileAttempts: 0 });
   }
   function withoutCampaignInFlight(job, now) {
     return __spreadProps(__spreadValues({}, job), { campaignSendState: void 0, campaignReconcileNotBefore: void 0, campaignReconcileAttempts: void 0, updatedAt: now });
@@ -10167,11 +10179,15 @@
         }
       });
     }
-    /** Creates the campaign under a write-ahead marker, or reconciles an in-flight one once due. */
+    /**
+     * Creates the campaign under a write-ahead marker, or reads a marked campaign back once
+     * due: to learn whether an in-flight POST landed, and to check the audience quantity of
+     * a created one, which its creation response does not carry.
+     */
     sendCampaign(session) {
       return __async(this, null, function* () {
         const now = this.ports.clock.now();
-        if (session.job.campaignSendState === "inFlight") {
+        if (session.job.campaignSendState !== void 0) {
           if (!isCampaignReconcileDue(session.job, now)) {
             return { kind: "yield" };
           }

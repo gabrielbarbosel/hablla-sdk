@@ -22,6 +22,13 @@ export const CALL_RETRY_DELAY_MS = 60_000;
 /** Minimum delay before reconciling a non-idempotent write whose outcome is unknown. */
 export const RECONCILIATION_DELAY_MS = 60_000;
 
+/**
+ * Delay before reading a created campaign back. Hablla answers the creation before
+ * resolving the audience, so the 201 body reports `quantity: 0` and only a later read
+ * carries the quantity the dispatch checks against its audience.
+ */
+export const CAMPAIGN_FANOUT_DELAY_MS = 60_000;
+
 /** The gateway's 429 says "wait one minute" and carries no Retry-After. */
 export const THROTTLE_COOLDOWN_MS = 60_000;
 

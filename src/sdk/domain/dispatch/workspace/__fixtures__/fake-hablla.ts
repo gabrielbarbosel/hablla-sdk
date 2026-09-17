@@ -13,6 +13,13 @@ import { holdsPersonClaim } from '../person-claims';
 /** What the report engine answers while a new segmentation has not propagated (probe 03). */
 const AUDIENCE_NOT_PROPAGATED_MESSAGE = 'Erro ao resolver segmentações';
 
+/**
+ * Quantity the campaign creation answers: the server resolves the audience after replying,
+ * so the 201 body always reports zero and only a later read carries the real quantity
+ * (proved by the live validation).
+ */
+const CREATED_CAMPAIGN_QUANTITY = 0;
+
 export const WORKSPACE_ID = '6a039a45dc0412040ef44b91';
 export const WORKSPACE_TOKEN = 'workspace-token';
 export const BEARER_HEADER = 'Bearer id-token';
@@ -63,7 +70,7 @@ export class FakeHablla implements HttpTransport {
     readonly campaigns: Array<{ id: string; name: string; quantity: number; query: unknown }> = [];
     /** Count calls per segmentation answered with the not-propagated 500. */
     notPropagatedCounts = 1;
-    /** When set, the created campaign reports this quantity instead of the real one. */
+    /** When set, a campaign read reports this quantity instead of the audience it resolved. */
     campaignQuantityOverride?: number;
     workspaceTokenRevoked = false;
     bearerTokenRevoked = false;
@@ -217,7 +224,7 @@ export class FakeHablla implements HttpTransport {
             const quantity = this.campaignQuantityOverride ?? this.audienceOf(request.body.query).size;
             const campaign = { id: this.newId(), name: request.body.name, quantity, query: request.body.query };
             this.campaigns.push(campaign);
-            return reply(201, { ...campaign, status: 'pending' });
+            return reply(201, { ...campaign, quantity: CREATED_CAMPAIGN_QUANTITY, status: 'pending' });
         }
 
         if (request.method === 'GET' && path === '/v1/campaigns') {

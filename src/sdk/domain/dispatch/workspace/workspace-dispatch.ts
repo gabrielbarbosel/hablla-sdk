@@ -521,11 +521,15 @@ export class WorkspaceDispatch {
         }
     }
 
-    /** Creates the campaign under a write-ahead marker, or reconciles an in-flight one once due. */
+    /**
+     * Creates the campaign under a write-ahead marker, or reads a marked campaign back once
+     * due: to learn whether an in-flight POST landed, and to check the audience quantity of
+     * a created one, which its creation response does not carry.
+     */
     private async sendCampaign(session: ContinueSession): Promise<LoopSignal> {
         const now = this.ports.clock.now();
 
-        if (session.job.campaignSendState === 'inFlight') {
+        if (session.job.campaignSendState !== undefined) {
             if (!isCampaignReconcileDue(session.job, now)) {
                 return { kind: 'yield' };
             }
