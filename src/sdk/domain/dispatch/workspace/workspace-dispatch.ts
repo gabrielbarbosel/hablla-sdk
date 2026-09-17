@@ -437,8 +437,8 @@ export class WorkspaceDispatch {
     /**
      * Applies the phones of one page to the job's contacts and persists them together with
      * the next page, or with the phase the run hands over to, in one compare-and-set. An
-     * execution that dies mid-page only re-reads that same page, and applying a page twice
-     * changes nothing.
+     * execution that dies mid-page only re-reads that same page, and re-applying a page
+     * whose write never landed changes nothing.
      */
     private async applyExclusionPage(session: ContinueSession, page: FilteredPersonPage, lastPage: boolean): Promise<LoopSignal> {
         const contacts = await this.ports.store.loadContacts(session.job.id, { offset: 0, limit: session.job.contactCount });
