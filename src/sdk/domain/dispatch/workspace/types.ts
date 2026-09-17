@@ -307,10 +307,18 @@ export interface OperatorOptions {
     operatorEmail: string;
 }
 
-/** Limits from the app's typed config. */
+/** Limits from the app's typed config; each one has a default (see `resolveDispatchLimits`). */
 export interface WorkspaceDispatchLimits {
-    /** Upper bound of HTTP calls one dispatch may need (GAS: the account's daily UrlFetch quota). */
-    dailyCallQuota: number;
+    /**
+     * Upper bound of HTTP calls one dispatch may need (GAS: the account's daily UrlFetch
+     * quota); defaults to `GOOGLE_WORKSPACE_DAILY_CALL_QUOTA`.
+     */
+    dailyCallQuota?: number;
+    /**
+     * Pages of excluded persons one exclusion run may read; defaults to
+     * `DEFAULT_MAX_EXCLUSION_PAGES`.
+     */
+    maxExclusionPages?: number;
 }
 
 /** One custom-field value, as the person routes take it. */

@@ -229,24 +229,29 @@ function makeStore(): HabllaStore {
     return new HabllaStore(backend, STORE_SCHEMAS);
 }
 
-/** Typed options of the workspace dispatch, all from the app's config; none has a default. */
+/** Typed options of the workspace dispatch, all from the app's config. */
 export interface WorkspaceDispatchOptions {
     /** Calls per `fetchAll` wave. */
     concurrency: number;
     /** Spreadsheet holding the dispatch jobs. */
     spreadsheetId: string;
-    /** The account's daily UrlFetch quota, the ceiling of one dispatch. */
-    dailyCallQuota: number;
+    /**
+     * The account's daily UrlFetch quota, the ceiling of one dispatch; left out, it is the
+     * quota of a Google Workspace account (`GOOGLE_WORKSPACE_DAILY_CALL_QUOTA`).
+     */
+    dailyCallQuota?: number;
+    /** Pages of excluded persons one exclusion run may read; left out, `DEFAULT_MAX_EXCLUSION_PAGES`. */
+    maxExclusionPages?: number;
 }
 
 /**
  * Composes the workspace dispatch of the GAS runtime: `fetchAll` executor over the client's
  * auth, jobs in the spreadsheet, wall clock.
  *
- * @throws Error when any option is missing.
+ * @throws Error when an option without a default is missing.
  */
 function createWorkspaceDispatch(client: HabllaClient, baseUrl: string, workspaceId: string, options: WorkspaceDispatchOptions): WorkspaceDispatch {
-    const missing = (['concurrency', 'spreadsheetId', 'dailyCallQuota'] as const).filter((option) => options?.[option] === undefined);
+    const missing = (['concurrency', 'spreadsheetId'] as const).filter((option) => options?.[option] === undefined);
 
     if (missing.length > 0) {
         throw new Error(`Hablla.createWorkspaceDispatch: missing ${missing.join(', ')}`);
@@ -258,7 +263,7 @@ function createWorkspaceDispatch(client: HabllaClient, baseUrl: string, workspac
             store: new SheetDispatchJobStore({ spreadsheetId: options.spreadsheetId }),
             clock: gasClock,
         },
-        { dailyCallQuota: options.dailyCallQuota },
+        { dailyCallQuota: options.dailyCallQuota, maxExclusionPages: options.maxExclusionPages },
     );
 }
 

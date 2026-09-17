@@ -4,6 +4,7 @@ import type { StopCause } from './call-failures';
 import type { CatalogPages } from './call-budget';
 import type { BlockContact, ContactStep } from './contact-step';
 import type { EarlyStop } from './job-machine';
+import type { DispatchLimits } from './limits';
 import type { Clock, DispatchJobStore } from './ports';
 import type {
     ChunkedPhase,
@@ -24,6 +25,7 @@ import { estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
 import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName } from './campaign';
 import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
+import { resolveDispatchLimits } from './limits';
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
 import { CallBudgetExceededError, DispatchThrottledError, DispatchTransportError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
 import {
@@ -82,10 +84,10 @@ interface CatalogRead<T> {
  * through the {@link CallExecutor} and persists through the {@link DispatchJobStore}.
  */
 export class WorkspaceDispatch {
-    constructor(private readonly ports: WorkspaceDispatchPorts, private readonly limits: WorkspaceDispatchLimits) {
-        if (!Number.isInteger(limits.dailyCallQuota) || limits.dailyCallQuota < 1) {
-            throw new RangeError(`WorkspaceDispatch: dailyCallQuota must be an integer >= 1, got ${limits.dailyCallQuota}`);
-        }
+    private readonly limits: DispatchLimits;
+
+    constructor(private readonly ports: WorkspaceDispatchPorts, limits: WorkspaceDispatchLimits = {}) {
+        this.limits = resolveDispatchLimits(limits);
     }
 
     /**
