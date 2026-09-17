@@ -422,6 +422,19 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         expect(hablla.campaigns).toHaveLength(0);
     });
 
+    it('fails the job when the count is refused for good, without a campaign and without an exception', async () => {
+        hablla.notPropagatedCounts = 0;
+        hablla.faults.push({ matches: (request) => request.path.endsWith('/count'), kind: 'status', status: 400, times: Number.POSITIVE_INFINITY });
+
+        const failed = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
+
+        expect(failed.job).toMatchObject({ phase: 'failed', failure: { reason: 'audience_query_rejected', resumePhase: 'awaitingAudience' } });
+        expect(failed.job.failure!.detail).toContain('400');
+        expect(failed.next).toEqual({ kind: 'finished' });
+        expect(hablla.campaigns).toHaveLength(0);
+        expect(hablla.requestsTo('POST', /\/count$/)).toHaveLength(1);
+    });
+
     it('fails on a larger audience than expected without a campaign, and can be abandoned', async () => {
         const stranger = hablla.addPerson({ phone: phoneOf('9') });
         hablla.onRequest = (request) => {

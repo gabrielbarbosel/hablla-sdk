@@ -9688,7 +9688,10 @@
       return { kind: "advanced", job: toFailed(job, tokenRejectedFailure([call], [result], "audience count", "awaitingAudience"), now) };
     }
     if ((failure == null ? void 0 : failure.kind) === "rejected") {
-      throw new UnexpectedPayloadError("audience count", `refused with ${failure.failure.status}: ${failure.failure.detail}`);
+      return {
+        kind: "advanced",
+        job: toFailed(job, { reason: "audience_query_rejected", detail: `audience count refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: "awaitingAudience" }, now)
+      };
     }
     if ((failure == null ? void 0 : failure.kind) === "stopBlock") {
       return pastAudienceDeadline(job, now) ? { kind: "advanced", job: audienceTimedOut(job, now) } : { kind: "stop", cause: failure.cause, job };

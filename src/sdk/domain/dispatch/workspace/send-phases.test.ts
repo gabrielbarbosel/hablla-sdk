@@ -59,8 +59,14 @@ describe('resolveAudienceCount', () => {
         expect(resolveAudienceCount(AWAITING, COUNT_CALL, { kind: 'throttled' }, NOW + 1000)).toMatchObject({ kind: 'advanced', job: { failure: { reason: 'audience_timeout' } } });
     });
 
-    it('throws on a refusal and on a 2xx without a count', () => {
-        expect(() => resolveAudienceCount(AWAITING, COUNT_CALL, completed(400), NOW)).toThrow(UnexpectedPayloadError);
+    it('fails with audience_query_rejected on a refusal, instead of holding the job', () => {
+        expect(resolveAudienceCount(AWAITING, COUNT_CALL, completed(400, { message: 'malformed query' }), NOW)).toMatchObject({
+            kind: 'advanced',
+            job: { phase: 'failed', failure: { reason: 'audience_query_rejected', resumePhase: 'awaitingAudience' } },
+        });
+    });
+
+    it('throws on a 2xx without a count', () => {
         expect(() => resolveAudienceCount(AWAITING, COUNT_CALL, completed(200, { total: 2 }), NOW)).toThrow(UnexpectedPayloadError);
     });
 });

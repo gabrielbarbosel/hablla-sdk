@@ -10,7 +10,6 @@ import type { DispatchJob, JobFailure, ResumePhase } from './types';
 import { classifyCallFailures, payloadOf, rejectedTokenStrategy, truncateDetail } from './call-failures';
 import { dispatchName, findCampaignByName, readAudienceCount } from './campaign';
 import { CALL_RETRY_DELAY_MS, CAMPAIGN_FANOUT_DELAY_MS, MAX_CALL_ATTEMPTS, RECONCILIATION_DELAY_MS } from './constants';
-import { UnexpectedPayloadError } from './errors';
 import { toCreatedId } from './payloads';
 import { requireAudienceDeadline, requireAudienceSize } from './requirements';
 import { toCampaignCompleted, toCampaignUnverified, toFailed, toSending, tokenRejectedReason } from './job-machine';
@@ -32,10 +31,12 @@ export type SendPhaseResolution =
  * segmentation has not propagated, or a lost request) and a count below the audience wait
  * until the deadline, which fails with `audience_timeout`. An equal count moves to
  * `sending`; a larger one fails with `audience_mismatch`. A throttled or interrupted wave
- * cools down, unless the deadline has passed.
+ * cools down, unless the deadline has passed. A refused count (a 4xx other than a refused
+ * token) will be refused again for the same query, so it fails with
+ * `audience_query_rejected` right away instead of leaving the job waiting until the deadline.
  *
- * @throws UnexpectedPayloadError when the count is refused (a 4xx other than a refused
- *   token) or answers a 2xx without a numeric count, so nothing is sent on a surprise.
+ * @throws UnexpectedPayloadError when the count answers a 2xx without a numeric count, so
+ *   nothing is sent on a surprise.
  */
 export function resolveAudienceCount(job: DispatchJob, call: HttpCall, result: CallResult, now: number): SendPhaseResolution {
     const failure = classifyCallFailures([result]);
@@ -45,7 +46,10 @@ export function resolveAudienceCount(job: DispatchJob, call: HttpCall, result: C
     }
 
     if (failure?.kind === 'rejected') {
-        throw new UnexpectedPayloadError('audience count', `refused with ${failure.failure.status}: ${failure.failure.detail}`);
+        return {
+            kind: 'advanced',
+            job: toFailed(job, { reason: 'audience_query_rejected', detail: `audience count refused with ${failure.failure.status}: ${failure.failure.detail}`, resumePhase: 'awaitingAudience' }, now),
+        };
     }
 
     if (failure?.kind === 'stopBlock') {

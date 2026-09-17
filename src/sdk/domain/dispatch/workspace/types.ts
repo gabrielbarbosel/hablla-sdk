@@ -198,6 +198,7 @@ export type JobFailureReason =
     | 'workspace_token_rejected'
     | 'bearer_token_rejected'
     | 'audience_timeout'
+    | 'audience_query_rejected'
     | 'audience_mismatch'
     | 'campaign_rejected'
     | 'campaign_outcome_unknown';
