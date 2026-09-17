@@ -55,6 +55,7 @@ export { Dispatch } from './dispatch/dispatch';
 export { MassDispatch } from './dispatch/mass-dispatch';
 export { FlowDispatch } from './dispatch/flow-dispatch';
 export { EntityInspector } from './inspect/inspect';
+export * from './dispatch/workspace';
 export { buildXlsx } from './dispatch/xlsx';
 export type { EntityType, EntityRef, ResolvedEntity, MemberView } from './inspect/types';
 export type {

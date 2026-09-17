@@ -19,6 +19,7 @@ export { Resource } from './resources/base';
 export * from './resources/gen_enums';
 export * from './store';
 export { HabllaDomain, Dispatch, MassDispatch, buildXlsx } from './domain';
+export * from './domain/dispatch/workspace';
 export { xlsxToRows, parseSharedStrings, parseWorksheet, pickWorksheetName } from './utils';
 export type { XlsxParts } from './utils';
 export type {

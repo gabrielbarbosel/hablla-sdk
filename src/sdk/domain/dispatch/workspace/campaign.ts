@@ -6,7 +6,7 @@
 
 import type { CallResult } from '../../../core/call-executor';
 import type { CampaignCreateBody, DispatchJob, DispatchPacing, HabllaDispatchConfig, SegmentationCreateBody, SegmentationFilter } from './types';
-import { isSuccess } from './call-failures';
+import { isSuccess, payloadOf } from './call-failures';
 import { requireSegmentationId } from './contact-writes';
 import { UnexpectedPayloadError } from './errors';
 import { toCampaignSummary, toPayloadPage } from './payloads';
@@ -88,7 +88,7 @@ export function buildCampaignBody(job: DispatchJob): CampaignCreateBody {
  * @throws UnexpectedPayloadError for any other result or a count that is not a number.
  */
 export function readAudienceCount(result: CallResult): number {
-    const data = isSuccess(result) ? result.data as { count?: unknown } | null : undefined;
+    const data = isSuccess(result) ? payloadOf(result) as { count?: unknown } | null : undefined;
     const count = data?.count;
 
     if (typeof count !== 'number' || !Number.isFinite(count)) {
@@ -119,7 +119,7 @@ export function findCampaignByName(result: CallResult, name: string): { id: stri
         throw new UnexpectedPayloadError('campaign listing', `expected a 2xx, got ${JSON.stringify(result)}`);
     }
 
-    const campaign = toPayloadPage(result.data, 'campaign listing').results.map(toCampaignSummary).find((candidate) => candidate.name === name);
+    const campaign = toPayloadPage(payloadOf(result), 'campaign listing').results.map(toCampaignSummary).find((candidate) => candidate.name === name);
 
     return campaign ? { id: campaign.id, quantity: campaign.quantity } : undefined;
 }

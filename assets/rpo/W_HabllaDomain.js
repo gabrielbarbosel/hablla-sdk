@@ -935,6 +935,19 @@ class W_HabllaDomain {
     }
   };
 
+  // src/sdk/domain/dispatch/workspace/constants.ts
+  var MAX_CALL_ATTEMPTS = 3;
+  var AUDIENCE_POLL_INTERVAL_MS = 5e3;
+  var AUDIENCE_READY_TIMEOUT_MS = 18e4;
+
+  // src/sdk/domain/dispatch/workspace/call-budget.ts
+  var LOOKUP_CALLS = 4;
+  var LOOKUPS_PER_CONTACT = 2;
+  var MAX_WRITES_PER_CONTACT = 5;
+  var LARGEST_STEP_CALLS = 2;
+  var WORST_CASE_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
+  var FIXED_BEARER_CALLS = 1 + Math.ceil(AUDIENCE_READY_TIMEOUT_MS / AUDIENCE_POLL_INTERVAL_MS) + 1 + 1;
+
   // src/sdk/domain/index.ts
   var HabllaDomain = class {
     /** Per-contact dispatch executor (Person/Service objects + our policies). */

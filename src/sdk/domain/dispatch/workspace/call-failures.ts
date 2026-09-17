@@ -48,7 +48,7 @@ const TOKEN_REJECTED_STATUSES: readonly number[] = [401, 403];
 const SERVER_ERROR_STATUS_MIN = 500;
 
 /** True for a completed 2xx result. */
-export function isSuccess(result: CallResult): result is { kind: 'completed'; status: number; data: unknown } {
+export function isSuccess(result: CallResult): boolean {
     return result.kind === 'completed' && result.status >= SUCCESS_STATUS_MIN && result.status <= SUCCESS_STATUS_MAX;
 }
 
