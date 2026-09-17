@@ -4,18 +4,15 @@
  * these functions return.
  */
 
-import type { CallResult } from '../../../core/call-executor';
+import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { StopCause } from './call-failures';
-import type { DispatchJob } from './types';
-import { classifyCallFailures, payloadOf, truncateDetail } from './call-failures';
+import type { DispatchJob, JobFailure, ResumePhase } from './types';
+import { classifyCallFailures, payloadOf, rejectedTokenStrategy, truncateDetail } from './call-failures';
 import { dispatchName, findCampaignByName, readAudienceCount } from './campaign';
 import { CALL_RETRY_DELAY_MS, MAX_CALL_ATTEMPTS, RECONCILIATION_DELAY_MS } from './constants';
 import { UnexpectedPayloadError } from './errors';
 import { toCampaignSummary } from './payloads';
-import { requireAudienceSize, toCompleted, toFailed, toSending } from './job-machine';
-
-/** The strategy every call of these phases is pinned to. */
-const SEND_PHASE_STRATEGY = 'bearer';
+import { requireAudienceSize, toCompleted, toFailed, toSending, tokenRejectedReason } from './job-machine';
 
 /**
  * Next move after a Bearer phase call:
@@ -39,11 +36,11 @@ export type SendPhaseResolution =
  * @throws UnexpectedPayloadError when the count is refused (a 4xx other than a refused
  *   token) or answers a 2xx without a numeric count, so nothing is sent on a surprise.
  */
-export function resolveAudienceCount(job: DispatchJob, result: CallResult, now: number): SendPhaseResolution {
-    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+export function resolveAudienceCount(job: DispatchJob, call: HttpCall, result: CallResult, now: number): SendPhaseResolution {
+    const failure = classifyCallFailures([result]);
 
     if (failure?.kind === 'tokenRejected') {
-        return { kind: 'advanced', job: toFailed(job, { reason: 'bearer_token_rejected', detail: 'audience count refused the Bearer token', resumePhase: 'awaitingAudience' }, now) };
+        return { kind: 'advanced', job: toFailed(job, tokenRejectedFailure([call], [result], 'audience count', 'awaitingAudience'), now) };
     }
 
     if (failure?.kind === 'rejected') {
@@ -88,8 +85,8 @@ export function withCampaignInFlight(job: DispatchJob, now: number): DispatchJob
  * fails the job. A 5xx, a transport failure or an interrupted wave leave the outcome
  * unknown: the marker stays and a reconciliation by name is scheduled.
  */
-export function resolveCampaignCreation(job: DispatchJob, result: CallResult, now: number): SendPhaseResolution {
-    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+export function resolveCampaignCreation(job: DispatchJob, call: HttpCall, result: CallResult, now: number): SendPhaseResolution {
+    const failure = classifyCallFailures([result]);
 
     switch (failure?.kind) {
         case undefined: {
@@ -102,7 +99,7 @@ export function resolveCampaignCreation(job: DispatchJob, result: CallResult, no
             }
             return { kind: 'stop', cause: 'interrupted', job: withCampaignReconcileAt(job, now + RECONCILIATION_DELAY_MS, now) };
         case 'tokenRejected':
-            return { kind: 'advanced', job: toFailed(withoutCampaignInFlight(job, now), { reason: 'bearer_token_rejected', detail: 'campaign creation refused the Bearer token', resumePhase: 'sending' }, now) };
+            return { kind: 'advanced', job: toFailed(withoutCampaignInFlight(job, now), tokenRejectedFailure([call], [result], 'campaign creation', 'sending'), now) };
         case 'rejected':
             return { kind: 'advanced', job: toFailed(withoutCampaignInFlight(job, now), { reason: 'campaign_rejected', detail: failure.failure.detail, resumePhase: 'sending' }, now) };
         case 'outcomeUnknown':
@@ -118,8 +115,8 @@ export function resolveCampaignCreation(job: DispatchJob, result: CallResult, no
  * `campaign_outcome_unknown`, still keeping the marker so a resume reconciles again and
  * never re-sends blindly.
  */
-export function resolveCampaignReconciliation(job: DispatchJob, result: CallResult, now: number): SendPhaseResolution {
-    const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
+export function resolveCampaignReconciliation(job: DispatchJob, call: HttpCall, result: CallResult, now: number): SendPhaseResolution {
+    const failure = classifyCallFailures([result]);
 
     switch (failure?.kind) {
         case undefined: {
@@ -134,7 +131,7 @@ export function resolveCampaignReconciliation(job: DispatchJob, result: CallResu
         case 'stopBlock':
             return { kind: 'stop', cause: failure.cause, job };
         case 'tokenRejected':
-            return { kind: 'advanced', job: toFailed(job, { reason: 'bearer_token_rejected', detail: 'campaign reconciliation refused the Bearer token', resumePhase: 'sending' }, now) };
+            return { kind: 'advanced', job: toFailed(job, tokenRejectedFailure([call], [result], 'campaign reconciliation', 'sending'), now) };
         case 'rejected':
         case 'outcomeUnknown': {
             const attempts = (job.campaignReconcileAttempts ?? 0) + 1;
@@ -149,6 +146,13 @@ export function resolveCampaignReconciliation(job: DispatchJob, result: CallResu
             return { kind: 'wait', job: { ...withCampaignReconcileAt(job, now + CALL_RETRY_DELAY_MS, now), campaignReconcileAttempts: attempts } };
         }
     }
+}
+
+/** The job failure of a phase whose call had its token refused, naming the token the route used. */
+function tokenRejectedFailure(calls: readonly HttpCall[], results: readonly CallResult[], step: string, resumePhase: ResumePhase): JobFailure {
+    const strategy = rejectedTokenStrategy(calls, results);
+
+    return { reason: tokenRejectedReason(strategy), detail: `${step} refused the ${strategy} token`, resumePhase };
 }
 
 /** Waits for the audience with the last count known, or fails with `audience_timeout` past the deadline. */

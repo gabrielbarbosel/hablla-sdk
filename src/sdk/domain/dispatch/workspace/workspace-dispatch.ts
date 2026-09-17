@@ -42,6 +42,7 @@ import {
     toMaterializing,
     toResumed,
     toSuperseded,
+    tokenRejectedReason,
     trackInterruptedRounds,
 } from './job-machine';
 import { toCreatedId, toCustomFieldDefinition, toPayloadPage, toRosterUser } from './payloads';
@@ -456,8 +457,7 @@ export class WorkspaceDispatch {
         };
 
         if (rejectedStrategy !== undefined) {
-            const reason = rejectedStrategy === 'bearer' ? 'bearer_token_rejected' : 'workspace_token_rejected';
-            job = toFailed(job, { reason, detail: `Hablla refused the ${rejectedStrategy} token during ${phase}`, resumePhase: phase }, now);
+            job = toFailed(job, { reason: tokenRejectedReason(rejectedStrategy), detail: `Hablla refused the ${rejectedStrategy} token during ${phase}`, resumePhase: phase }, now);
         }
 
         session.job = await this.ports.store.update(job, changedPositions.map((position) => after[position]!));
@@ -507,8 +507,9 @@ export class WorkspaceDispatch {
     /** Polls the audience count until it matches, fails, or the window closes. */
     private async waitForAudience(session: ContinueSession, deadlineAt: number): Promise<LoopSignal> {
         for (;;) {
-            const [result] = await this.executeRound(session, [countAudience(buildAudienceQuery(session.job).query)]);
-            const resolution = resolveAudienceCount(session.job, result!, this.ports.clock.now());
+            const call = countAudience(buildAudienceQuery(session.job).query);
+            const [result] = await this.executeRound(session, [call]);
+            const resolution = resolveAudienceCount(session.job, call, result!, this.ports.clock.now());
 
             if (resolution.kind !== 'wait' || this.ports.clock.now() + AUDIENCE_POLL_INTERVAL_MS + CHUNK_TIME_RESERVE_MS >= deadlineAt) {
                 return this.persistSendPhase(session, resolution);
@@ -528,16 +529,18 @@ export class WorkspaceDispatch {
                 return { kind: 'yield' };
             }
 
-            const [result] = await this.executeRound(session, [findCampaignsByName(dispatchName(session.job))]);
+            const call = findCampaignsByName(dispatchName(session.job));
+            const [result] = await this.executeRound(session, [call]);
 
-            return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, result!, this.ports.clock.now()));
+            return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, call, result!, this.ports.clock.now()));
         }
 
         session.job = await this.ports.store.update(withCampaignInFlight(session.job, now), []);
 
-        const result = await this.postCampaignOrClearMarker(session);
+        const call = createCampaign(buildCampaignBody(session.job));
+        const result = await this.postCampaignOrClearMarker(session, call);
 
-        return this.persistSendPhase(session, resolveCampaignCreation(session.job, result, this.ports.clock.now()));
+        return this.persistSendPhase(session, resolveCampaignCreation(session.job, call, result, this.ports.clock.now()));
     }
 
     /**
@@ -545,9 +548,9 @@ export class WorkspaceDispatch {
      * {@link CallExecutor}), so the marker is cleared before the error propagates and no
      * reconciliation is left behind for a POST that never happened.
      */
-    private async postCampaignOrClearMarker(session: ContinueSession): Promise<CallResult> {
+    private async postCampaignOrClearMarker(session: ContinueSession, call: HttpCall): Promise<CallResult> {
         try {
-            const [result] = await this.executeRound(session, [createCampaign(buildCampaignBody(session.job))]);
+            const [result] = await this.executeRound(session, [call]);
             return result!;
         } catch (error) {
             session.job = await this.ports.store.update(withoutCampaignInFlight(session.job, this.ports.clock.now()), []);

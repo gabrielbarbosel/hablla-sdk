@@ -3,7 +3,7 @@
  * reconciliations, plus the retry bookkeeping every contact follows.
  */
 
-import type { CallResult } from '../../../core/call-executor';
+import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { AuthStrategy } from '../../../core/strategy';
 import type { ContactFailure, ContactOutcome, DispatchContact } from './types';
 import { CALL_RETRY_DELAY_MS, FAILURE_DETAIL_MAX_LENGTH, MAX_CALL_ATTEMPTS } from './constants';
@@ -14,7 +14,8 @@ export type StopCause = 'throttled' | 'interrupted';
 /**
  * What failed in a contact's results, in precedence order:
  * - `stopBlock`: a call was throttled or a wave was interrupted; nothing is consumed.
- * - `tokenRejected`: a 401/403; the token itself is refused.
+ * - `tokenRejected`: a 401/403; the token itself is refused. Which token is read from the
+ *   refused call with {@link rejectedTokenStrategy}, never declared a second time.
  * - `outcomeUnknown`: a 5xx or a transport failure; the request may have been applied.
  *   It outranks a sibling call that was never sent, because an unknown outcome has to be
  *   resolved while a call that was not sent only has to be repeated.
@@ -22,7 +23,7 @@ export type StopCause = 'throttled' | 'interrupted';
  */
 export type CallFailure =
     | { kind: 'stopBlock'; cause: StopCause }
-    | { kind: 'tokenRejected'; strategy: AuthStrategy }
+    | { kind: 'tokenRejected' }
     | { kind: 'outcomeUnknown'; failure: ContactFailure }
     | { kind: 'rejected'; failure: ContactFailure };
 
@@ -33,7 +34,7 @@ export type CallFailure =
  */
 export type CallFailureResolution =
     | { kind: 'retryLater'; contact: DispatchContact }
-    | { kind: 'tokenRejected'; strategy: AuthStrategy; contact?: DispatchContact }
+    | { kind: 'tokenRejected'; contact?: DispatchContact }
     | { kind: 'stopBlock'; cause: StopCause; contact?: DispatchContact };
 
 /** Result of a finished contact step: an updated contact, or a failure resolution. */
@@ -54,11 +55,8 @@ export function isSuccess(result: CallResult): boolean {
     return result.kind === 'completed' && result.status >= SUCCESS_STATUS_MIN && result.status <= SUCCESS_STATUS_MAX;
 }
 
-/**
- * Classifies a contact's results; `undefined` when every result is a 2xx. The strategy
- * is the one the contact's calls were pinned to.
- */
-export function classifyCallFailures(results: readonly CallResult[], strategy: AuthStrategy): CallFailure | undefined {
+/** Classifies a step's results; `undefined` when every result is a 2xx. */
+export function classifyCallFailures(results: readonly CallResult[]): CallFailure | undefined {
     if (results.some((result) => result.kind === 'throttled')) {
         return { kind: 'stopBlock', cause: 'throttled' };
     }
@@ -67,8 +65,8 @@ export function classifyCallFailures(results: readonly CallResult[], strategy: A
         return { kind: 'stopBlock', cause: 'interrupted' };
     }
 
-    if (results.some((result) => result.kind === 'completed' && TOKEN_REJECTED_STATUSES.includes(result.status))) {
-        return { kind: 'tokenRejected', strategy };
+    if (results.some(isTokenRejection)) {
+        return { kind: 'tokenRejected' };
     }
 
     const unknownOutcome = results.find((result) => result.kind === 'transportFailed' || (result.kind === 'completed' && result.status >= SERVER_ERROR_STATUS_MIN));
@@ -88,6 +86,27 @@ export function classifyCallFailures(results: readonly CallResult[], strategy: A
     }
 
     return undefined;
+}
+
+/**
+ * The strategy of the call the gateway refused the token of, read from the call itself
+ * (`routes.ts` is the only place that pins a strategy). `calls` and `results` are aligned.
+ *
+ * @throws Error when no result is a token rejection (a classification bug).
+ */
+export function rejectedTokenStrategy(calls: readonly HttpCall[], results: readonly CallResult[]): AuthStrategy {
+    const refused = results.findIndex(isTokenRejection);
+
+    if (refused < 0) {
+        throw new Error('No call was refused for its token');
+    }
+
+    return calls[refused]!.strategy;
+}
+
+/** True for a response that refused the token. */
+function isTokenRejection(result: CallResult): boolean {
+    return result.kind === 'completed' && TOKEN_REJECTED_STATUSES.includes(result.status);
 }
 
 /**

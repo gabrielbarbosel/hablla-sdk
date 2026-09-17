@@ -54,7 +54,7 @@ describe('resolvePersonLookup', () => {
     });
 
     it('reports a 401 as a rejected workspace token', () => {
-        expect(resolvePersonLookup(CONTACT, [completed(401), completed(200, page([]))], 'preview', NOW)).toEqual({ kind: 'tokenRejected', strategy: 'workspace' });
+        expect(resolvePersonLookup(CONTACT, [completed(401), completed(200, page([]))], 'preview', NOW)).toEqual({ kind: 'tokenRejected' });
     });
 
     it.each([
@@ -158,6 +158,6 @@ describe('resolveAttendanceLookup', () => {
     });
 
     it('shares the failure handling of the person stage', () => {
-        expect(resolveAttendanceLookup(CONTACT, person, [completed(403)], SETTINGS, 'preview', NOW)).toEqual({ kind: 'tokenRejected', strategy: 'workspace' });
+        expect(resolveAttendanceLookup(CONTACT, person, [completed(403)], SETTINGS, 'preview', NOW)).toEqual({ kind: 'tokenRejected' });
     });
 });

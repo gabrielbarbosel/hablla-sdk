@@ -162,7 +162,6 @@ describe('applyWriteResult', () => {
     it('reports a refused token, undoing the write-ahead that was not applied', () => {
         expect(applyWriteResult(pendingCreate, CREATE, [completed(401)], NOW)).toEqual({
             kind: 'tokenRejected',
-            strategy: 'workspace',
             contact: { ...pendingCreate, pendingWrite: undefined, createSends: 0 },
         });
     });

@@ -85,7 +85,7 @@ describe('applyReconciliation failures', () => {
     });
 
     it('reports a refused token', () => {
-        expect(applyReconciliation(pendingJoin, [completed(403)], NOW)).toEqual({ kind: 'tokenRejected', strategy: 'workspace' });
+        expect(applyReconciliation(pendingJoin, [completed(403)], NOW)).toEqual({ kind: 'tokenRejected' });
     });
 
     it('retries the read later on a 5xx, keeping the marker', () => {

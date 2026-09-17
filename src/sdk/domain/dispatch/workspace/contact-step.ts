@@ -10,6 +10,7 @@ import type { ContactResolution, StopCause } from './call-failures';
 import type { ContactWrite } from './contact-writes';
 import type { PersonSnapshot } from './owner-policy';
 import type { ChunkedPhase, ContactOutcome, DispatchContact, DispatchJob, DispatchSettings, LookupPurpose } from './types';
+import { rejectedTokenStrategy } from './call-failures';
 import { applyWriteResult, isWriteAhead, planContactWrites, withWriteAhead, writeCallFor } from './contact-writes';
 import { attendanceLookupCalls, personLookupCalls, resolveAttendanceLookup, resolvePersonLookup } from './lookup';
 import { claimPerson } from './person-claims';
@@ -47,6 +48,11 @@ export type StepApplication =
     | { kind: 'applied'; block: BlockContact; claims: ReadonlyMap<string, number>; shiftedTo?: ContactOutcome }
     | { kind: 'stopBlock'; cause: StopCause; block: BlockContact }
     | { kind: 'tokenRejected'; strategy: AuthStrategy; block: BlockContact };
+
+/** A step application before the refused token is named from the step's calls. */
+type StepOutcome =
+    | Extract<StepApplication, { kind: 'applied' } | { kind: 'stopBlock' }>
+    | { kind: 'tokenRejected'; block: BlockContact };
 
 /** The outcome that means a contact still has work in a phase. */
 export function workOutcomeOf(phase: ChunkedPhase): ContactOutcome {
@@ -100,8 +106,17 @@ export function writeAheadOf(block: BlockContact, step: ContactStep): DispatchCo
     return withWriteAhead(block.contact, step.purpose.write);
 }
 
-/** Applies a step's results to its contact. */
+/** Applies a step's results to its contact, naming the refused token from the step's own calls. */
 export function applyContactStep(block: BlockContact, step: Extract<ContactStep, { kind: 'calls' }>, results: readonly CallResult[], context: StepContext): StepApplication {
+    const outcome = applyStepResults(block, step, results, context);
+
+    return outcome.kind === 'tokenRejected'
+        ? { ...outcome, strategy: rejectedTokenStrategy(step.calls, results) }
+        : outcome;
+}
+
+/** Applies a step's results, leaving the refused token to {@link applyContactStep}. */
+function applyStepResults(block: BlockContact, step: Extract<ContactStep, { kind: 'calls' }>, results: readonly CallResult[], context: StepContext): StepOutcome {
     const { contact } = block;
     const purpose = lookupPurposeOf(context.phase);
 
@@ -138,7 +153,7 @@ function lookupStep(block: BlockContact, job: DispatchJob): ContactStep {
 }
 
 /** Applies a lookup resolution and records the shift when the send-time lookup moved the contact out of `ready`. */
-function applyLookupResolution(before: DispatchContact, resolution: ContactResolution, context: StepContext): StepApplication {
+function applyLookupResolution(before: DispatchContact, resolution: ContactResolution, context: StepContext): StepOutcome {
     const application = applyResolution(before, resolution, context);
 
     if (application.kind !== 'applied' || context.phase !== 'materializing' || application.block.contact.outcome === 'ready') {
@@ -152,12 +167,12 @@ function applyLookupResolution(before: DispatchContact, resolution: ContactResol
  * Applies a contact resolution. A contact that reaches a person while still `ready`
  * claims it; a person already claimed by another contact makes it `repeatedPerson`.
  */
-function applyResolution(before: DispatchContact, resolution: ContactResolution, context: StepContext): StepApplication {
+function applyResolution(before: DispatchContact, resolution: ContactResolution, context: StepContext): StepOutcome {
     switch (resolution.kind) {
         case 'stopBlock':
             return { kind: 'stopBlock', cause: resolution.cause, block: { contact: resolution.contact ?? before } };
         case 'tokenRejected':
-            return { kind: 'tokenRejected', strategy: resolution.strategy, block: { contact: resolution.contact ?? before } };
+            return { kind: 'tokenRejected', block: { contact: resolution.contact ?? before } };
         case 'retryLater':
             return { kind: 'applied', block: { contact: resolution.contact }, claims: context.claims };
         case 'decided':
@@ -166,7 +181,7 @@ function applyResolution(before: DispatchContact, resolution: ContactResolution,
 }
 
 /** Claims the person of a `ready` or `inAudience` contact. */
-function claimResolvedPerson(contact: DispatchContact, context: StepContext): StepApplication {
+function claimResolvedPerson(contact: DispatchContact, context: StepContext): StepOutcome {
     const holdsPerson = contact.person !== undefined && (contact.outcome === 'ready' || contact.outcome === 'inAudience');
 
     if (!holdsPerson) {

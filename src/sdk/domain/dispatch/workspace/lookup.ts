@@ -24,9 +24,6 @@ export type PersonLookupResolution = ContactResolution | { kind: 'checkAttendanc
 /** Outcome of the attendance stage. */
 export type AttendanceLookupResolution = ContactResolution;
 
-/** The strategy every lookup call is pinned to. */
-const LOOKUP_STRATEGY = 'workspace';
-
 /** One person search per distinct shape of the contact's phone. */
 export function personLookupCalls(contact: DispatchContact): HttpCall[] {
     return phoneShapes(contact).map((shape) => findPersonsByPhone(shape));
@@ -120,7 +117,7 @@ export function resolveAttendanceLookup(contact: DispatchContact, person: Person
 
 /** Failure handling of a lookup stage; `undefined` when every call succeeded. */
 function resolveLookupFailure(contact: DispatchContact, results: readonly CallResult[], now: number): ContactResolution | undefined {
-    const failure = classifyCallFailures(results, LOOKUP_STRATEGY);
+    const failure = classifyCallFailures(results);
 
     switch (failure?.kind) {
         case undefined:

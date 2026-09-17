@@ -4,6 +4,7 @@
  */
 
 import type { CallResult } from '../../../core/call-executor';
+import type { AuthStrategy } from '../../../core/strategy';
 import type { PreparedAudience } from './audience';
 import type { StopCause } from './call-failures';
 import type {
@@ -14,6 +15,7 @@ import type {
     DispatchJobPhase,
     DispatchNextStep,
     JobFailure,
+    JobFailureReason,
     WorkspaceDispatchRequest,
 } from './types';
 import { toDispatchConfig } from './campaign';
@@ -292,6 +294,11 @@ export function toCompleted(job: DispatchJob, now: number, campaign?: { id: stri
         warnings,
         updatedAt: now,
     };
+}
+
+/** The job failure reason of a token the gateway refused. */
+export function tokenRejectedReason(strategy: AuthStrategy): JobFailureReason {
+    return strategy === 'bearer' ? 'bearer_token_rejected' : 'workspace_token_rejected';
 }
 
 /** A working phase → `failed`; the failure names the phase `start` re-enters. */

@@ -15,9 +15,6 @@ import { phoneShapes } from './lookup';
 import { toPayloadPage, toPersonIdentity, toSegmentationItem } from './payloads';
 import { findPersonsByPhoneFresh, findSegmentationItemsOfPerson } from './routes';
 
-/** The strategy every reconciliation call is pinned to. */
-const RECONCILIATION_STRATEGY = 'workspace';
-
 /**
  * The reads that reveal a pending write's outcome: the v1 person listing by each phone
  * shape for a create (it sees a fresh create), the segmentation items of the person for
@@ -38,7 +35,7 @@ export function reconciliationCalls(contact: DispatchContact, job: DispatchJob):
  * the contact is `inAudience`; not found is sent again while `MAX_CALL_ATTEMPTS` allows.
  */
 export function applyReconciliation(contact: DispatchContact, results: readonly CallResult[], now: number): ContactResolution {
-    const failure = classifyCallFailures(results, RECONCILIATION_STRATEGY);
+    const failure = classifyCallFailures(results);
 
     switch (failure?.kind) {
         case undefined:

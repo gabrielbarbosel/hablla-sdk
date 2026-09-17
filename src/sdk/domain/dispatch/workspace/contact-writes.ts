@@ -29,9 +29,6 @@ export type ContactWrite =
 /** A write that is not idempotent, so its intent is persisted before sending and reconciled when its outcome is lost. */
 export type WriteAheadWrite = Extract<ContactWrite, { kind: PendingWrite }>;
 
-/** The strategy every contact write is pinned to. */
-const WRITE_STRATEGY = 'workspace';
-
 /** Phone type of a person created by the dispatch. */
 const CREATED_PHONE_TYPE = 'personal';
 
@@ -118,7 +115,7 @@ export function writeCallFor(write: ContactWrite, contact: DispatchContact, job:
  * a non-idempotent one so its next step is a reconciliation, never a blind re-send.
  */
 export function applyWriteResult(contact: DispatchContact, write: ContactWrite, results: readonly CallResult[], now: number): ContactResolution {
-    const failure = classifyCallFailures(results, WRITE_STRATEGY);
+    const failure = classifyCallFailures(results);
 
     switch (failure?.kind) {
         case undefined:
@@ -126,7 +123,7 @@ export function applyWriteResult(contact: DispatchContact, write: ContactWrite, 
         case 'stopBlock':
             return stopWrite(contact, write, failure.cause, now);
         case 'tokenRejected':
-            return { kind: 'tokenRejected', strategy: failure.strategy, contact: isWriteAhead(write) ? undoWriteAhead(contact, write) : undefined };
+            return { kind: 'tokenRejected', contact: isWriteAhead(write) ? undoWriteAhead(contact, write) : undefined };
         case 'rejected':
             return { kind: 'decided', contact: failContact(clearWriteAhead(contact), 'writeFailed', failure.failure) };
         case 'outcomeUnknown':
