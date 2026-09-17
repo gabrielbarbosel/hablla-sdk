@@ -12,10 +12,11 @@ export const GOOGLE_WORKSPACE_DAILY_CALL_QUOTA = 100_000;
 
 /**
  * Pages of excluded persons one exclusion run may read, at {@link EXCLUSION_PAGE_LIMIT}
- * persons each, so the default covers 50 000 excluded persons. Each page costs one Bearer
- * call of ~8-10 s and every run reads them again, which is why the ceiling exists at all: a
- * filter whose universe is larger fails loud instead of being truncated, and the app raises
- * this value when an exclusion really covers more people than that.
+ * persons each, the last one short: the default covers up to 49 999 excluded persons, and
+ * 50 000 already ask for 51 pages. Each page costs one Bearer call of ~8-10 s and every run
+ * reads them again, which is why the ceiling exists at all: a filter whose universe is
+ * larger fails loud instead of being truncated, and the app raises this value when an
+ * exclusion really covers more people than that.
  */
 export const DEFAULT_MAX_EXCLUSION_PAGES = 50;
 
