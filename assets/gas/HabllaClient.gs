@@ -7749,7 +7749,8 @@
         var _a2;
         return hashString(toDigits((_a2 = contacts[index]) == null ? void 0 : _a2.phone));
       });
-      const owners = distributeOwners(contacts.length, distribution.owners, distribution.strategy, rng);
+      const ownerPool = expandByWeight(distribution.owners, distribution.weights);
+      const owners = distributeOwners(contacts.length, ownerPool, distribution.strategy, rng);
       contacts.forEach((contact, index) => {
         if (owners[index]) contact.owner = owners[index];
       });

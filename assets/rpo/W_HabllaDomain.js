@@ -447,7 +447,8 @@ class W_HabllaDomain {
       const distribution = config.ownerDistribution;
       if (!distribution || !distribution.owners.length) return;
       const rng = config.rng ?? ((index) => hashString(toDigits2(contacts[index]?.phone)));
-      const owners = distributeOwners(contacts.length, distribution.owners, distribution.strategy, rng);
+      const ownerPool = expandByWeight(distribution.owners, distribution.weights);
+      const owners = distributeOwners(contacts.length, ownerPool, distribution.strategy, rng);
       contacts.forEach((contact, index) => {
         if (owners[index]) contact.owner = owners[index];
       });

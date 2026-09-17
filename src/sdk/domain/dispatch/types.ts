@@ -288,8 +288,8 @@ export interface DispatchPersonalizedConfig {
     variables?: string[];
     /** Personalize body variable 0 with each contact's first name. Defaults to `true`. */
     personalizeFirstName?: boolean;
-    /** How to spread the audience over a team. Omit to keep any owner already on the contact. */
-    ownerDistribution?: { strategy: OwnerStrategy; owners: string[] };
+    /** How to spread the audience over a team; `weights` is absent or partial per the UI contract (missing entry = weight 1). Omit to keep any owner already on the contact. */
+    ownerDistribution?: { strategy: OwnerStrategy; owners: string[]; weights?: Record<string, number> };
     /** Phones to skip (already-sent / suppressed). Filtered out before anything else, 9th-digit aware. */
     suppressPhones?: string[];
     /** Default DDI for contacts that omit it. Defaults to `55`. */

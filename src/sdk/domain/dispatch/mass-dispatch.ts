@@ -13,7 +13,7 @@ import type {
     DispatchLedger,
 } from './types';
 import { buildXlsx } from './xlsx';
-import { phoneVariants, toDigits, firstName, hashString, distributeOwners } from '../../utils';
+import { phoneVariants, toDigits, firstName, hashString, distributeOwners, expandByWeight } from '../../utils';
 import type { ServiceStatusCode } from '../../resources/gen_enums';
 
 const DEFAULT_COLUMNS = ['Name', 'DDI', 'Phone', 'Email', 'SSN'];
@@ -200,7 +200,8 @@ export class MassDispatch {
         const distribution = config.ownerDistribution;
         if (!distribution || !distribution.owners.length) return;
         const rng = config.rng ?? ((index: number) => hashString(toDigits(contacts[index]?.phone)));
-        const owners = distributeOwners(contacts.length, distribution.owners, distribution.strategy, rng);
+        const ownerPool = expandByWeight(distribution.owners, distribution.weights);
+        const owners = distributeOwners(contacts.length, ownerPool, distribution.strategy, rng);
         contacts.forEach((contact, index) => {
             if (owners[index]) contact.owner = owners[index];
         });
