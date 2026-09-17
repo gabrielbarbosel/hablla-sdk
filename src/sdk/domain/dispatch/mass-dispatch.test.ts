@@ -275,6 +275,22 @@ describe('MassDispatch.dispatchPersonalized', () => {
         expect(result.ownerMap).toEqual({ 'u-a': 1, 'u-b': 1 });
     });
 
+    it('weights the owner distribution: a heavier owner takes proportionally more contacts', async () => {
+        const { client } = fakeClient([3], [], [CF_ROW]);
+
+        const result = await new MassDispatch(client).dispatchPersonalized(
+            [
+                { name: 'Ana', phone: '5551990000001' },
+                { name: 'Bruno', phone: '5551990000002' },
+                { name: 'Carla', phone: '5551990000003' },
+            ],
+            { ...baseConfig, templateVarCount: 1, ownerDistribution: { strategy: 'rodizio', owners: ['u-a', 'u-b'], weights: { 'u-b': 2 } } },
+            noSleep,
+        );
+
+        expect(result.ownerMap).toEqual({ 'u-a': 1, 'u-b': 2 });
+    });
+
     it('creates the first-name field when the workspace has none', async () => {
         const { client, calls } = fakeClient([1], [], []);
         const md = new MassDispatch(client);

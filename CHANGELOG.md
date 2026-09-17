@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.4.0 (2026-09-17)
+
+**Classification:** `breaking` — nova superfície de disparo por token de workspace; `deployToRpo` passa a exigir a verificação de compatibilidade; o disparo em massa por import fica obsoleto.
+
+### Adicionado
+
+- `habllaDomain.workspaceDispatch`: disparo sem fluxo com plan/start/continue/abandon/status, escritas por contato em token de workspace e bearer O(1) por disparo (segmentação, contagem da audiência, campanha v2).
+- Exclusão por filtro resolvida antes de qualquer escrita, com teto de páginas, conferência contra o universo contado e retomada entre execuções.
+- Runtime GAS: executor de chamadas concorrentes sobre `UrlFetchApp.fetchAll`, store de jobs na planilha e janela de execução.
+- Verificação de compatibilidade do RPO (estrita e por regressão) e fachada `hablla.dispatch` no `W_HabllaDomain`.
+
+### Alterado
+
+- `deployToRpo` valida tudo antes da primeira escrita e exige `compatibility`.
+- `distributeOwners` respeita pesos por dono.
+
+### Obsoleto
+
+- `habllaDomain.massDispatch` (caminho por import), substituído pelo disparo por token de workspace.
+
 ## v0.3.0 (2026-09-16)
 
 **Classification:** `breaking` — endpoints +22 / -15 / ~0 incompatible / 5 extended.

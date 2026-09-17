@@ -7,6 +7,8 @@ export { HabllaAuth } from './core/auth';
 export type { AuthConfig } from './core/auth';
 export { HabllaHttpClient } from './core/http-client';
 export type { RequestOptions } from './core/http-client';
+export { TransportCallExecutor } from './core/call-executor';
+export type { CallExecutor, CallExecutorOptions, CallAuthorization, CallResult, HttpCall } from './core/call-executor';
 export { HabllaApiError } from './core/errors';
 export { serializeQuery } from './core/query';
 export { paginate } from './core/pagination';
@@ -17,6 +19,7 @@ export { Resource } from './resources/base';
 export * from './resources/gen_enums';
 export * from './store';
 export { HabllaDomain, Dispatch, MassDispatch, buildXlsx } from './domain';
+export * from './domain/dispatch/workspace';
 export { xlsxToRows, parseSharedStrings, parseWorksheet, pickWorksheetName } from './utils';
 export type { XlsxParts } from './utils';
 export type {

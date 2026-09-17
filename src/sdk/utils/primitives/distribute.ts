@@ -7,6 +7,48 @@
 /** Owner-distribution strategies, named as the workspace UI names them (pt-BR). */
 export type OwnerStrategy = 'fixo' | 'rodizio' | 'aleatorio';
 
+/** Weight of an owner the UI weight map has no entry for (the UI reads absence as 1). */
+const UNLISTED_OWNER_WEIGHT = 1;
+
+/**
+ * Expands an owner pool by integer weights, preserving order: each id repeats as many
+ * times as its weight, so `rodizio`/`aleatorio` over the expanded pool give a heavier
+ * owner proportionally more slots while {@link distributeOwners} stays pure.
+ *
+ * The weight map follows the workspace UI contract: it may be absent (the `fixo`
+ * strategy omits it) or partial (an owner added without touching its weight has no
+ * entry). Both cases weigh the owner as 1. A present entry must be an integer >= 1.
+ *
+ * @param users Owner ids in distribution order.
+ * @param weights Optional weight per owner id.
+ * @returns The expanded pool (a copy of `users` when no map is given).
+ * @throws RangeError when a present weight is not an integer >= 1.
+ */
+export const expandByWeight = (
+    users: readonly string[],
+    weights?: Readonly<Record<string, number>>,
+): string[] => {
+    if (!weights) {
+        return users.slice();
+    }
+
+    const pool: string[] = [];
+
+    for (const id of users) {
+        const weight = weights[id] ?? UNLISTED_OWNER_WEIGHT;
+
+        if (!Number.isInteger(weight) || weight < 1) {
+            throw new RangeError(`expandByWeight: weight of owner ${id} must be an integer >= 1, got ${weight}`);
+        }
+
+        for (let copy = 0; copy < weight; copy++) {
+            pool.push(id);
+        }
+    }
+
+    return pool;
+};
+
 /**
  * Deterministic per-index bit-mix (a variant of the integer finalizer used by
  * MurmurHash). Spreads consecutive indices across the whole 32-bit range so a

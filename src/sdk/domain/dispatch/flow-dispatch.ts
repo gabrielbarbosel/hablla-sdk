@@ -2,7 +2,7 @@ import type { HabllaClient } from '../../client';
 import type { FlowDispatchContact, FlowDispatchConfig, FlowDispatchResult } from './types';
 import type { MultipartBody } from '../../core/types';
 import { buildXlsx } from './xlsx';
-import { distributeOwners, toDigits, phoneVariants, hashString } from '../../utils';
+import { distributeOwners, expandByWeight, toDigits, phoneVariants, hashString } from '../../utils';
 
 /**
  * The 10 config columns the flow engine reads per audience row (the exact contract
@@ -61,7 +61,8 @@ export class FlowDispatch {
         }
 
         const rng = config.rng ?? ((index: number) => hashString(toDigits(survivors[index]?.phone)));
-        const owners = distributeOwners(survivors.length, config.ownerDistribution?.owners ?? [], config.ownerDistribution?.strategy ?? 'fixo', rng);
+        const ownerPool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
+        const owners = distributeOwners(survivors.length, ownerPool, config.ownerDistribution?.strategy ?? 'fixo', rng);
         const ownerMap: Record<string, number> = {};
         for (const owner of owners) {
             if (owner) ownerMap[owner] = (ownerMap[owner] ?? 0) + 1;

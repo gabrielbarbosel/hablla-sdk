@@ -11,15 +11,15 @@
  */
 
 /** primitives (global) */
-export { toDigits, firstName, hashString } from './primitives/string';
+export { toDigits, firstName, hashString, hash64Hex, collapseWhitespace, capitalizeWord } from './primitives/string';
 export { collectIndexed } from './primitives/record';
-export { distributeOwners } from './primitives/distribute';
+export { distributeOwners, expandByWeight } from './primitives/distribute';
 export type { OwnerStrategy } from './primitives/distribute';
 
 /** formats (specific to a format, still generic) */
-export { phoneVariants, matchesPhone } from './formats/phone';
+export { phoneVariants, matchesPhone, brazilianPhoneVariants, phoneIdentity, BRAZIL_COUNTRY_CODE } from './formats/phone';
 export type { PhoneVariants } from './formats/phone';
-export { isEmail, deriveEmail } from './formats/email';
+export { isEmail, deriveEmail, normalizeEmail } from './formats/email';
 export type { DeriveEmailRule } from './formats/email';
 export { customFieldKeys } from './formats/hablla';
 export { xlsxToRows, parseSharedStrings, parseWorksheet, pickWorksheetName } from './formats/xlsx';

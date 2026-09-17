@@ -86,6 +86,8 @@ export type DispatchStatus =
  * One contact to materialize (bulk-import) and then dispatch to. Only `name` and
  * `phone` are required; extra columns ride along in the import sheet. `owner` drives
  * per-contact owner assignment (see {@link MassDispatchSpec.owner}).
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface MassDispatchContact {
     name: string;
@@ -112,6 +114,8 @@ export interface MassDispatchContact {
  * import column `${field.stdName}_${field.type}` (filled from
  * {@link MassDispatchContact.customFields}[`field.id`]) and {@link MassDispatch.sendCampaign}
  * emits the token `{{person.custom_fields.<field.id>}}` at {@link templateIndex}.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface MassDispatchPersonalization {
     /** The person custom field carrying the per-contact value (id + std_name + type). */
@@ -125,6 +129,8 @@ export interface MassDispatchPersonalization {
  * group, O(1) in the number of contacts) and fire a single flow-less WhatsApp
  * campaign over it. The campaign attendance is born on the person's owner, so no
  * per-contact settle step is needed.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface MassDispatchSpec {
     /** Hablla connection id the template is sent from. */
@@ -196,6 +202,8 @@ export interface MassDispatchSpec {
  *
  * This composes only proven primitives, so it never sends to someone mid-attendance
  * on a mistaken assumption — the failure mode a guessed audience filter would risk.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface AttendanceGuard {
     mode: 'skip' | 'finish' | 'off';
@@ -209,7 +217,11 @@ export interface AttendanceGuard {
     finishSector?: string;
 }
 
-/** What the {@link AttendanceGuard} did on a run — surfaced in the result and ledger. */
+/**
+ * What the {@link AttendanceGuard} did on a run — surfaced in the result and ledger.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
+ */
 export interface AttendanceGuardReport {
     mode: 'skip' | 'finish' | 'off';
     /** Open attendances scanned on the connection. */
@@ -224,7 +236,11 @@ export interface AttendanceGuardReport {
     truncated: boolean;
 }
 
-/** A single audience-materialization + campaign, recorded for traceability. */
+/**
+ * A single audience-materialization + campaign, recorded for traceability.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
+ */
 export interface MassDispatchLedgerEntry {
     segmentationId: string;
     campaignId?: string;
@@ -246,6 +262,8 @@ export interface MassDispatchLedgerEntry {
  * record. A runtime provides the sink (the workspace writes it to a sheet tab via
  * the store); the SDK stays agnostic. `createdAt` is stamped by the sink, not here,
  * so the domain layer needs no clock.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface DispatchLedger {
     record(entry: MassDispatchLedgerEntry): Promise<void>;
@@ -255,6 +273,8 @@ export interface DispatchLedger {
  * A raw contact for {@link MassDispatch.dispatchPersonalized}: only name and phone are
  * required. `owner` may be pre-set; otherwise the orchestrator assigns it via
  * {@link DispatchPersonalizedConfig.ownerDistribution}.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface RawDispatchContact {
     name: string;
@@ -269,6 +289,8 @@ export interface RawDispatchContact {
  * team to distribute over, phones to suppress — and the orchestrator does the rest
  * (suppression, owner distribution, first-name pre-compute, custom-field ensure,
  * spec assembly) before delegating to the agnostic {@link MassDispatch.run} engine.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
  */
 export interface DispatchPersonalizedConfig {
     /** Hablla connection id the template is sent from. */
@@ -288,8 +310,8 @@ export interface DispatchPersonalizedConfig {
     variables?: string[];
     /** Personalize body variable 0 with each contact's first name. Defaults to `true`. */
     personalizeFirstName?: boolean;
-    /** How to spread the audience over a team. Omit to keep any owner already on the contact. */
-    ownerDistribution?: { strategy: OwnerStrategy; owners: string[] };
+    /** How to spread the audience over a team; `weights` is absent or partial per the UI contract (missing entry = weight 1). Omit to keep any owner already on the contact. */
+    ownerDistribution?: { strategy: OwnerStrategy; owners: string[]; weights?: Record<string, number> };
     /** Phones to skip (already-sent / suppressed). Filtered out before anything else, 9th-digit aware. */
     suppressPhones?: string[];
     /** Default DDI for contacts that omit it. Defaults to `55`. */
@@ -306,7 +328,11 @@ export interface DispatchPersonalizedConfig {
     attendanceGuard?: AttendanceGuard;
 }
 
-/** What {@link MassDispatch.dispatchPersonalized} adds to {@link MassDispatchResult}: what it filtered. */
+/**
+ * What {@link MassDispatch.dispatchPersonalized} adds to {@link MassDispatchResult}: what it filtered.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
+ */
 export interface PersonalizedDispatchResult extends MassDispatchResult {
     /** Contacts received before suppression. */
     received: number;
@@ -314,7 +340,11 @@ export interface PersonalizedDispatchResult extends MassDispatchResult {
     suppressed: number;
 }
 
-/** What {@link MassDispatch.run} returns. */
+/**
+ * What {@link MassDispatch.run} returns.
+ *
+ * @deprecated Import-based path kept only while the app migrates; use {@link WorkspaceDispatch} (flow-less dispatch on the workspace token).
+ */
 export interface MassDispatchResult {
     segmentationId: string;
     campaignId?: string;
@@ -369,7 +399,8 @@ export interface FlowDispatchConfig {
     variableColumns: string[];
     /** headers das colunas extras em ordem, após as vars (ex.: ['email','cf_x']) */
     extraColumns: string[];
-    ownerDistribution?: { strategy: OwnerStrategy; owners: string[] };
+    /** How to spread the audience over a team; `weights` is absent or partial per the UI contract (missing entry = weight 1). */
+    ownerDistribution?: { strategy: OwnerStrategy; owners: string[]; weights?: Record<string, number> };
     suppressPhones?: string[];
     defaultDdi?: string;
     /** seam de rng p/ 'aleatorio' (isolate-safe); default = hash do telefone */

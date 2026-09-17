@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isEmail, deriveEmail } from './email';
+import { isEmail, deriveEmail, normalizeEmail } from './email';
 
 describe('isEmail', () => {
     it('accepts anything with an @', () => {
@@ -26,5 +26,11 @@ describe('deriveEmail', () => {
     it('returns null when there is no account', () => {
         expect(deriveEmail('   ', rule)).toBeNull();
         expect(deriveEmail(null, rule)).toBeNull();
+    });
+});
+
+describe('normalizeEmail', () => {
+    it('trims and lower-cases', () => {
+        expect(normalizeEmail('  Ana.Souza@Example.COM ')).toBe('ana.souza@example.com');
     });
 });
