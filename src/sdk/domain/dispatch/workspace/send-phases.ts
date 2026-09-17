@@ -163,7 +163,7 @@ function withCampaignReconcileAt(job: DispatchJob, reconcileAt: number, now: num
 }
 
 /** The job with the campaign marker cleared. */
-function withoutCampaignInFlight(job: DispatchJob, now: number): DispatchJob {
+export function withoutCampaignInFlight(job: DispatchJob, now: number): DispatchJob {
     return { ...job, campaignSendState: undefined, campaignReconcileNotBefore: undefined, campaignReconcileAttempts: undefined, updatedAt: now };
 }
 

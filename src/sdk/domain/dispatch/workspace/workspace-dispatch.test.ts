@@ -30,10 +30,18 @@ let hablla: FakeHablla;
 let store: InMemoryDispatchJobStore;
 let clock: FakeClock;
 let dispatch: WorkspaceDispatch;
+let bearerAuthorizationFailure: Error | undefined;
 
 /** Builds the dispatch over the fakes, with a quota that never binds unless given. */
 function buildDispatch(dailyCallQuota = 1_000_000, concurrency = 16): WorkspaceDispatch {
-    const auth = { authorization: async (strategy: string) => (strategy === 'bearer' ? BEARER_HEADER : WORKSPACE_TOKEN) };
+    const auth = {
+        authorization: async (strategy: string) => {
+            if (strategy === 'bearer' && bearerAuthorizationFailure) {
+                throw bearerAuthorizationFailure;
+            }
+            return strategy === 'bearer' ? BEARER_HEADER : WORKSPACE_TOKEN;
+        },
+    };
     const executor = new TransportCallExecutor(hablla, auth, { baseUrl: 'https://api.test', workspaceId: WORKSPACE_ID, concurrency });
 
     return new WorkspaceDispatch({ executor, store, clock }, { dailyCallQuota });
@@ -45,6 +53,7 @@ beforeEach(() => {
     hablla.customFields = [{ id: FIRST_NAME_FIELD_ID, target: 'person', type: 'string', name: 'Primeiro Nome' }];
     store = new InMemoryDispatchJobStore();
     clock = new FakeClock(START);
+    bearerAuthorizationFailure = undefined;
     dispatch = buildDispatch();
 });
 
@@ -395,6 +404,47 @@ describe('WorkspaceDispatch campaign', () => {
         expect(hablla.campaigns).toHaveLength(1);
     });
 
+    it('refuses to abandon a job whose campaign may have been created, and to plan its audience again', async () => {
+        hablla.faults.push({ matches: (request) => request.method === 'POST' && request.path.endsWith('/campaigns'), kind: 'status', status: 502, times: 1 });
+        hablla.faults.push({ matches: (request) => request.method === 'GET' && request.path.endsWith('/campaigns'), kind: 'status', status: 500, times: 3 });
+
+        const request = aRequest({ rows: [aRow('1')] });
+        const failed = await dispatchToEnd(request);
+
+        expect(failed.job).toMatchObject({ phase: 'failed', campaignSendState: 'inFlight', failure: { reason: 'campaign_outcome_unknown' } });
+        await expect(dispatch.abandon(failed.job.id, OPERATOR)).rejects.toBeInstanceOf(InvalidJobTransitionError);
+        await expect(dispatch.plan(request)).rejects.toBeInstanceOf(DuplicateDispatchError);
+    });
+
+    it('clears the campaign marker when the Bearer authorization fails before the POST', async () => {
+        hablla.notPropagatedCounts = 0;
+        hablla.onRequest = (request) => {
+            if (request.path.endsWith('/count')) {
+                bearerAuthorizationFailure = new Error('firebase down');
+            }
+        };
+
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+        const started = await dispatch.start(planned.job.id, OPERATOR);
+
+        await expect(drive(started)).rejects.toThrow('firebase down');
+
+        const stored = await store.load(started.job.id);
+
+        expect(stored.phase).toBe('sending');
+        expect(stored.campaignSendState).toBeUndefined();
+        expect(stored.leaseUntil).toBeUndefined();
+        expect(hablla.requestsTo('POST', /\/campaigns$/)).toHaveLength(0);
+
+        hablla.onRequest = undefined;
+        bearerAuthorizationFailure = undefined;
+
+        const done = await drive(await dispatch.continue(started.job.id, windowNow()));
+
+        expect(done.job.phase).toBe('completed');
+        expect(hablla.campaigns).toHaveLength(1);
+    });
+
     it('completes with a warning when the campaign quantity differs from the audience', async () => {
         hablla.campaignQuantityOverride = 7;
 
@@ -428,6 +478,21 @@ describe('WorkspaceDispatch duplicates and concurrency', () => {
         await dispatch.abandon(repeat.job.id, OPERATOR);
         clock.current += 1;
         await expect(dispatch.plan({ ...request, repeatOfJobId: done.job.id })).resolves.toMatchObject({ job: { phase: 'resolving' } });
+    });
+
+    it('allows a chain of confirmed repeats, each confirming the latest send', async () => {
+        const request = aRequest({ rows: [aRow('1')] });
+        const first = await dispatchToEnd(request);
+        clock.current += 1;
+        const second = await dispatchToEnd({ ...request, repeatOfJobId: first.job.id });
+        clock.current += 1;
+
+        await expect(dispatch.plan({ ...request, repeatOfJobId: first.job.id })).rejects.toBeInstanceOf(DuplicateDispatchError);
+
+        const third = await dispatchToEnd({ ...request, repeatOfJobId: second.job.id });
+
+        expect([first, second, third].map((progress) => progress.job.phase)).toEqual(['completed', 'completed', 'completed']);
+        expect(hablla.campaigns).toHaveLength(3);
     });
 
     it('is busy while a continuation holds the lease of an unstarted job with the same audience', async () => {

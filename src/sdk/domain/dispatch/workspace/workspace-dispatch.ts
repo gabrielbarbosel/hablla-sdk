@@ -46,7 +46,7 @@ import {
 import { toCreatedId, toCustomFieldDefinition, toPayloadPage, toRosterUser } from './payloads';
 import { assertValidRequest, assertValidRequestShape, indexCustomFields, indexRoster } from './request-validation';
 import { countAudience, createCampaign, createSegmentation, findCampaignsByName, listCustomFieldsPage, listUsersPage } from './routes';
-import { isCampaignReconcileDue, resolveAudienceCount, resolveCampaignCreation, resolveCampaignReconciliation, withCampaignInFlight, type SendPhaseResolution } from './send-phases';
+import { isCampaignReconcileDue, resolveAudienceCount, resolveCampaignCreation, resolveCampaignReconciliation, withCampaignInFlight, withoutCampaignInFlight, type SendPhaseResolution } from './send-phases';
 
 /** The effects a dispatch runs through; composed by the runtime. */
 export interface WorkspaceDispatchPorts {
@@ -514,9 +514,24 @@ export class WorkspaceDispatch {
 
         session.job = await this.ports.store.update(withCampaignInFlight(session.job, now), []);
 
-        const [result] = await this.ports.executor.executeAll([createCampaign(buildCampaignBody(session.job))]);
+        const result = await this.postCampaignOrClearMarker(session);
 
-        return this.persistSendPhase(session, resolveCampaignCreation(session.job, result!, this.ports.clock.now()));
+        return this.persistSendPhase(session, resolveCampaignCreation(session.job, result, this.ports.clock.now()));
+    }
+
+    /**
+     * Posts the campaign. An executor rejection means nothing was sent (see
+     * {@link CallExecutor}), so the marker is cleared before the error propagates and no
+     * reconciliation is left behind for a POST that never happened.
+     */
+    private async postCampaignOrClearMarker(session: ContinueSession): Promise<CallResult> {
+        try {
+            const [result] = await this.ports.executor.executeAll([createCampaign(buildCampaignBody(session.job))]);
+            return result!;
+        } catch (error) {
+            session.job = await this.ports.store.update(withoutCampaignInFlight(session.job, this.ports.clock.now()), []);
+            throw error;
+        }
     }
 
     /** Persists a Bearer phase resolution and turns it into a loop signal. */

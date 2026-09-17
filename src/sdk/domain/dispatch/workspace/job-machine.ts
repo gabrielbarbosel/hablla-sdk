@@ -110,12 +110,14 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
 
 /**
  * Verdict over the other jobs with the same fingerprint. A job not yet started is
- * superseded when idle and makes `plan` busy while leased; a started, failed or sent job
- * refuses, unless it is the completed job the operator confirmed repeating. Completed jobs
- * without a campaign, superseded and abandoned ones are ignored.
+ * superseded when idle and makes `plan` busy while leased; a started or failed job
+ * refuses. Among the completed jobs with a campaign only the latest counts: it refuses
+ * unless it is the one the operator confirmed repeating, so a chain of confirmed repeats
+ * stays possible. Completed jobs without a campaign, superseded and abandoned ones are ignored.
  */
 export function duplicateVerdict(existing: readonly DispatchJob[], repeatOfJobId: string | undefined, now: number): DuplicateVerdict {
     const supersede: DispatchJob[] = [];
+    const latestSent = latestSentJob(existing);
     let busy: DispatchJob | undefined;
 
     for (const job of existing) {
@@ -134,7 +136,7 @@ export function duplicateVerdict(existing: readonly DispatchJob[], repeatOfJobId
             case 'failed':
                 return { kind: 'refuse', job };
             case 'completed':
-                if (job.campaignId !== undefined && repeatOfJobId !== job.id) {
+                if (job === latestSent && repeatOfJobId !== job.id) {
                     return { kind: 'refuse', job };
                 }
                 break;
@@ -145,6 +147,13 @@ export function duplicateVerdict(existing: readonly DispatchJob[], repeatOfJobId
     }
 
     return busy ? { kind: 'busy', job: busy } : { kind: 'create', supersede };
+}
+
+/** The most recently created completed job that sent a campaign, if any. */
+function latestSentJob(jobs: readonly DispatchJob[]): DispatchJob | undefined {
+    return jobs
+        .filter((job) => job.phase === 'completed' && job.campaignId !== undefined)
+        .reduce<DispatchJob | undefined>((latest, job) => (latest === undefined || job.createdAt > latest.createdAt ? job : latest), undefined);
 }
 
 /** True while another execution holds the job's lease. */
@@ -287,10 +296,19 @@ export function toSuperseded(job: DispatchJob, now: number): DispatchJob {
     return { ...job, phase: 'superseded', updatedAt: now };
 }
 
-/** Any phase that is not over (including `failed`) → `abandoned`; nothing written is undone. */
+/**
+ * Any phase that is not over (including `failed`) → `abandoned`; nothing written is undone.
+ * Refused while a campaign POST may have gone out (`campaignSendState` in flight): an
+ * abandoned job no longer blocks its audience, so abandoning it before the campaign is
+ * reconciled could send the same campaign twice.
+ */
 export function toAbandoned(job: DispatchJob, operatorEmail: string, now: number): DispatchJob {
     if (TERMINAL_PHASES.includes(job.phase)) {
         throw new InvalidJobTransitionError(job.id, job.phase, 'be abandoned');
+    }
+
+    if (job.campaignSendState === 'inFlight') {
+        throw new InvalidJobTransitionError(job.id, job.phase, 'be abandoned before its in-flight campaign is reconciled');
     }
 
     return { ...job, phase: 'abandoned', abandonedBy: operatorEmail, abandonedAt: now, updatedAt: now };

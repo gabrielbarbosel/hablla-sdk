@@ -80,6 +80,15 @@ describe('duplicateVerdict', () => {
         expect(duplicateVerdict([sent], sent.id, NOW)).toEqual({ kind: 'create', supersede: [] });
     });
 
+    it('counts only the latest completed send, so each repeat confirms the one before it', () => {
+        const older = job('completed', { id: 'job-older', campaignId: 'c1', createdAt: NOW });
+        const latest = job('completed', { id: 'job-latest', campaignId: 'c2', createdAt: NOW + 1 });
+
+        expect(duplicateVerdict([older, latest], undefined, NOW)).toEqual({ kind: 'refuse', job: latest });
+        expect(duplicateVerdict([latest, older], older.id, NOW)).toEqual({ kind: 'refuse', job: latest });
+        expect(duplicateVerdict([older, latest], latest.id, NOW)).toEqual({ kind: 'create', supersede: [] });
+    });
+
     it('ignores completed jobs without a campaign, superseded and abandoned jobs', () => {
         expect(duplicateVerdict([job('completed'), job('superseded'), job('abandoned')], undefined, NOW)).toEqual({ kind: 'create', supersede: [] });
     });
@@ -166,6 +175,13 @@ describe('transitions', () => {
         for (const phase of ['completed', 'superseded', 'abandoned'] as DispatchJobPhase[]) {
             expect(() => toAbandoned(aJob({ phase }), 'operator@example.com', NOW)).toThrow(InvalidJobTransitionError);
         }
+    });
+
+    it('refuses to abandon while a campaign POST may have gone out', () => {
+        const unknownCampaign: JobFailure = { reason: 'campaign_outcome_unknown', detail: 'x', resumePhase: 'sending' };
+
+        expect(() => toAbandoned(aJob({ phase: 'sending', campaignSendState: 'inFlight' }), 'operator@example.com', NOW)).toThrow(InvalidJobTransitionError);
+        expect(() => toAbandoned(aJob({ phase: 'failed', failure: unknownCampaign, campaignSendState: 'inFlight' }), 'operator@example.com', NOW)).toThrow(InvalidJobTransitionError);
     });
 
     it.each([

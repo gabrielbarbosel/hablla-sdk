@@ -33,7 +33,9 @@ export type CallResult =
  * Executes independent calls concurrently in waves. Contract: never retries, never
  * sleeps, never changes a call's strategy, never records strategies. After a wave
  * containing a 429, or a wave that failed as a whole, it stops and reports the
- * remaining calls as `unsent`. Results align with `calls`.
+ * remaining calls as `unsent`. Results align with `calls`. It rejects only before any
+ * call is sent (e.g. an authorization that cannot be resolved); every failure after that
+ * is reported as a result.
  */
 export interface CallExecutor {
     executeAll(calls: readonly HttpCall[]): Promise<CallResult[]>;
