@@ -358,6 +358,15 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         expect(done.job).toMatchObject({ phase: 'completed', campaignQuantity: 1 });
     });
 
+    it('keeps waiting when the count answers a gateway error, then times out without a campaign', async () => {
+        hablla.faults.push({ matches: (request) => request.path.endsWith('/count'), kind: 'status', status: 502, times: Number.POSITIVE_INFINITY });
+
+        const failed = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
+
+        expect(failed.job).toMatchObject({ phase: 'failed', failure: { reason: 'audience_timeout', detail: 'audience not ready: last count never resolved, expected 1' } });
+        expect(hablla.campaigns).toHaveLength(0);
+    });
+
     it('fails on a larger audience than expected without a campaign, and can be abandoned', async () => {
         const stranger = hablla.addPerson({ phone: phoneOf('9') });
         hablla.onRequest = (request) => {

@@ -1,19 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
-    AUDIENCE_NOT_PROPAGATED_MESSAGE,
     buildAudienceQuery,
     buildCampaignBody,
     buildSegmentationBody,
     dispatchName,
     findCampaignByName,
-    isAudienceNotPropagated,
     readAudienceCount,
     toDispatchConfig,
 } from './campaign';
 import { UnexpectedPayloadError } from './errors';
 import { CONNECTION_ID, FIRST_NAME_FIELD_ID, TEMPLATE_ID, aRequest, completed, settingsOf } from './__fixtures__/builders';
 import campaignsByName from './__fixtures__/campaigns-by-name.json';
-import errorTooManyRequests from './__fixtures__/error-too-many-requests.json';
 import type { DispatchJob } from './types';
 
 const SEGMENTATION_ID = '6aab0ab20097a8ec50b5069e';
@@ -74,15 +71,6 @@ describe('readAudienceCount', () => {
     it('throws without a numeric count or on another status', () => {
         expect(() => readAudienceCount(completed(200, {}))).toThrow(UnexpectedPayloadError);
         expect(() => readAudienceCount(completed(400, { count: 3 }))).toThrow(UnexpectedPayloadError);
-    });
-});
-
-describe('isAudienceNotPropagated', () => {
-    it('is true only for a 500 carrying the known message', () => {
-        expect(isAudienceNotPropagated(completed(500, { message: AUDIENCE_NOT_PROPAGATED_MESSAGE }))).toBe(true);
-        expect(isAudienceNotPropagated(completed(500, { message: 'Internal error' }))).toBe(false);
-        expect(isAudienceNotPropagated(completed(429, errorTooManyRequests))).toBe(false);
-        expect(isAudienceNotPropagated({ kind: 'transportFailed', message: AUDIENCE_NOT_PROPAGATED_MESSAGE })).toBe(false);
     });
 });
 

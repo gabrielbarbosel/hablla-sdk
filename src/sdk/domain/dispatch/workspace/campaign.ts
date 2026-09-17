@@ -14,12 +14,6 @@ import { toCampaignSummary, toPayloadPage } from './payloads';
 /** Hablla's campaign pacing is in minutes; the operator's is in seconds. */
 export const SECONDS_PER_MINUTE = 60;
 
-/** Status of the count while the new segmentation has not propagated to the report engine. */
-const AUDIENCE_NOT_PROPAGATED_STATUS = 500;
-
-/** Message of the count while the new segmentation has not propagated to the report engine. */
-export const AUDIENCE_NOT_PROPAGATED_MESSAGE = 'Erro ao resolver segmentações';
-
 /** The only seconds-to-minutes conversion of the dispatch pacing. */
 export function toDispatchConfig(pacing: DispatchPacing): HabllaDispatchConfig {
     return { batch_size: pacing.batchSize, batch_interval: pacing.intervalSeconds / SECONDS_PER_MINUTE };
@@ -86,6 +80,8 @@ export function buildCampaignBody(job: DispatchJob): CampaignCreateBody {
  * The audience count of a successful count response.
  *
  * @throws UnexpectedPayloadError for any other result or a count that is not a number.
+ *   The transient 5xx of a segmentation that has not propagated never reaches here; the
+ *   phase treats every unknown outcome as a wait ({@link resolveAudienceCount}).
  */
 export function readAudienceCount(result: CallResult): number {
     const data = isSuccess(result) ? payloadOf(result) as { count?: unknown } | null : undefined;
@@ -96,17 +92,6 @@ export function readAudienceCount(result: CallResult): number {
     }
 
     return count;
-}
-
-/** True for the transient 500 the count answers while the segmentation has not propagated. */
-export function isAudienceNotPropagated(result: CallResult): boolean {
-    if (result.kind !== 'completed' || result.status !== AUDIENCE_NOT_PROPAGATED_STATUS) {
-        return false;
-    }
-
-    const data = result.data as { message?: unknown } | null;
-
-    return data?.message === AUDIENCE_NOT_PROPAGATED_MESSAGE;
 }
 
 /**

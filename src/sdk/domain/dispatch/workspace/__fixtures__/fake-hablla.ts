@@ -8,7 +8,9 @@ import type { HttpRequest, HttpResponse, HttpTransport } from '../../../../core/
 import type { Clock, DispatchJobStore } from '../ports';
 import type { ContactPage, DispatchContact, DispatchJob, DispatchJobPhase } from '../types';
 import { JobNotFoundError, StaleJobError } from '../errors';
-import { AUDIENCE_NOT_PROPAGATED_MESSAGE } from '../campaign';
+
+/** What the report engine answers while a new segmentation has not propagated (probe 03). */
+const AUDIENCE_NOT_PROPAGATED_MESSAGE = 'Erro ao resolver segmentações';
 
 export const WORKSPACE_ID = '6a039a45dc0412040ef44b91';
 export const WORKSPACE_TOKEN = 'workspace-token';

@@ -8,8 +8,9 @@ import type { CallResult } from '../../../core/call-executor';
 import type { StopCause } from './call-failures';
 import type { DispatchJob } from './types';
 import { classifyCallFailures, payloadOf, truncateDetail } from './call-failures';
-import { dispatchName, findCampaignByName, isAudienceNotPropagated, readAudienceCount } from './campaign';
+import { dispatchName, findCampaignByName, readAudienceCount } from './campaign';
 import { CALL_RETRY_DELAY_MS, MAX_CALL_ATTEMPTS, RECONCILIATION_DELAY_MS } from './constants';
+import { UnexpectedPayloadError } from './errors';
 import { toCampaignSummary } from './payloads';
 import { requireAudienceSize, toCompleted, toFailed, toSending } from './job-machine';
 
@@ -28,54 +29,52 @@ export type SendPhaseResolution =
     | { kind: 'stop'; cause: StopCause; job: DispatchJob };
 
 /**
- * Applies an audience count. A throttled or failed network call stops; a rejected token
- * fails the job; the known not-propagated 500 or a smaller count waits (until the
- * deadline, which fails with `audience_timeout`); an equal count moves to `sending`; a
- * larger count fails with `audience_mismatch`.
+ * Applies an audience count. A rejected token fails the job. An outcome the count does not
+ * reveal (any 5xx, including the transient one the report engine answers while the new
+ * segmentation has not propagated, or a lost request) and a count below the audience wait
+ * until the deadline, which fails with `audience_timeout`. An equal count moves to
+ * `sending`; a larger one fails with `audience_mismatch`. A throttled or interrupted wave
+ * cools down, unless the deadline has passed.
  *
- * @throws UnexpectedPayloadError for any other status or payload, so nothing is sent on a surprise.
+ * @throws UnexpectedPayloadError when the count is refused (a 4xx other than a refused
+ *   token) or answers a 2xx without a numeric count, so nothing is sent on a surprise.
  */
 export function resolveAudienceCount(job: DispatchJob, result: CallResult, now: number): SendPhaseResolution {
-    const audienceSize = requireAudienceSize(job);
     const failure = classifyCallFailures([result], SEND_PHASE_STRATEGY);
-
-    if (failure?.kind === 'stopBlock') {
-        return { kind: 'stop', cause: failure.cause, job };
-    }
 
     if (failure?.kind === 'tokenRejected') {
         return { kind: 'advanced', job: toFailed(job, { reason: 'bearer_token_rejected', detail: 'audience count refused the Bearer token', resumePhase: 'awaitingAudience' }, now) };
     }
 
-    if (result.kind === 'transportFailed') {
-        return { kind: 'stop', cause: 'interrupted', job };
+    if (failure?.kind === 'rejected') {
+        throw new UnexpectedPayloadError('audience count', `refused with ${failure.failure.status}: ${failure.failure.detail}`);
     }
 
-    const count = isAudienceNotPropagated(result) ? undefined : readAudienceCount(result);
+    if (failure?.kind === 'stopBlock') {
+        return pastAudienceDeadline(job, now)
+            ? { kind: 'advanced', job: audienceTimedOut(job, now) }
+            : { kind: 'stop', cause: failure.cause, job };
+    }
+
+    if (failure) {
+        return waitForAudience(job, job.lastAudienceCount, now);
+    }
+
+    const audienceSize = requireAudienceSize(job);
+    const count = readAudienceCount(result);
 
     if (count === audienceSize) {
         return { kind: 'advanced', job: toSending(job, count, now) };
     }
 
-    if (count !== undefined && count > audienceSize) {
+    if (count > audienceSize) {
         return {
             kind: 'advanced',
             job: toFailed({ ...job, lastAudienceCount: count }, { reason: 'audience_mismatch', detail: `audience counts ${count}, expected ${audienceSize}`, resumePhase: 'awaitingAudience' }, now),
         };
     }
 
-    const waiting: DispatchJob = { ...job, lastAudienceCount: count ?? job.lastAudienceCount, updatedAt: now };
-
-    if (now >= requireAudienceDeadline(job)) {
-        const lastCount = waiting.lastAudienceCount === undefined ? 'never resolved' : String(waiting.lastAudienceCount);
-
-        return {
-            kind: 'advanced',
-            job: toFailed(waiting, { reason: 'audience_timeout', detail: `audience not ready: last count ${lastCount}, expected ${audienceSize}`, resumePhase: 'awaitingAudience' }, now),
-        };
-    }
-
-    return { kind: 'wait', job: waiting };
+    return waitForAudience(job, count, now);
 }
 
 /** The job with the campaign write-ahead marker, persisted before the campaign POST. */
@@ -150,6 +149,27 @@ export function resolveCampaignReconciliation(job: DispatchJob, result: CallResu
             return { kind: 'wait', job: { ...withCampaignReconcileAt(job, now + CALL_RETRY_DELAY_MS, now), campaignReconcileAttempts: attempts } };
         }
     }
+}
+
+/** Waits for the audience with the last count known, or fails with `audience_timeout` past the deadline. */
+function waitForAudience(job: DispatchJob, lastAudienceCount: number | undefined, now: number): SendPhaseResolution {
+    const waiting: DispatchJob = { ...job, lastAudienceCount, updatedAt: now };
+
+    return pastAudienceDeadline(job, now)
+        ? { kind: 'advanced', job: audienceTimedOut(waiting, now) }
+        : { kind: 'wait', job: waiting };
+}
+
+/** The job failed because the audience never matched inside its deadline. */
+function audienceTimedOut(job: DispatchJob, now: number): DispatchJob {
+    const lastCount = job.lastAudienceCount === undefined ? 'never resolved' : String(job.lastAudienceCount);
+
+    return toFailed(job, { reason: 'audience_timeout', detail: `audience not ready: last count ${lastCount}, expected ${requireAudienceSize(job)}`, resumePhase: 'awaitingAudience' }, now);
+}
+
+/** True once the audience wait ran out of time. */
+function pastAudienceDeadline(job: DispatchJob, now: number): boolean {
+    return now >= requireAudienceDeadline(job);
 }
 
 /** True when the in-flight campaign may be reconciled now. */

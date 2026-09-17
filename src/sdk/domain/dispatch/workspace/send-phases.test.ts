@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { isCampaignReconcileDue, resolveAudienceCount, resolveCampaignCreation, resolveCampaignReconciliation, withCampaignInFlight } from './send-phases';
-import { AUDIENCE_NOT_PROPAGATED_MESSAGE } from './campaign';
 import { CALL_RETRY_DELAY_MS, RECONCILIATION_DELAY_MS } from './constants';
 import { UnexpectedPayloadError } from './errors';
 import { aRequest, completed, page, settingsOf } from './__fixtures__/builders';
@@ -24,13 +23,16 @@ describe('resolveAudienceCount', () => {
         expect(resolveAudienceCount(AWAITING, completed(200, { count: 2 }), NOW)).toMatchObject({ kind: 'advanced', job: { phase: 'sending', lastAudienceCount: 2 } });
     });
 
-    it('waits on the not-propagated 500 and on a smaller count', () => {
-        expect(resolveAudienceCount(AWAITING, completed(500, { message: AUDIENCE_NOT_PROPAGATED_MESSAGE }), NOW)).toMatchObject({ kind: 'wait', job: { phase: 'awaitingAudience' } });
+    it('waits on any 5xx, on a lost request and on a smaller count', () => {
+        for (const result of [completed(500, { message: 'Erro ao resolver segmentações' }), completed(502, 'gateway'), { kind: 'transportFailed', message: 'reset' } as const]) {
+            expect(resolveAudienceCount(AWAITING, result, NOW)).toMatchObject({ kind: 'wait', job: { phase: 'awaitingAudience' } });
+        }
+
         expect(resolveAudienceCount(AWAITING, completed(200, { count: 1 }), NOW)).toMatchObject({ kind: 'wait', job: { lastAudienceCount: 1 } });
     });
 
     it('fails with audience_timeout at the deadline, reporting the last count', () => {
-        const resolution = resolveAudienceCount({ ...AWAITING, lastAudienceCount: 1 }, completed(500, { message: AUDIENCE_NOT_PROPAGATED_MESSAGE }), NOW + 1000);
+        const resolution = resolveAudienceCount({ ...AWAITING, lastAudienceCount: 1 }, completed(500, { message: 'any server error' }), NOW + 1000);
 
         expect(resolution).toMatchObject({
             kind: 'advanced',
@@ -46,14 +48,15 @@ describe('resolveAudienceCount', () => {
         expect(resolveAudienceCount(AWAITING, completed(401), NOW)).toMatchObject({ kind: 'advanced', job: { failure: { reason: 'bearer_token_rejected', resumePhase: 'awaitingAudience' } } });
     });
 
-    it('stops on a throttle or a network failure', () => {
+    it('stops on a throttle or an interrupted wave, and times out once the deadline passed', () => {
         expect(resolveAudienceCount(AWAITING, { kind: 'throttled' }, NOW)).toEqual({ kind: 'stop', cause: 'throttled', job: AWAITING });
-        expect(resolveAudienceCount(AWAITING, { kind: 'transportFailed', message: 'reset' }, NOW)).toEqual({ kind: 'stop', cause: 'interrupted', job: AWAITING });
+        expect(resolveAudienceCount(AWAITING, { kind: 'interrupted', message: 'down' }, NOW)).toEqual({ kind: 'stop', cause: 'interrupted', job: AWAITING });
+        expect(resolveAudienceCount(AWAITING, { kind: 'throttled' }, NOW + 1000)).toMatchObject({ kind: 'advanced', job: { failure: { reason: 'audience_timeout' } } });
     });
 
-    it('throws on any other status', () => {
-        expect(() => resolveAudienceCount(AWAITING, completed(500, { message: 'other' }), NOW)).toThrow(UnexpectedPayloadError);
+    it('throws on a refusal and on a 2xx without a count', () => {
         expect(() => resolveAudienceCount(AWAITING, completed(400), NOW)).toThrow(UnexpectedPayloadError);
+        expect(() => resolveAudienceCount(AWAITING, completed(200, { total: 2 }), NOW)).toThrow(UnexpectedPayloadError);
     });
 });
 
