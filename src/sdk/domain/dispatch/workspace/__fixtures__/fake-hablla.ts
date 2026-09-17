@@ -78,9 +78,9 @@ export class FakeHablla implements HttpTransport {
     onRequest?: (request: RecordedRequest) => void;
     private nextId = 1;
 
-    /** A fresh 24-hex id. */
+    /** A fresh 24-hex id; padded with zeros, so a value whose hex starts with `f` is not the same id as a shorter one. */
     newId(): string {
-        return (this.nextId++).toString(16).padStart(24, 'f');
+        return (this.nextId++).toString(16).padStart(24, '0');
     }
 
     /** Adds a person and returns it. */
@@ -97,6 +97,23 @@ export class FakeHablla implements HttpTransport {
         };
         this.persons.set(person.id, person);
         return person;
+    }
+
+    /**
+     * Adds a segmentation the report engine already knows about, holding `personIds` in
+     * order, and returns its id. Used as the universe of an exclusion filter, which is an
+     * existing segmentation rather than one this dispatch just created.
+     */
+    addPropagatedSegmentation(personIds: readonly string[]): string {
+        const id = this.newId();
+
+        this.segmentations.set(id, {
+            name: `existing-segmentation-${id}`,
+            items: personIds.map((person) => ({ id: this.newId(), person })),
+            countCalls: this.notPropagatedCounts,
+        });
+
+        return id;
     }
 
     /** Requests matching a method and a path suffix. */
@@ -220,6 +237,10 @@ export class FakeHablla implements HttpTransport {
             return this.count(request.body.filters);
         }
 
+        if (request.method === 'POST' && path === '/v1/reports/alloy-reports/segmentations/message-stats/list') {
+            return this.listFilteredPersons(request.body.filters, request.query);
+        }
+
         if (request.method === 'POST' && path === '/v2/campaigns') {
             const quantity = this.campaignQuantityOverride ?? this.audienceOf(request.body.query).size;
             const campaign = { id: this.newId(), name: request.body.name, quantity, query: request.body.query };
@@ -238,7 +259,7 @@ export class FakeHablla implements HttpTransport {
     private isBearerRoute(method: string, path: string): boolean {
         return path === '/v1/custom-fields'
             || (method === 'POST' && path === '/v1/segmentations')
-            || path === '/v1/reports/alloy-reports/segmentations/count'
+            || path.startsWith('/v1/reports/alloy-reports/segmentations/')
             || path === '/v2/campaigns'
             || path === '/v1/campaigns';
     }
@@ -283,6 +304,20 @@ export class FakeHablla implements HttpTransport {
         }
 
         return reply(200, { count: this.audienceOf(filters).size, not_found: 0 });
+    }
+
+    /**
+     * A page of the persons matching report filters, with their phones and in segmentation
+     * order. The payload carries no page total, as the real route's does not: only a page
+     * shorter than `limit` says the listing is over.
+     */
+    private listFilteredPersons(filters: Array<{ type: string; segmentation?: string }>, query: URLSearchParams): HttpResponse<unknown> {
+        const listed = [...this.audienceOf(filters)].map((personId) => ({ phones: this.persons.get(personId)!.phones }));
+        const limit = Number(query.get('limit'));
+        const page = Number(query.get('page'));
+        const slice = listed.slice((page - 1) * limit, page * limit);
+
+        return reply(200, { results: JSON.parse(JSON.stringify(slice)), count: slice.length, page, limit });
     }
 
     /**

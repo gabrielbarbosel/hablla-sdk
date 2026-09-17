@@ -37,9 +37,9 @@ export interface ExclusionCriteria {
     /** Explicit phones (e.g. already-sent contacts). */
     phones: readonly string[];
     /**
-     * Report filters whose matching persons are excluded. Must be empty until the way a
-     * filter exclusion is resolved is decided; a non-empty list is refused by validation
-     * instead of being silently ignored.
+     * Report filters whose matching persons are excluded. They are resolved into phones by
+     * the `resolvingExclusions` phase, before the preview and again before the writes, so
+     * nobody they match is ever written to.
      */
     segmentationFilters: readonly SegmentationFilter[];
 }
@@ -183,12 +183,16 @@ export interface DispatchContact {
 }
 
 /** Phases a `continue` works on and a failed job may re-enter; the source of {@link ResumePhase}. */
-export const RESUMABLE_PHASES = ['resolving', 'materializing', 'awaitingAudience', 'sending'] as const;
+export const RESUMABLE_PHASES = ['resolvingExclusions', 'resolving', 'materializing', 'awaitingAudience', 'sending'] as const;
 
 /** Phase a failed job re-enters on `start`; see {@link RESUMABLE_PHASES}. */
 export type ResumePhase = (typeof RESUMABLE_PHASES)[number];
 
-/** Phase of a dispatch job; `awaitingConfirmation` waits for the operator, the last four are over. */
+/**
+ * Phase of a dispatch job; `awaitingConfirmation` waits for the operator, the last four are
+ * over. `resolvingExclusions` runs twice, before `resolving` and on the confirmed job before
+ * `materializing`; {@link DispatchJob.exclusionPurpose} tells the two runs apart.
+ */
 export type DispatchJobPhase = ResumePhase | 'awaitingConfirmation' | 'completed' | 'failed' | 'superseded' | 'abandoned';
 
 /** Phases whose work is done contact by contact, in chunks. */
@@ -197,6 +201,9 @@ export type ChunkedPhase = 'resolving' | 'materializing';
 export type JobFailureReason =
     | 'workspace_token_rejected'
     | 'bearer_token_rejected'
+    | 'exclusion_query_rejected'
+    | 'exclusion_too_large'
+    | 'exclusion_unresolved'
     | 'audience_timeout'
     | 'audience_query_rejected'
     | 'audience_mismatch'
@@ -234,8 +241,14 @@ export interface DispatchJob {
     /** Earliest `retryNotBefore` of the contacts deferred during the current pass. */
     passDeferredUntil?: number;
     counts: Readonly<Record<ContactOutcome, number>>;
-    /** Contacts that left `ready` at the send-time lookup, by the outcome they moved to. */
+    /** Contacts that left `ready` at the confirmed exclusion run or the send-time lookup, by the outcome they moved to. */
     revalidationShifts: Readonly<Partial<Record<ContactOutcome, number>>>;
+    /** Which exclusion run is in progress: `preview` before `resolving`, `send` on the confirmed job. */
+    exclusionPurpose?: LookupPurpose;
+    /** Page of the exclusion listing the run reads next (1-based). */
+    exclusionCursor?: number;
+    /** Attempts spent on the current exclusion page. */
+    exclusionAttempts?: number;
     /** Rounds interrupted in a row (see `trackInterruptedRounds`); reset by the first round that is not. */
     consecutiveInterruptedRounds: number;
     startedBy?: string;

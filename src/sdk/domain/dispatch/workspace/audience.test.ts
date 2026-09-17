@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { excludeContacts, prepareAudience } from './audience';
-import { ADVISOR, CONNECTION_ID, RESERVE_OWNER, ROSTER, SYSTEM_USER, aRequest, aRow } from './__fixtures__/builders';
+import { excludeContacts, excludesByFilter, prepareAudience } from './audience';
+import { brazilianPhoneVariants } from '../../../utils';
+import { ADVISOR, CONNECTION_ID, RESERVE_OWNER, ROSTER, SYSTEM_USER, aContact, aRequest, aRow } from './__fixtures__/builders';
 
 describe('prepareAudience', () => {
     it('builds a pendingLookup contact with the normalized phone, first name and advisor target', () => {
@@ -118,9 +119,33 @@ describe('prepareAudience', () => {
 });
 
 describe('excludeContacts', () => {
-    it('only touches contacts still in pendingLookup', () => {
+    it('only touches contacts that have not been written to yet', () => {
         const { contacts } = prepareAudience(aRequest({ unresolvedAdvisorPolicy: { kind: 'skip' }, rows: [aRow('1', { advisorKey: '' }), aRow('2')] }), ROSTER);
 
         expect(excludeContacts(contacts, ['5551999000001', '5551999000002']).map((contact) => contact.outcome)).toEqual(['unresolvedAdvisor', 'excluded']);
+    });
+
+    it('takes a contact already resolved out, which is what the confirmed run does before the writes', () => {
+        const resolved = [
+            aContact({ outcome: 'ready', person: { id: 'p1', existed: true } }),
+            aContact({ index: 1, outcome: 'inAudience', person: { id: 'p2', existed: true } }),
+            aContact({ index: 2, outcome: 'inAttendance' }),
+        ];
+
+        expect(excludeContacts(resolved, ['5551999000001']).map((contact) => contact.outcome)).toEqual(['excluded', 'inAudience', 'inAttendance']);
+    });
+
+    it('matches a landline by the phone it was given, with no 9th digit invented', () => {
+        const landline = [aContact({ phone: brazilianPhoneVariants('5133334444')! })];
+
+        expect(excludeContacts(landline, ['51 3333-4444']).map((contact) => contact.outcome)).toEqual(['excluded']);
+        expect(excludeContacts(landline, ['5551933334444']).map((contact) => contact.outcome)).toEqual(['pendingLookup']);
+    });
+});
+
+describe('excludesByFilter', () => {
+    it('is true only when the exclusion carries a report filter', () => {
+        expect(excludesByFilter({ segmentationFilters: [] })).toBe(false);
+        expect(excludesByFilter({ segmentationFilters: [{ type: 'in_segmentation' }] })).toBe(true);
     });
 });

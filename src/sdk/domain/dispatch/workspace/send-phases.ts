@@ -6,13 +6,13 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { StopCause } from './call-failures';
-import type { DispatchJob, JobFailure, ResumePhase } from './types';
-import { classifyCallFailures, payloadOf, rejectedTokenStrategy, truncateDetail } from './call-failures';
+import type { DispatchJob } from './types';
+import { classifyCallFailures, payloadOf, truncateDetail } from './call-failures';
 import { dispatchName, findCampaignByName, readAudienceCount } from './campaign';
 import { CALL_RETRY_DELAY_MS, CAMPAIGN_FANOUT_DELAY_MS, MAX_CALL_ATTEMPTS, RECONCILIATION_DELAY_MS } from './constants';
 import { toCreatedId } from './payloads';
 import { requireAudienceDeadline, requireAudienceSize } from './requirements';
-import { toCampaignCompleted, toCampaignUnverified, toFailed, toSending, tokenRejectedReason } from './job-machine';
+import { toCampaignCompleted, toCampaignUnverified, toFailed, toSending, tokenRejectedFailure } from './job-machine';
 
 /**
  * Next move after a Bearer phase call:
@@ -167,13 +167,6 @@ function retryCampaignRead(job: DispatchJob, detail: string, now: number): SendP
     return job.campaignSendState === 'sent'
         ? { kind: 'advanced', job: toCampaignUnverified(spent, detail, now) }
         : { kind: 'advanced', job: toFailed(spent, { reason: 'campaign_outcome_unknown', detail, resumePhase: 'sending' }, now) };
-}
-
-/** The job failure of a phase whose call had its token refused, naming the token the route used. */
-function tokenRejectedFailure(calls: readonly HttpCall[], results: readonly CallResult[], step: string, resumePhase: ResumePhase): JobFailure {
-    const strategy = rejectedTokenStrategy(calls, results);
-
-    return { reason: tokenRejectedReason(strategy), detail: `${step} refused the ${strategy} token`, resumePhase };
 }
 
 /** Waits for the audience with the last count known, or fails with `audience_timeout` past the deadline. */

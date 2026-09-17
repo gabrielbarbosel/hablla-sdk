@@ -4,7 +4,7 @@
  */
 
 import type { PhoneVariants } from '../../../utils';
-import type { DispatchContact, DispatchJob, HabllaDispatchConfig, OwnerChange, ResolvedPerson, TargetOwner } from './types';
+import type { DispatchContact, DispatchJob, HabllaDispatchConfig, LookupPurpose, OwnerChange, ResolvedPerson, TargetOwner } from './types';
 
 /**
  * The contact's phone.
@@ -95,6 +95,45 @@ export function requireAudienceSize(job: DispatchJob): number {
     }
 
     return job.audienceSize;
+}
+
+/**
+ * Which exclusion run the job is in, set while it is in `resolvingExclusions`.
+ *
+ * @throws Error when absent.
+ */
+export function requireExclusionPurpose(job: DispatchJob): LookupPurpose {
+    if (job.exclusionPurpose === undefined) {
+        throw new Error(`Dispatch job ${job.id} has no exclusion run in progress`);
+    }
+
+    return job.exclusionPurpose;
+}
+
+/**
+ * The exclusion page the job reads next, set while it is in `resolvingExclusions`.
+ *
+ * @throws Error when absent.
+ */
+export function requireExclusionCursor(job: DispatchJob): number {
+    if (job.exclusionCursor === undefined) {
+        throw new Error(`Dispatch job ${job.id} has no exclusion page to read`);
+    }
+
+    return job.exclusionCursor;
+}
+
+/**
+ * The attempts spent on the current exclusion page, set while it is in `resolvingExclusions`.
+ *
+ * @throws Error when absent.
+ */
+export function requireExclusionAttempts(job: DispatchJob): number {
+    if (job.exclusionAttempts === undefined) {
+        throw new Error(`Dispatch job ${job.id} has no exclusion attempts recorded`);
+    }
+
+    return job.exclusionAttempts;
 }
 
 /**

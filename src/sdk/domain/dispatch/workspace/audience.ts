@@ -4,7 +4,7 @@
  */
 
 import type { RosterIndex } from './request-validation';
-import type { AdvisorResolution, ContactOutcome, DispatchContact, TargetOwner, WorkspaceDispatchRequest, WorkspaceDispatchRow } from './types';
+import type { AdvisorResolution, ContactOutcome, DispatchContact, ExclusionCriteria, TargetOwner, WorkspaceDispatchRequest, WorkspaceDispatchRow } from './types';
 import { brazilianPhoneVariants, capitalizeWord, collapseWhitespace, firstName, hash64Hex, normalizeEmail, phoneIdentity } from '../../../utils';
 
 /** Contacts of a request plus the audience fingerprint used against duplicate dispatches. */
@@ -17,6 +17,18 @@ export interface PreparedAudience {
 interface AdvisorAssignment {
     resolution: AdvisorResolution;
     target?: TargetOwner;
+}
+
+/**
+ * Outcomes a contact may still be excluded from: waiting for its lookup, or resolved and
+ * waiting for its writes. Both mean nothing has been written for it yet, which is what lets
+ * the confirmed exclusion run take a contact out right before `materializing`.
+ */
+const EXCLUDABLE_OUTCOMES: readonly ContactOutcome[] = ['pendingLookup', 'ready'];
+
+/** True when the exclusion leaves people out by report filter, which the exclusion phase resolves. */
+export function excludesByFilter(exclusion: Pick<ExclusionCriteria, 'segmentationFilters'>): boolean {
+    return exclusion.segmentationFilters.length > 0;
 }
 
 /**
@@ -43,10 +55,11 @@ export function prepareAudience(request: WorkspaceDispatchRequest, roster: Roste
 }
 
 /**
- * Marks as `excluded` every `pendingLookup` contact whose phone identity matches an
- * excluded phone (either 9th-digit shape). The only function that applies excluded
- * phones, in any phase. An excluded value that is not a valid Brazilian phone cannot
- * match a contact and is ignored.
+ * Marks as `excluded` every contact that has not been written to yet (see
+ * {@link EXCLUDABLE_OUTCOMES}) whose phone identity matches an excluded phone, in either
+ * 9th-digit shape. The only function that applies excluded phones, in any phase: the
+ * explicit list at `plan` and each page the exclusion phase reads. An excluded value that
+ * is not a valid Brazilian phone cannot match a contact and is ignored.
  */
 export function excludeContacts(contacts: readonly DispatchContact[], excludedPhones: readonly string[]): DispatchContact[] {
     const excludedIdentities = new Set<string>();
@@ -59,7 +72,7 @@ export function excludeContacts(contacts: readonly DispatchContact[], excludedPh
         }
     }
 
-    return contacts.map((contact) => (contact.outcome === 'pendingLookup' && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone))
+    return contacts.map((contact) => (EXCLUDABLE_OUTCOMES.includes(contact.outcome) && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone))
         ? { ...contact, outcome: 'excluded' }
         : contact));
 }

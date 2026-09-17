@@ -20,11 +20,12 @@ import type {
     WorkspaceDispatchRequest,
 } from './types';
 import { RESUMABLE_PHASES } from './types';
-import { prepareAudience } from './audience';
+import { excludesByFilter, prepareAudience } from './audience';
 import { estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
-import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName } from './campaign';
-import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
+import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName, readAudienceCount } from './campaign';
+import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, EXCLUSION_PAGE_LIMIT, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
+import { applyExcludedPhones, exclusionPageCount, resolveExclusionPage } from './exclusion';
 import { resolveDispatchLimits } from './limits';
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
 import { CallBudgetExceededError, DispatchThrottledError, DispatchTransportError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
@@ -38,19 +39,22 @@ import {
     nextStepOf,
     tallyOutcomes,
     toAbandoned,
+    toAfterExclusions,
     toAwaitingAudience,
     toAwaitingConfirmation,
     toCompleted,
+    toConfirmed,
     toFailed,
-    toMaterializing,
+    toNextExclusionPage,
     toResumed,
     toSuperseded,
     tokenRejectedReason,
     trackInterruptedRounds,
 } from './job-machine';
 import { toCreatedId, toCustomFieldDefinition, toPayloadPage, toRosterUser } from './payloads';
+import { requireExclusionCursor } from './requirements';
 import { assertValidRequest, assertValidRequestShape, indexCustomFields, indexRoster } from './request-validation';
-import { countAudience, createCampaign, createSegmentation, findCampaignsByName, listCustomFieldsPage, listUsersPage } from './routes';
+import { countAudience, createCampaign, createSegmentation, findCampaignsByName, listCustomFieldsPage, listFilteredPersonsPage, listUsersPage } from './routes';
 import { isCampaignReconcileDue, resolveAudienceCount, resolveCampaignCreation, resolveCampaignReconciliation, withCampaignInFlight, withoutCampaignInFlight, type SendPhaseResolution } from './send-phases';
 
 /** The effects a dispatch runs through; composed by the runtime. */
@@ -92,7 +96,9 @@ export class WorkspaceDispatch {
 
     /**
      * Validates the request against the roster and the custom fields, prepares the
-     * audience, checks the call budget and the duplicate verdict, and inserts the job.
+     * audience, measures the exclusion by filter, checks the call budget and the duplicate
+     * verdict, and inserts the job. The exclusion itself is resolved by the
+     * `resolvingExclusions` phase, so no paginated read runs inside this call.
      *
      * @throws DispatchValidationError, DispatchThrottledError, CallBudgetExceededError,
      *   DuplicateDispatchError or JobBusyError, always before any write.
@@ -108,7 +114,7 @@ export class WorkspaceDispatch {
 
         const prepared = prepareAudience(request, rosterIndex);
         const catalogPages: CatalogPages = { roster: roster.pages, customFields: customFields.pages };
-        const budget = estimateCallBudget(prepared.contacts, catalogPages);
+        const budget = estimateCallBudget(prepared.contacts, catalogPages, await this.measureExclusionRun(request));
 
         if (budget.total > this.limits.dailyCallQuota) {
             throw new CallBudgetExceededError(budget, this.limits.dailyCallQuota);
@@ -147,7 +153,7 @@ export class WorkspaceDispatch {
 
             const segmentationId = await this.createSegmentation(job);
 
-            return this.ports.store.update(toMaterializing(job, segmentationId, options.operatorEmail, this.ports.clock.now()), []);
+            return this.ports.store.update(toConfirmed(job, segmentationId, options.operatorEmail, this.ports.clock.now()), []);
         });
 
         return this.progressOf(started);
@@ -235,6 +241,35 @@ export class WorkspaceDispatch {
         const laterItems = laterResults.flatMap((result) => toPayloadPage(requireSuccess(result, catalog), catalog).results);
 
         return { items: [...firstPage.results, ...laterItems].map(parse), pages: 1 + laterCalls.length };
+    }
+
+    /**
+     * Pages one exclusion run will read, from a Bearer count of the filters' universe, or 0
+     * when the request excludes nobody by filter. Above the configured ceiling it fails the
+     * plan, before anything is stored: a truncated exclusion would dispatch to people the
+     * operator left out.
+     *
+     * @throws DispatchValidationError, DispatchThrottledError or DispatchTransportError.
+     */
+    private async measureExclusionRun(request: WorkspaceDispatchRequest): Promise<number> {
+        if (!excludesByFilter(request.exclusion)) {
+            return 0;
+        }
+
+        const [result] = await this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)]);
+
+        requireSuccess(result!, 'exclusion universe count');
+
+        const universeSize = readAudienceCount(result!);
+        const pages = exclusionPageCount(universeSize);
+
+        if (pages > this.limits.maxExclusionPages) {
+            throw new DispatchValidationError([
+                `exclusion.segmentationFilters match ${universeSize} persons, more than the ${this.limits.maxExclusionPages} pages of ${EXCLUSION_PAGE_LIMIT} this dispatch may read`,
+            ]);
+        }
+
+        return pages;
     }
 
     /** Inserts the job unless a duplicate blocks it, superseding idle jobs of the same audience. */
@@ -341,6 +376,8 @@ export class WorkspaceDispatch {
     /** One step of the current phase. */
     private async runPhaseStep(session: ContinueSession, deadlineAt: number): Promise<LoopSignal> {
         switch (session.job.phase) {
+            case 'resolvingExclusions':
+                return this.resolveExclusions(session);
             case 'resolving':
             case 'materializing':
                 return this.runChunk(session, session.job.phase, deadlineAt);
@@ -351,6 +388,43 @@ export class WorkspaceDispatch {
             default:
                 return { kind: 'yield' };
         }
+    }
+
+    /**
+     * Reads one page of the exclusion listing and marks every contact it names `excluded`.
+     * The phase runs before `resolving`, so the preview already counts the excluded
+     * contacts, and again on the confirmed job before `materializing`, so nobody excluded is
+     * written to.
+     */
+    private async resolveExclusions(session: ContinueSession): Promise<LoopSignal> {
+        const call = listFilteredPersonsPage(session.job.exclusion.segmentationFilters, requireExclusionCursor(session.job));
+        const [result] = await this.executeRound(session, [call]);
+        const resolution = resolveExclusionPage(session.job, call, result!, this.limits.maxExclusionPages, this.ports.clock.now());
+
+        if (resolution.kind === 'page') {
+            return this.applyExclusionPage(session, resolution.phones, resolution.lastPage);
+        }
+
+        session.job = await this.ports.store.update(resolution.job, []);
+
+        return resolution.kind === 'failed' ? { kind: 'yield' } : { kind: 'stop', stop: { cause: resolution.cause } };
+    }
+
+    /**
+     * Applies the phones of one page to the job's contacts and persists them together with
+     * the next page, or with the phase the run hands over to, in one compare-and-set. An
+     * execution that dies before it re-reads the same page, and a contact excluded twice
+     * changes nothing.
+     */
+    private async applyExclusionPage(session: ContinueSession, phones: readonly string[], lastPage: boolean): Promise<LoopSignal> {
+        const contacts = await this.ports.store.loadContacts(session.job.id, { offset: 0, limit: session.job.contactCount });
+        const now = this.ports.clock.now();
+        const applied = applyExcludedPhones(session.job, contacts, phones, now);
+        const job = lastPage ? toAfterExclusions(applied.job, now) : toNextExclusionPage(applied.job, now);
+
+        session.job = await this.ports.store.update(job, applied.excluded);
+
+        return { kind: 'next' };
     }
 
     /**

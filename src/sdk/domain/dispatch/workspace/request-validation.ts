@@ -173,9 +173,9 @@ function pacingProblems(request: WorkspaceDispatchRequest): string[] {
 }
 
 /**
- * Problems of the exclusion. A filter exclusion is refused outright: how its persons are
- * resolved is still an open decision, and silently ignoring a filter the operator chose
- * would send to people who asked to be left out.
+ * Problems of the exclusion. A filter without a `type` is refused instead of travelling to
+ * the report engine, which would answer a listing the operator did not ask for and send to
+ * people who asked to be left out.
  */
 function exclusionProblems(request: WorkspaceDispatchRequest): string[] {
     const problems: string[] = [];
@@ -185,10 +185,6 @@ function exclusionProblems(request: WorkspaceDispatchRequest): string[] {
             problems.push(`exclusion.segmentationFilters[${position}].type must not be empty`);
         }
     });
-
-    if (request.exclusion.segmentationFilters.length > 0) {
-        problems.push('exclusion.segmentationFilters is not supported yet: exclude by explicit phones');
-    }
 
     return problems;
 }

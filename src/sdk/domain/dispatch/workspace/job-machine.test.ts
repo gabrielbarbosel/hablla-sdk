@@ -9,18 +9,20 @@ import {
     toAbandoned,
     toAwaitingAudience,
     toAwaitingConfirmation,
+    toAfterExclusions,
     toCampaignCompleted,
     toCampaignUnverified,
     toCompleted,
+    toConfirmed,
     toFailed,
-    toMaterializing,
+    toNextExclusionPage,
     toResumed,
     toSending,
     toSuperseded,
     trackInterruptedRounds,
 } from './job-machine';
 import { prepareAudience } from './audience';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { InvalidJobTransitionError } from './errors';
 import { isJobId, jobIdOf } from './job-id';
 import { ROSTER, aContact, aRequest, aRow, completed } from './__fixtures__/builders';
@@ -28,6 +30,7 @@ import type { DispatchJob, DispatchJobPhase, JobFailure } from './types';
 
 const NOW = 1_800_000_000_000;
 const FAILURE: JobFailure = { reason: 'workspace_token_rejected', detail: 'x', resumePhase: 'materializing' };
+const FILTERS = [{ type: 'in_segmentation', segmentation: '6a589ac29c70672890006862' }];
 
 /** A job created from a request with three rows (one invalid phone). */
 function aJob(overrides: Partial<DispatchJob> = {}): DispatchJob {
@@ -49,6 +52,20 @@ describe('createJob', () => {
 
     it('awaits confirmation right away when no contact needs a lookup', () => {
         const request = aRequest({ rows: [aRow('1', { phone: 'bad' })] });
+
+        expect(createJob(prepareAudience(request, ROSTER), request, NOW).phase).toBe('awaitingConfirmation');
+    });
+
+    it('resolves the exclusion first when the request excludes by filter', () => {
+        const request = aRequest({ exclusion: { phones: [], segmentationFilters: FILTERS } });
+        const job = createJob(prepareAudience(request, ROSTER), request, NOW);
+
+        expect(job).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'preview', exclusionCursor: FIRST_EXCLUSION_PAGE, exclusionAttempts: 0 });
+        expect(job.exclusion.segmentationFilters).toEqual(FILTERS);
+    });
+
+    it('skips the exclusion phase when no contact needs a lookup', () => {
+        const request = aRequest({ rows: [aRow('1', { phone: 'bad' })], exclusion: { phones: [], segmentationFilters: FILTERS } });
 
         expect(createJob(prepareAudience(request, ROSTER), request, NOW).phase).toBe('awaitingConfirmation');
     });
@@ -100,6 +117,14 @@ describe('duplicateVerdict', () => {
         expect(duplicateVerdict([sent, newer], newer.id, NOW)).toEqual({ kind: 'create', supersede: [] });
         expect(duplicateVerdict([sent, newer], undefined, NOW)).toEqual({ kind: 'refuse', job: sent });
         expect(duplicateVerdict([sent, older], older.id, NOW)).toEqual({ kind: 'refuse', job: sent });
+    });
+
+    it('supersedes an exclusion run the operator has not confirmed and refuses a confirmed one', () => {
+        const preview = job('resolvingExclusions', { exclusionPurpose: 'preview' });
+        const confirmed = job('resolvingExclusions', { exclusionPurpose: 'send', startedAt: NOW });
+
+        expect(duplicateVerdict([preview], undefined, NOW)).toEqual({ kind: 'create', supersede: [preview] });
+        expect(duplicateVerdict([confirmed], undefined, NOW)).toEqual({ kind: 'refuse', job: confirmed });
     });
 
     it('ignores completed jobs without a campaign, superseded and abandoned jobs', () => {
@@ -164,7 +189,7 @@ describe('advanceCursor', () => {
 describe('transitions', () => {
     it('walks the happy path', () => {
         const confirmed = toAwaitingConfirmation(aJob(), NOW + 1);
-        const materializing = toMaterializing(confirmed, 'seg-1', 'operator@example.com', NOW + 2);
+        const materializing = toConfirmed(confirmed, 'seg-1', 'operator@example.com', NOW + 2);
         const awaiting = toAwaitingAudience({ ...materializing, counts: { ...materializing.counts, inAudience: 2 } }, NOW + 3);
         const sending = toSending(awaiting, 2, NOW + 4);
         const completed = toCampaignCompleted(sending, { id: 'c1', quantity: 2 }, NOW + 5);
@@ -173,6 +198,64 @@ describe('transitions', () => {
         expect(awaiting).toMatchObject({ phase: 'awaitingAudience', audienceSize: 2, audienceDeadlineAt: NOW + 3 + AUDIENCE_READY_TIMEOUT_MS });
         expect(sending).toMatchObject({ phase: 'sending', lastAudienceCount: 2 });
         expect(completed).toMatchObject({ phase: 'completed', campaignId: 'c1', campaignQuantity: 2, warnings: [] });
+    });
+
+    describe('the exclusion runs', () => {
+        /** A job in the exclusion phase of the given run, at its first page. */
+        const excluding = (exclusionPurpose: 'preview' | 'send', overrides: Partial<DispatchJob> = {}): DispatchJob => aJob({
+            phase: 'resolvingExclusions',
+            exclusionPurpose,
+            exclusionCursor: FIRST_EXCLUSION_PAGE,
+            exclusionAttempts: 2,
+            ...overrides,
+        });
+
+        it('reads the next page with the attempts of the last one reset', () => {
+            expect(toNextExclusionPage(excluding('preview'), NOW)).toMatchObject({ phase: 'resolvingExclusions', exclusionCursor: FIRST_EXCLUSION_PAGE + 1, exclusionAttempts: 0 });
+        });
+
+        it('hands the preview run over to resolving, or to the confirmation when nothing is left to look up', () => {
+            const resolving = toAfterExclusions(excluding('preview'), NOW);
+
+            expect(resolving).toMatchObject({ phase: 'resolving', cursor: 0, pass: 0 });
+            expect(resolving.exclusionPurpose).toBeUndefined();
+            expect(resolving.exclusionCursor).toBeUndefined();
+            expect(resolving.exclusionAttempts).toBeUndefined();
+
+            const everyoneExcluded = excluding('preview', { counts: countOutcomes([aContact({ outcome: 'excluded' })]) });
+
+            expect(toAfterExclusions(everyoneExcluded, NOW).phase).toBe('awaitingConfirmation');
+        });
+
+        it('hands the confirmed run over to materializing, or completes the job when nothing is left to send', () => {
+            const ready = excluding('send', { counts: countOutcomes([aContact({ outcome: 'ready' })]) });
+
+            expect(toAfterExclusions(ready, NOW)).toMatchObject({ phase: 'materializing', cursor: 0, pass: 0 });
+
+            const completed = toAfterExclusions(excluding('send', { counts: countOutcomes([aContact({ outcome: 'excluded' })]) }), NOW);
+
+            expect(completed).toMatchObject({ phase: 'completed', audienceSize: 0 });
+            expect(completed.campaignId).toBeUndefined();
+        });
+
+        it('only leaves the phase from inside it, and only with a run in progress', () => {
+            expect(() => toAfterExclusions(aJob({ phase: 'resolving' }), NOW)).toThrow(InvalidJobTransitionError);
+            expect(() => toNextExclusionPage(aJob({ phase: 'materializing' }), NOW)).toThrow(InvalidJobTransitionError);
+            expect(() => toAfterExclusions(aJob({ phase: 'resolvingExclusions' }), NOW)).toThrow(/no exclusion run in progress/);
+        });
+
+        it('confirms into a second exclusion run before materializing, and straight into it without filters', () => {
+            const withFilters = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS } });
+            const confirmed = toConfirmed(withFilters, 'seg-1', 'operator@example.com', NOW);
+
+            expect(confirmed).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'send', exclusionCursor: FIRST_EXCLUSION_PAGE, exclusionAttempts: 0, segmentationId: 'seg-1', startedAt: NOW });
+            expect(toConfirmed(aJob({ phase: 'awaitingConfirmation' }), 'seg-1', 'operator@example.com', NOW).phase).toBe('materializing');
+        });
+
+        it('supersedes a preview run but never a confirmed one', () => {
+            expect(toSuperseded(excluding('preview'), NOW).phase).toBe('superseded');
+            expect(() => toSuperseded(excluding('send', { startedAt: NOW }), NOW)).toThrow(InvalidJobTransitionError);
+        });
     });
 
     it('warns when the campaign quantity read back differs from the audience', () => {
@@ -227,7 +310,7 @@ describe('transitions', () => {
 
     it.each([
         ['awaitConfirmation', () => toAwaitingConfirmation(aJob({ phase: 'materializing' }), NOW)],
-        ['materializing', () => toMaterializing(aJob(), 'seg', 'op', NOW)],
+        ['materializing', () => toConfirmed(aJob(), 'seg', 'op', NOW)],
         ['awaitingAudience', () => toAwaitingAudience(aJob(), NOW)],
         ['sending', () => toSending(aJob({ phase: 'materializing' }), 1, NOW)],
         ['failed', () => toFailed(aJob({ phase: 'completed' }), FAILURE, NOW)],
@@ -253,6 +336,7 @@ describe('nextStepOf', () => {
         expect(nextStepOf(aJob({ phase: 'sending', campaignReconcileNotBefore: NOW + 7 }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 7 });
         expect(nextStepOf(aJob({ phase: 'sending' }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 0 });
         expect(nextStepOf(aJob({ phase: 'materializing' }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 0 });
+        expect(nextStepOf(aJob({ phase: 'resolvingExclusions' }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 0 });
 
         for (const phase of ['completed', 'failed', 'superseded', 'abandoned'] as DispatchJobPhase[]) {
             expect(nextStepOf(aJob({ phase }), undefined, NOW)).toEqual({ kind: 'finished' });

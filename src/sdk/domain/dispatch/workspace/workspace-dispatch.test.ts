@@ -5,10 +5,12 @@ import {
     AUDIENCE_READY_TIMEOUT_MS,
     CALL_RETRY_DELAY_MS,
     CHUNK_TIME_RESERVE_MS,
+    EXCLUSION_PAGE_LIMIT,
     RECONCILIATION_DELAY_MS,
     THROTTLE_COOLDOWN_MS,
     TRANSPORT_COOLDOWN_MS,
 } from './constants';
+import { ESTIMATED_CALLS_PER_CONTACT } from './call-budget';
 import {
     CallBudgetExceededError,
     DispatchThrottledError,
@@ -34,8 +36,8 @@ let clock: FakeClock;
 let dispatch: WorkspaceDispatch;
 let bearerAuthorizationFailure: Error | undefined;
 
-/** Builds the dispatch over the fakes, with a quota that never binds unless given. */
-function buildDispatch(dailyCallQuota = 1_000_000, concurrency = 16): WorkspaceDispatch {
+/** Builds the dispatch over the fakes, with limits that never bind unless given. */
+function buildDispatch(dailyCallQuota = 1_000_000, concurrency = 16, maxExclusionPages = 10): WorkspaceDispatch {
     const auth = {
         authorization: async (strategy: string) => {
             if (strategy === 'bearer' && bearerAuthorizationFailure) {
@@ -46,7 +48,7 @@ function buildDispatch(dailyCallQuota = 1_000_000, concurrency = 16): WorkspaceD
     };
     const executor = new TransportCallExecutor(hablla, auth, { baseUrl: 'https://api.test', workspaceId: WORKSPACE_ID, concurrency });
 
-    return new WorkspaceDispatch({ executor, store, clock }, { dailyCallQuota });
+    return new WorkspaceDispatch({ executor, store, clock }, { dailyCallQuota, maxExclusionPages });
 }
 
 beforeEach(() => {
@@ -183,6 +185,154 @@ describe('WorkspaceDispatch happy path', () => {
 
         expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:unresolvedAdvisor']);
         expect(hablla.requests.some((request) => request.query.get('phone')?.includes('999000007'))).toBe(false);
+    });
+});
+
+describe('WorkspaceDispatch exclusion by filter', () => {
+    /** A request that excludes everyone in `segmentation`. */
+    function excluding(segmentation: string, rows: readonly ReturnType<typeof aRow>[]): WorkspaceDispatchRequest {
+        return aRequest({ rows: [...rows], exclusion: { phones: [], segmentationFilters: [{ type: 'in_segmentation', segmentation }] } });
+    }
+
+    /** A segmentation the report engine already knows, holding `filler` other persons and then one person per phone. */
+    function anExclusionUniverse(filler: number, phones: readonly string[]): string {
+        const fillerIds = Array.from({ length: filler }, (_unused, position) => hablla.addPerson({ phone: phoneOf(`9${position}`) }).id);
+        const matchingIds = phones.map((phone) => hablla.addPerson({ phone, users: [ADVISOR.id] }).id);
+
+        return hablla.addPropagatedSegmentation([...fillerIds, ...matchingIds]);
+    }
+
+    /** Requests that wrote anything to a person. */
+    function writesToPerson(personId: string): number {
+        return hablla.requests.filter((request) => request.method !== 'GET' && request.path.includes(personId)).length
+            + hablla.requestsTo('POST', /segmentations-items$/).filter((request) => request.body.person === personId).length;
+    }
+
+    it('excludes a contact before the preview and never writes to it', async () => {
+        const universe = anExclusionUniverse(0, [phoneOf('2')]);
+        const excludedPerson = personWithPhone(phoneOf('2'))[0]!;
+        const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
+
+        expect(planned.next).toEqual({ kind: 'awaitConfirmation' });
+        expect(planned.job.counts).toMatchObject({ excluded: 1, ready: 1, pendingLookup: 0 });
+
+        const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
+
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 1, campaignQuantity: 1, warnings: [] });
+        expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:excluded']);
+        expect(writesToPerson(excludedPerson.id)).toBe(0);
+        expect(excludedPerson.custom_fields).toEqual([]);
+        expect(excludedPerson.users).toEqual([ADVISOR.id]);
+    });
+
+    it('excludes whoever entered the filter after the preview, still before any write', async () => {
+        const universe = anExclusionUniverse(0, []);
+        const person = hablla.addPerson({ phone: phoneOf('2'), users: [ADVISOR.id] });
+        const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
+
+        expect(planned.job.counts).toMatchObject({ excluded: 0, ready: 2 });
+
+        hablla.segmentations.get(universe)!.items.push({ id: hablla.newId(), person: person.id });
+
+        const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
+
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 1, campaignQuantity: 1, revalidationShifts: { excluded: 1 } });
+        expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:excluded']);
+        expect(writesToPerson(person.id)).toBe(0);
+    });
+
+    it('reads every page of the filter, so nobody on a later page is dispatched to', async () => {
+        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT, [phoneOf('2')]);
+        const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
+
+        expect(hablla.requestsTo('POST', /message-stats\/list$/).map((request) => request.query.get('page'))).toEqual(['1', '2']);
+        expect(planned.job.counts).toMatchObject({ excluded: 1, ready: 1 });
+        expect(planned.job.exclusionCursor).toBeUndefined();
+    });
+
+    it('keeps the page cursor between executions and resumes the phase where it stopped', async () => {
+        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT, [phoneOf('2')]);
+
+        hablla.faults.push({ matches: (request) => request.path.endsWith('/message-stats/list') && request.query.get('page') === '2', kind: 'status', status: 500, times: 1 });
+
+        const planned = await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')]));
+        const stopped = await dispatch.continue(planned.job.id, windowNow());
+
+        expect(stopped.job).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'preview', exclusionCursor: 2, exclusionAttempts: 1 });
+        expect(stopped.next).toEqual({ kind: 'continueAfter', delayMs: TRANSPORT_COOLDOWN_MS });
+        expect(await dispatch.resumableJobIds()).toEqual([planned.job.id]);
+        expect(outcomesOf(planned.job.id)).toEqual(['0:pendingLookup', '1:pendingLookup']);
+
+        clock.current += TRANSPORT_COOLDOWN_MS;
+
+        const resumed = await drive(await dispatch.continue(planned.job.id, windowNow()));
+
+        expect(hablla.requestsTo('POST', /message-stats\/list$/).map((request) => request.query.get('page'))).toEqual(['1', '2', '2']);
+        expect(resumed.job.counts).toMatchObject({ excluded: 1, ready: 1 });
+    });
+
+    it('charges the exclusion pages to the call budget', async () => {
+        const universe = anExclusionUniverse(0, [phoneOf('2')]);
+        const withoutExclusion = await dispatch.plan(aRequest({ rows: [aRow('1')] }));
+        const bearerBefore = hablla.requests.filter((request) => request.authorization === BEARER_HEADER).length;
+
+        await dispatch.abandon(withoutExclusion.job.id, OPERATOR);
+        dispatch = buildDispatch(bearerBefore + ESTIMATED_CALLS_PER_CONTACT + 40);
+
+        await expect(dispatch.plan(excluding(universe, [aRow('1')]))).rejects.toBeInstanceOf(CallBudgetExceededError);
+    });
+
+    it('refuses the plan when the filter needs more pages than configured', async () => {
+        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT, []);
+
+        dispatch = buildDispatch(1_000_000, 16, 1);
+
+        await expect(dispatch.plan(excluding(universe, [aRow('1')]))).rejects.toThrow(/more than the 1 pages/);
+        expect(store.jobs.size).toBe(0);
+        expect(hablla.requestsTo('POST', /message-stats\/list$/)).toEqual([]);
+    });
+
+    it('fails the job loud when the filter outgrows the ceiling after the plan', async () => {
+        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT - 1, []);
+
+        dispatch = buildDispatch(1_000_000, 16, 1);
+
+        const planned = await dispatch.plan(excluding(universe, [aRow('1')]));
+
+        hablla.segmentations.get(universe)!.items.push({ id: hablla.newId(), person: hablla.addPerson({ phone: phoneOf('7') }).id });
+
+        const failed = await drive(await dispatch.continue(planned.job.id, windowNow()));
+
+        expect(failed.job).toMatchObject({ phase: 'failed', failure: { reason: 'exclusion_too_large', resumePhase: 'resolvingExclusions' } });
+        expect(outcomesOf(planned.job.id)).toEqual(['0:pendingLookup']);
+    });
+
+    it('completes without a campaign when the filter excludes everyone', async () => {
+        const universe = anExclusionUniverse(0, [phoneOf('1')]);
+        const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1')])));
+
+        expect(planned.job).toMatchObject({ phase: 'awaitingConfirmation', counts: expect.objectContaining({ excluded: 1, ready: 0 }) });
+
+        const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
+
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 0 });
+        expect(done.job.campaignId).toBeUndefined();
+        expect(hablla.campaigns).toEqual([]);
+    });
+
+    it('creates a landline contact with the phone it was given and excludes it by that phone', async () => {
+        const landline = '5133334444';
+        const universe = anExclusionUniverse(0, []);
+        const done = await dispatchToEnd(excluding(universe, [aRow('1', { phone: landline })]));
+
+        expect(personWithPhone(`55${landline}`).map((person) => person.phones)).toEqual([[{ phone: `55${landline}`, is_whatsapp: true, type: 'personal' }]]);
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 1 });
+
+        hablla.segmentations.get(universe)!.items.push({ id: hablla.newId(), person: personWithPhone(`55${landline}`)[0]!.id });
+
+        const repeated = await drive(await dispatch.plan({ ...excluding(universe, [aRow('1', { phone: landline })]), repeatOfJobId: done.job.id }));
+
+        expect(repeated.job.counts).toMatchObject({ excluded: 1, ready: 0 });
     });
 });
 

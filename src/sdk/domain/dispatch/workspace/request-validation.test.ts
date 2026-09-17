@@ -111,13 +111,11 @@ describe('assertValidRequest', () => {
         expect(problemsOf(aRequest({ rows: [aRow('1', { customFields: { [FIRST_NAME_FIELD_ID]: 'Ana' } })] }))[0]).toMatch(/rows\[0\]\.customFields must not set the first-name field/);
     });
 
-    it('reports a filter exclusion with an empty type, and refuses filter exclusions until they are supported', () => {
-        const problems = problemsOf(aRequest({ exclusion: { phones: [], segmentationFilters: [{ type: '' }] } }));
-
-        expect(problems).toEqual([
+    it('reports a filter exclusion with an empty type and accepts one with a type', () => {
+        expect(problemsOf(aRequest({ exclusion: { phones: [], segmentationFilters: [{ type: '' }] } }))).toEqual([
             'exclusion.segmentationFilters[0].type must not be empty',
-            'exclusion.segmentationFilters is not supported yet: exclude by explicit phones',
         ]);
+        expect(problemsOf(aRequest({ exclusion: { phones: [], segmentationFilters: [{ type: 'in_segmentation', segmentation: habllaId('5eg') }] } }))).toEqual([]);
     });
 });
 

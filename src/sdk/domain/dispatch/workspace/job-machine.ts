@@ -3,13 +3,14 @@
  * counts, the chunk cursor and passes, phase transitions and the next step for callers.
  */
 
-import type { CallResult } from '../../../core/call-executor';
+import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { AuthStrategy } from '../../../core/strategy';
 import type { PreparedAudience } from './audience';
 import type { StopCause } from './call-failures';
 import type {
     ChunkedPhase,
     ContactOutcome,
+    LookupPurpose,
     ResumePhase,
     DispatchContact,
     DispatchJob,
@@ -19,12 +20,14 @@ import type {
     JobFailureReason,
     WorkspaceDispatchRequest,
 } from './types';
+import { excludesByFilter } from './audience';
+import { rejectedTokenStrategy } from './call-failures';
 import { toDispatchConfig } from './campaign';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { workOutcomeOf } from './contact-step';
 import { InvalidJobTransitionError } from './errors';
 import { jobIdOf } from './job-id';
-import { requireAudienceSize } from './requirements';
+import { requireAudienceSize, requireExclusionCursor, requireExclusionPurpose } from './requirements';
 import { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
 
 /** Phases in which the job is over. */
@@ -69,14 +72,13 @@ export function tallyOutcomes(counts: Readonly<Record<ContactOutcome, number>>, 
 }
 
 /**
- * A new job at revision 0: `resolving`, or `awaitingConfirmation` when no contact needs
- * a lookup.
+ * A new job at revision 0: `resolvingExclusions` when the request excludes by filter,
+ * `resolving` when it does not, or `awaitingConfirmation` when no contact needs a lookup.
  */
 export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number): DispatchJob {
     const { rows: _rows, exclusion, ...settings } = request;
     const firstPending = prepared.contacts.find((contact) => contact.outcome === 'pendingLookup');
-
-    return {
+    const job: DispatchJob = {
         id: jobIdOf(prepared.fingerprint, now),
         revision: 0,
         fingerprint: prepared.fingerprint,
@@ -93,6 +95,20 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
         consecutiveInterruptedRounds: 0,
         warnings: [],
     };
+
+    return firstPending && excludesByFilter(exclusion) ? withExclusionRun(job, 'preview', now) : job;
+}
+
+/** The job at the first page of an exclusion run, the phase that precedes both the preview and the writes. */
+function withExclusionRun(job: DispatchJob, purpose: LookupPurpose, now: number): DispatchJob {
+    return {
+        ...job,
+        phase: 'resolvingExclusions',
+        exclusionPurpose: purpose,
+        exclusionCursor: FIRST_EXCLUSION_PAGE,
+        exclusionAttempts: 0,
+        updatedAt: now,
+    };
 }
 
 /**
@@ -106,16 +122,26 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
 export function duplicateVerdict(existing: readonly DispatchJob[], repeatOfJobId: string | undefined, now: number): DuplicateVerdict {
     const supersede: DispatchJob[] = [];
     let busy: DispatchJob | undefined;
+    const takeIdle = (job: DispatchJob): void => {
+        if (isLeased(job, now)) {
+            busy ??= job;
+        } else {
+            supersede.push(job);
+        }
+    };
 
     for (const job of existing) {
         switch (job.phase) {
+            case 'resolvingExclusions':
+                if (isConfirmed(job)) {
+                    return { kind: 'refuse', job };
+                }
+
+                takeIdle(job);
+                break;
             case 'resolving':
             case 'awaitingConfirmation':
-                if (isLeased(job, now)) {
-                    busy ??= job;
-                } else {
-                    supersede.push(job);
-                }
+                takeIdle(job);
                 break;
             case 'materializing':
             case 'awaitingAudience':
@@ -136,6 +162,11 @@ export function duplicateVerdict(existing: readonly DispatchJob[], repeatOfJobId
     }
 
     return busy ? { kind: 'busy', job: busy } : { kind: 'create', supersede };
+}
+
+/** True once an operator confirmed the job, so it may already have written to Hablla. */
+export function isConfirmed(job: DispatchJob): boolean {
+    return job.startedAt !== undefined;
 }
 
 /** The most recently created completed job that sent a campaign, if any. */
@@ -226,18 +257,23 @@ export function advanceCursor(job: DispatchJob, phase: ChunkedPhase, chunk: read
     };
 }
 
-/** `resolving` → `awaitingConfirmation`, once no contact needs a lookup. */
+/** `resolving` (or the preview exclusion run) → `awaitingConfirmation`, once no contact needs a lookup. */
 export function toAwaitingConfirmation(job: DispatchJob, now: number): DispatchJob {
-    assertPhase(job, ['resolving'], 'await confirmation');
+    assertPhase(job, ['resolving', 'resolvingExclusions'], 'await confirmation');
 
     return { ...job, phase: 'awaitingConfirmation', cursor: 0, pass: 0, passDeferredUntil: undefined, updatedAt: now };
 }
 
-/** `awaitingConfirmation` → `materializing`, with the segmentation, the pacing in Hablla units and who started it. */
-export function toMaterializing(job: DispatchJob, segmentationId: string, operatorEmail: string, now: number): DispatchJob {
+/**
+ * `awaitingConfirmation` → the confirmed run, with the segmentation, the pacing in Hablla
+ * units and who started it. A request that excludes by filter resolves the exclusion once
+ * more before anything is written, so the confirmed job goes through `resolvingExclusions`
+ * first; without filters it goes straight to `materializing`.
+ */
+export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEmail: string, now: number): DispatchJob {
     assertPhase(job, ['awaitingConfirmation'], 'start materializing');
 
-    return {
+    const confirmed: DispatchJob = {
         ...job,
         phase: 'materializing',
         segmentationId,
@@ -247,6 +283,47 @@ export function toMaterializing(job: DispatchJob, segmentationId: string, operat
         dispatchConfig: toDispatchConfig(job.settings.pacing),
         startedBy: operatorEmail,
         startedAt: now,
+        updatedAt: now,
+    };
+
+    return excludesByFilter(job.exclusion) ? withExclusionRun(confirmed, 'send', now) : confirmed;
+}
+
+/** `resolvingExclusions` → its next page, with the page's attempts reset. */
+export function toNextExclusionPage(job: DispatchJob, now: number): DispatchJob {
+    assertPhase(job, ['resolvingExclusions'], 'read another exclusion page');
+
+    return { ...job, exclusionCursor: requireExclusionCursor(job) + 1, exclusionAttempts: 0, updatedAt: now };
+}
+
+/**
+ * `resolvingExclusions` → the phase its run precedes, once the last page was applied. The
+ * preview run hands over to `resolving`, or straight to the confirmation when the exclusion
+ * left no contact to look up; the confirmed run hands over to `materializing`, or completes
+ * the job when the exclusion left nothing to send.
+ */
+export function toAfterExclusions(job: DispatchJob, now: number): DispatchJob {
+    assertPhase(job, ['resolvingExclusions'], 'leave the exclusion phase');
+
+    const resolved = withoutExclusionRun(job, now);
+
+    if (requireExclusionPurpose(job) === 'preview') {
+        return resolved.counts.pendingLookup > 0 ? { ...resolved, phase: 'resolving' } : toAwaitingConfirmation(resolved, now);
+    }
+
+    return resolved.counts.ready > 0 ? { ...resolved, phase: 'materializing' } : toCompleted(resolved, now);
+}
+
+/** The job with the exclusion bookkeeping cleared, at the start of the contacts. */
+function withoutExclusionRun(job: DispatchJob, now: number): DispatchJob {
+    return {
+        ...job,
+        exclusionPurpose: undefined,
+        exclusionCursor: undefined,
+        exclusionAttempts: undefined,
+        cursor: 0,
+        pass: 0,
+        passDeferredUntil: undefined,
         updatedAt: now,
     };
 }
@@ -271,9 +348,9 @@ export function toSending(job: DispatchJob, audienceCount: number, now: number):
     return { ...job, phase: 'sending', lastAudienceCount: audienceCount, updatedAt: now };
 }
 
-/** → `completed` with nothing sent: no contact was ready, or the audience came out empty. */
+/** → `completed` with nothing sent: no contact was ready, everyone was excluded, or the audience came out empty. */
 export function toCompleted(job: DispatchJob, now: number): DispatchJob {
-    assertPhase(job, ['awaitingConfirmation', 'materializing'], 'complete');
+    assertPhase(job, ['awaitingConfirmation', 'resolvingExclusions', 'materializing'], 'complete');
 
     return { ...job, phase: 'completed', audienceSize: job.counts.inAudience, updatedAt: now };
 }
@@ -326,6 +403,18 @@ export function tokenRejectedReason(strategy: AuthStrategy): JobFailureReason {
     return strategy === 'bearer' ? 'bearer_token_rejected' : 'workspace_token_rejected';
 }
 
+/**
+ * The failure of a phase whose call had its token refused, naming the token the route used.
+ * `calls` and `results` are aligned.
+ *
+ * @throws Error when no result is a token rejection (a classification bug).
+ */
+export function tokenRejectedFailure(calls: readonly HttpCall[], results: readonly CallResult[], step: string, resumePhase: ResumePhase): JobFailure {
+    const strategy = rejectedTokenStrategy(calls, results);
+
+    return { reason: tokenRejectedReason(strategy), detail: `${step} refused the ${strategy} token`, resumePhase };
+}
+
 /** A working phase → `failed`; the failure names the phase `start` re-enters. */
 export function toFailed(job: DispatchJob, failure: JobFailure, now: number): DispatchJob {
     assertPhase(job, RESUMABLE_PHASES, 'fail');
@@ -350,7 +439,11 @@ export function toResumed(job: DispatchJob, now: number): DispatchJob {
 
 /** A job not yet started → `superseded` by a newer plan of the same audience. */
 export function toSuperseded(job: DispatchJob, now: number): DispatchJob {
-    assertPhase(job, ['resolving', 'awaitingConfirmation'], 'be superseded');
+    assertPhase(job, ['resolvingExclusions', 'resolving', 'awaitingConfirmation'], 'be superseded');
+
+    if (isConfirmed(job)) {
+        throw new InvalidJobTransitionError(job.id, job.phase, 'be superseded once it was confirmed');
+    }
 
     return { ...job, phase: 'superseded', updatedAt: now };
 }
@@ -400,6 +493,7 @@ export function nextStepOf(job: DispatchJob, stop: EarlyStop | undefined, now: n
             return { kind: 'continueAfter', delayMs: AUDIENCE_POLL_INTERVAL_MS };
         case 'sending':
             return { kind: 'continueAfter', delayMs: Math.max(0, (job.campaignReconcileNotBefore ?? now) - now) };
+        case 'resolvingExclusions':
         case 'resolving':
         case 'materializing':
             return { kind: 'continueAfter', delayMs: 0 };
