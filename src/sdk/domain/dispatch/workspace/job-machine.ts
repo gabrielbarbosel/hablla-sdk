@@ -98,13 +98,13 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
 /**
  * Verdict over the other jobs with the same fingerprint. A job not yet started is
  * superseded when idle and makes `plan` busy while leased; a started or failed job
- * refuses. Among the completed jobs with a campaign only the latest counts: it refuses
- * unless it is the one the operator confirmed repeating, so a chain of confirmed repeats
- * stays possible. Completed jobs without a campaign, superseded and abandoned ones are ignored.
+ * refuses. Among the completed jobs only the latest one that actually sent a campaign
+ * counts, and it refuses unless {@link confirmsLatestSend} recognizes the confirmation, so a
+ * chain of confirmed repeats stays possible. Superseded and abandoned jobs, and completed
+ * jobs older than the latest send, are ignored.
  */
 export function duplicateVerdict(existing: readonly DispatchJob[], repeatOfJobId: string | undefined, now: number): DuplicateVerdict {
     const supersede: DispatchJob[] = [];
-    const latestSent = latestSentJob(existing);
     let busy: DispatchJob | undefined;
 
     for (const job of existing) {
@@ -123,14 +123,16 @@ export function duplicateVerdict(existing: readonly DispatchJob[], repeatOfJobId
             case 'failed':
                 return { kind: 'refuse', job };
             case 'completed':
-                if (job === latestSent && repeatOfJobId !== job.id) {
-                    return { kind: 'refuse', job };
-                }
-                break;
             case 'superseded':
             case 'abandoned':
                 break;
         }
+    }
+
+    const latestSent = latestSentJob(existing);
+
+    if (latestSent && !confirmsLatestSend(existing, repeatOfJobId, latestSent)) {
+        return { kind: 'refuse', job: latestSent };
     }
 
     return busy ? { kind: 'busy', job: busy } : { kind: 'create', supersede };
@@ -141,6 +143,22 @@ function latestSentJob(jobs: readonly DispatchJob[]): DispatchJob | undefined {
     return jobs
         .filter((job) => job.phase === 'completed' && job.campaignId !== undefined)
         .reduce<DispatchJob | undefined>((latest, job) => (latest === undefined || job.createdAt > latest.createdAt ? job : latest), undefined);
+}
+
+/**
+ * True when `repeatOfJobId` confirms repeating the latest send. It names that job, or a
+ * completed job created after it: such a job sent no campaign, so the operator who
+ * confirms the repeat from the dispatch screen they are looking at is confirming the same
+ * send, and the confirmation carries forward instead of being refused.
+ */
+function confirmsLatestSend(existing: readonly DispatchJob[], repeatOfJobId: string | undefined, latestSent: DispatchJob): boolean {
+    if (repeatOfJobId === latestSent.id) {
+        return true;
+    }
+
+    const confirmed = existing.find((job) => job.id === repeatOfJobId);
+
+    return confirmed?.phase === 'completed' && confirmed.createdAt > latestSent.createdAt;
 }
 
 /**

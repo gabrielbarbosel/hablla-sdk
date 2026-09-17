@@ -92,6 +92,16 @@ describe('duplicateVerdict', () => {
         expect(duplicateVerdict([older, latest], latest.id, NOW)).toEqual({ kind: 'create', supersede: [] });
     });
 
+    it('accepts a repeat confirmed from a completed job newer than the latest send, which sent nothing', () => {
+        const sent = job('completed', { id: 'job-sent', campaignId: 'c1', createdAt: NOW });
+        const newer = job('completed', { id: 'job-newer', createdAt: NOW + 1 });
+        const older = job('completed', { id: 'job-older', createdAt: NOW - 1 });
+
+        expect(duplicateVerdict([sent, newer], newer.id, NOW)).toEqual({ kind: 'create', supersede: [] });
+        expect(duplicateVerdict([sent, newer], undefined, NOW)).toEqual({ kind: 'refuse', job: sent });
+        expect(duplicateVerdict([sent, older], older.id, NOW)).toEqual({ kind: 'refuse', job: sent });
+    });
+
     it('ignores completed jobs without a campaign, superseded and abandoned jobs', () => {
         expect(duplicateVerdict([job('completed'), job('superseded'), job('abandoned')], undefined, NOW)).toEqual({ kind: 'create', supersede: [] });
     });

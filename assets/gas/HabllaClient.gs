@@ -9332,7 +9332,6 @@
   }
   function duplicateVerdict(existing, repeatOfJobId, now) {
     const supersede = [];
-    const latestSent = latestSentJob(existing);
     let busy;
     for (const job of existing) {
       switch (job.phase) {
@@ -9350,19 +9349,26 @@
         case "failed":
           return { kind: "refuse", job };
         case "completed":
-          if (job === latestSent && repeatOfJobId !== job.id) {
-            return { kind: "refuse", job };
-          }
-          break;
         case "superseded":
         case "abandoned":
           break;
       }
     }
+    const latestSent = latestSentJob(existing);
+    if (latestSent && !confirmsLatestSend(existing, repeatOfJobId, latestSent)) {
+      return { kind: "refuse", job: latestSent };
+    }
     return busy ? { kind: "busy", job: busy } : { kind: "create", supersede };
   }
   function latestSentJob(jobs) {
     return jobs.filter((job) => job.phase === "completed" && job.campaignId !== void 0).reduce((latest, job) => latest === void 0 || job.createdAt > latest.createdAt ? job : latest, void 0);
+  }
+  function confirmsLatestSend(existing, repeatOfJobId, latestSent) {
+    if (repeatOfJobId === latestSent.id) {
+      return true;
+    }
+    const confirmed = existing.find((job) => job.id === repeatOfJobId);
+    return (confirmed == null ? void 0 : confirmed.phase) === "completed" && confirmed.createdAt > latestSent.createdAt;
   }
   function trackInterruptedRounds(job, results) {
     if (!results.some((result) => result.kind === "interrupted")) {

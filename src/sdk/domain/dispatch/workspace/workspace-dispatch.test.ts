@@ -581,6 +581,25 @@ describe('WorkspaceDispatch duplicates and concurrency', () => {
         expect(hablla.campaigns).toHaveLength(3);
     });
 
+    it('allows a repeat confirmed from the latest dispatch even when that one sent no campaign', async () => {
+        const request = aRequest({ rows: [aRow('1')] });
+        const sent = await dispatchToEnd(request);
+        clock.current += 1;
+
+        hablla.persons.get(personWithPhone(phoneOf('1'))[0]!.id)!.phones = [{ phone: phoneOf('1'), is_whatsapp: false, type: 'personal' }];
+
+        const unsent = await dispatchToEnd({ ...request, repeatOfJobId: sent.job.id });
+
+        expect(unsent.job).toMatchObject({ phase: 'completed', audienceSize: 0 });
+        expect(unsent.job.campaignId).toBeUndefined();
+
+        clock.current += 1;
+        const repeat = await dispatch.plan({ ...request, repeatOfJobId: unsent.job.id });
+
+        expect(repeat.job.phase).toBe('resolving');
+        expect(hablla.campaigns).toHaveLength(1);
+    });
+
     it('is busy while a continuation holds the lease of an unstarted job with the same audience', async () => {
         const request = aRequest({ rows: [aRow('1')] });
         const planned = await dispatch.plan(request);
