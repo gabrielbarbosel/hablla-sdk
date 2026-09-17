@@ -7032,6 +7032,7 @@
     customFieldKeys: () => customFieldKeys,
     deriveEmail: () => deriveEmail,
     distributeOwners: () => distributeOwners,
+    expandByWeight: () => expandByWeight,
     firstName: () => firstName,
     hashString: () => hashString,
     isEmail: () => isEmail,
@@ -7067,6 +7068,24 @@
   };
 
   // src/sdk/utils/primitives/distribute.ts
+  var UNLISTED_OWNER_WEIGHT = 1;
+  var expandByWeight = (users, weights) => {
+    var _a;
+    if (!weights) {
+      return users.slice();
+    }
+    const pool = [];
+    for (const id of users) {
+      const weight = (_a = weights[id]) != null ? _a : UNLISTED_OWNER_WEIGHT;
+      if (!Number.isInteger(weight) || weight < 1) {
+        throw new RangeError(`expandByWeight: weight of owner ${id} must be an integer >= 1, got ${weight}`);
+      }
+      for (let copy = 0; copy < weight; copy++) {
+        pool.push(id);
+      }
+    }
+    return pool;
+  };
   var mixIndex = (index) => {
     let value = index + 1 >>> 0;
     value = Math.imul(value ^ value >>> 16, 73244475) >>> 0;
@@ -7998,7 +8017,7 @@
      */
     dispatchByFlow(contacts, config) {
       return __async(this, null, function* () {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
         if (!config.connectionId) throw new Error("FlowDispatch: connectionId is required");
         if (!config.templateId) throw new Error("FlowDispatch: templateId is required");
         if (!config.sectorId) throw new Error("FlowDispatch: sectorId is required");
@@ -8013,10 +8032,11 @@
           var _a2;
           return hashString(toDigits((_a2 = survivors[index]) == null ? void 0 : _a2.phone));
         });
-        const owners = distributeOwners(survivors.length, (_e = (_d = config.ownerDistribution) == null ? void 0 : _d.owners) != null ? _e : [], (_g = (_f = config.ownerDistribution) == null ? void 0 : _f.strategy) != null ? _g : "fixo", rng);
+        const ownerPool = expandByWeight((_e = (_d = config.ownerDistribution) == null ? void 0 : _d.owners) != null ? _e : [], (_f = config.ownerDistribution) == null ? void 0 : _f.weights);
+        const owners = distributeOwners(survivors.length, ownerPool, (_h = (_g = config.ownerDistribution) == null ? void 0 : _g.strategy) != null ? _h : "fixo", rng);
         const ownerMap = {};
         for (const owner of owners) {
-          if (owner) ownerMap[owner] = ((_h = ownerMap[owner]) != null ? _h : 0) + 1;
+          if (owner) ownerMap[owner] = ((_i = ownerMap[owner]) != null ? _i : 0) + 1;
         }
         const header = [...FIXED_COLUMNS, ...config.variableColumns, ...config.extraColumns, ...CONFIG_COLUMNS];
         const configValues = [
@@ -8024,12 +8044,12 @@
           config.templateId,
           config.onAttendance,
           config.onMissingContact,
-          (_i = config.xpFieldId) != null ? _i : "",
-          (_j = config.tag) != null ? _j : "",
+          (_j = config.xpFieldId) != null ? _j : "",
+          (_k = config.tag) != null ? _k : "",
           config.sectorId,
-          (_k = config.advisorsJson) != null ? _k : "{}",
+          (_l = config.advisorsJson) != null ? _l : "{}",
           String(config.templateVarCount),
-          (_l = config.finishReasonId) != null ? _l : ""
+          (_m = config.finishReasonId) != null ? _m : ""
         ];
         const rows = survivors.map((contact, index) => {
           var _a2, _b2;
@@ -8052,7 +8072,7 @@
         const file = buildXlsx(header, rows);
         const body = {
           kind: "multipart",
-          fields: { name: (_m = config.name) != null ? _m : "Disparo", type: "flow", flow: config.flowId },
+          fields: { name: (_n = config.name) != null ? _n : "Disparo", type: "flow", flow: config.flowId },
           files: { file: { data: file, filename: "disparo.xlsx", contentType: XLSX_MIME } }
         };
         const campaign = yield this.client.http.post("/v2/workspaces/{workspace_id}/campaigns/sheet", { body, strategy: "bearer" });

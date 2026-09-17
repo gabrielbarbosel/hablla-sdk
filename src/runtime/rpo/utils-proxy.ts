@@ -22,7 +22,8 @@ export const customFieldKeys = (record: Record<string, unknown>): string[] => ba
 export const firstName = (fullName: unknown): string => bag().firstName(fullName);
 export const hashString = (value: unknown): number => bag().hashString(value);
 export const distributeOwners = (count: number, users: readonly string[], mode: OwnerStrategy, rng?: (index: number) => number): string[] => bag().distributeOwners(count, users, mode, rng);
-export const xlsxToRows = (parts: XlsxParts): string[][] => bag().xlsxToRows(parts);
+export const expandByWeight = (users: readonly string[], weights?: Readonly<Record<string, number>>): string[] => bag().expandByWeight(users, weights);
+export const xlsxToRows =(parts: XlsxParts): string[][] => bag().xlsxToRows(parts);
 export const parseSharedStrings = (xml: string): string[] => bag().parseSharedStrings(xml);
 export const parseWorksheet = (xml: string, shared: readonly string[]): string[][] => bag().parseWorksheet(xml, shared);
 export const pickWorksheetName = (names: readonly string[]): string | null => bag().pickWorksheetName(names);

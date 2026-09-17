@@ -102,6 +102,17 @@ describe('FlowDispatch.dispatchByFlow', () => {
         expect(result.ownerMap).toEqual({ 'u-a': 2, 'u-b': 1 });
     });
 
+    it('weighted rodizio distribution: a heavier owner takes proportionally more rows', async () => {
+        const { client } = fakeClient();
+        const result = await new FlowDispatch(client).dispatchByFlow(contacts, {
+            ...baseConfig,
+            ownerDistribution: { strategy: 'rodizio', owners: ['u-a', 'u-b'], weights: { 'u-b': 2 } },
+        });
+
+        expect(lastMatrix().rows.map((row) => row[3])).toEqual(['u-a', 'u-b', 'u-b']);
+        expect(result.ownerMap).toEqual({ 'u-a': 1, 'u-b': 2 });
+    });
+
     it('suppresses phones 9th-digit aware and reports the counts', async () => {
         const { client } = fakeClient();
         const result = await new FlowDispatch(client).dispatchByFlow(

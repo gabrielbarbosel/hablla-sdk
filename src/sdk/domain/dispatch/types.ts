@@ -369,7 +369,8 @@ export interface FlowDispatchConfig {
     variableColumns: string[];
     /** headers das colunas extras em ordem, após as vars (ex.: ['email','cf_x']) */
     extraColumns: string[];
-    ownerDistribution?: { strategy: OwnerStrategy; owners: string[] };
+    /** How to spread the audience over a team; `weights` is absent or partial per the UI contract (missing entry = weight 1). */
+    ownerDistribution?: { strategy: OwnerStrategy; owners: string[]; weights?: Record<string, number> };
     suppressPhones?: string[];
     defaultDdi?: string;
     /** seam de rng p/ 'aleatorio' (isolate-safe); default = hash do telefone */

@@ -22,6 +22,7 @@ class W_Utils {
     customFieldKeys: () => customFieldKeys,
     deriveEmail: () => deriveEmail,
     distributeOwners: () => distributeOwners,
+    expandByWeight: () => expandByWeight,
     firstName: () => firstName,
     hashString: () => hashString,
     isEmail: () => isEmail,
@@ -57,6 +58,23 @@ class W_Utils {
   };
 
   // src/sdk/utils/primitives/distribute.ts
+  var UNLISTED_OWNER_WEIGHT = 1;
+  var expandByWeight = (users, weights) => {
+    if (!weights) {
+      return users.slice();
+    }
+    const pool = [];
+    for (const id of users) {
+      const weight = weights[id] ?? UNLISTED_OWNER_WEIGHT;
+      if (!Number.isInteger(weight) || weight < 1) {
+        throw new RangeError(`expandByWeight: weight of owner ${id} must be an integer >= 1, got ${weight}`);
+      }
+      for (let copy = 0; copy < weight; copy++) {
+        pool.push(id);
+      }
+    }
+    return pool;
+  };
   var mixIndex = (index) => {
     let value = index + 1 >>> 0;
     value = Math.imul(value ^ value >>> 16, 73244475) >>> 0;

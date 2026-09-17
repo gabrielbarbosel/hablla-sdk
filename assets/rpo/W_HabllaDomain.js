@@ -21,6 +21,7 @@ class W_HabllaDomain {
   var firstName = (fullName) => bag().firstName(fullName);
   var hashString = (value) => bag().hashString(value);
   var distributeOwners = (count, users, mode, rng) => bag().distributeOwners(count, users, mode, rng);
+  var expandByWeight = (users, weights) => bag().expandByWeight(users, weights);
 
   // src/sdk/domain/dispatch/dispatch.ts
   var Dispatch = class {
@@ -762,7 +763,8 @@ class W_HabllaDomain {
         return { campaignId: void 0, imported: 0, received, suppressed, ownerMap: {} };
       }
       const rng = config.rng ?? ((index) => hashString(toDigits(survivors[index]?.phone)));
-      const owners = distributeOwners(survivors.length, config.ownerDistribution?.owners ?? [], config.ownerDistribution?.strategy ?? "fixo", rng);
+      const ownerPool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
+      const owners = distributeOwners(survivors.length, ownerPool, config.ownerDistribution?.strategy ?? "fixo", rng);
       const ownerMap = {};
       for (const owner of owners) {
         if (owner) ownerMap[owner] = (ownerMap[owner] ?? 0) + 1;
