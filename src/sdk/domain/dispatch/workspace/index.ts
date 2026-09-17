@@ -6,9 +6,6 @@
 export { WorkspaceDispatch } from './workspace-dispatch';
 export type { WorkspaceDispatchPorts } from './workspace-dispatch';
 export { CLAIMING_OUTCOMES, holdsPersonClaim } from './person-claims';
-export { DEFAULT_MAX_EXCLUSION_PAGES, GOOGLE_WORKSPACE_DAILY_CALL_QUOTA, resolveDispatchLimits } from './limits';
-export type { DispatchLimits } from './limits';
-export { EXCLUSION_PAGE_LIMIT } from './constants';
 export type { Clock, DispatchJobStore } from './ports';
 export {
     CallBudgetExceededError,
