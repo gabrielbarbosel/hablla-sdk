@@ -1,0 +1,72 @@
+{
+    "results": [
+        {
+            "custom_id": null,
+            "name": "Ana Paula Souza",
+            "type": "whatsapp",
+            "status": "finished",
+            "key": "6a04dd9c263b426122d2f2f1_5551999990001",
+            "workspace": "6a039a45dc0412040ef44b91",
+            "connection": "6a04dd9c263b426122d2f2f1",
+            "person": "6a207e428e3c5e6651860144",
+            "sector": "6a04db499e34f608ab321c1f",
+            "session": "6a9b453706f5f33465a70030",
+            "followers": [],
+            "sla_config": null,
+            "service_times": {
+                "bot_entry_date": "2026-06-19T23:34:44.514Z"
+            },
+            "created_at": "2026-06-19T23:34:44.516Z",
+            "updated_at": "2026-09-15T17:34:51.318Z",
+            "finished_at": "2026-09-15T17:34:51.318Z",
+            "finished_at_by_user": "2026-09-15T17:34:51.318Z",
+            "finished_by_user": "69cc0e5cf6aaa7942e1fd8fe",
+            "user": "69cc0e5cf6aaa7942e1fd8fe",
+            "id": "6a35d214f8ae52b515232c53",
+            "workspace_id": "6a039a45dc0412040ef44b91",
+            "person_id": "6a207e428e3c5e6651860144",
+            "user_id": "69cc0e5cf6aaa7942e1fd8fe",
+            "finished_by_user_id": "69cc0e5cf6aaa7942e1fd8fe",
+            "sector_id": "6a04db499e34f608ab321c1f",
+            "connection_id": "6a04dd9c263b426122d2f2f1",
+            "reason_id": null,
+            "tags": []
+        },
+        {
+            "custom_id": null,
+            "name": "Ana Paula Souza",
+            "type": "whatsapp",
+            "status": "finished",
+            "key": "6a04dd9c263b426122d2f2f1_5551999990001",
+            "workspace": "6a039a45dc0412040ef44b91",
+            "connection": "6a04dd9c263b426122d2f2f1",
+            "person": "6a207e428e3c5e6651860144",
+            "sector": "6a04db499e34f608ab321c1f",
+            "session": "6a353f5118428ec85b978d95",
+            "followers": [],
+            "sla_config": null,
+            "service_times": {
+                "bot_entry_date": "2026-06-19T23:32:10.498Z",
+                "bot_exit_date": "2026-06-19T23:32:11.496Z",
+                "bot_total_time": 0
+            },
+            "created_at": "2026-06-19T23:32:10.500Z",
+            "updated_at": "2026-06-19T23:32:11.497Z",
+            "finished_at": "2026-06-19T23:32:11.496Z",
+            "id": "6a35d17a951b8e4c3910ab27",
+            "workspace_id": "6a039a45dc0412040ef44b91",
+            "person_id": "6a207e428e3c5e6651860144",
+            "user_id": null,
+            "finished_by_user_id": null,
+            "sector_id": "6a04db499e34f608ab321c1f",
+            "connection_id": "6a04dd9c263b426122d2f2f1",
+            "reason_id": null,
+            "tags": []
+        }
+    ],
+    "count": 2,
+    "totalItems": 2,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1
+}

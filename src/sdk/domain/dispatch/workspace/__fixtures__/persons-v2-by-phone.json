@@ -1,0 +1,81 @@
+{
+    "results": [
+        {
+            "name": "Ana Paula Souza",
+            "is_blocked": false,
+            "privacy": "unknown",
+            "customer_status": "customer",
+            "emails": [
+                {
+                    "email": "ana.souza@example.com"
+                }
+            ],
+            "phones": [
+                {
+                    "type": "personal",
+                    "phone": "5551999990001",
+                    "is_whatsapp": true
+                }
+            ],
+            "instagrams": [],
+            "facebooks": [],
+            "telegrams": [],
+            "webchats": [],
+            "addresses": [],
+            "users": [
+                "69cc0e5cf6aaa7942e1fd8fe",
+                "6a1cfbb1b0975d16c88fac56",
+                "6a4bb5ded86135c308cfc876"
+            ],
+            "followers": [
+                "6a1cfbbe18795d48f05c07d0"
+            ],
+            "sectors": [
+                "6a14a8edbeab7c7e661d5bc0",
+                "6a56a0957bcb4b7f31b9c50b"
+            ],
+            "workspace": "6a039a45dc0412040ef44b91",
+            "organizations": [
+                "6a43021ae90a40336aa084d8",
+                "6a43038869ae421af4a2b132"
+            ],
+            "duplicate_keys": [],
+            "urls": [],
+            "has_duplicate_keys": false,
+            "icp_score": 0,
+            "engagement_score": 0,
+            "custom_fields": [
+                {
+                    "custom_field": "6a58642a4d7c0aa11db4d93e",
+                    "value": "Gabriel"
+                }
+            ],
+            "created_at": "2026-06-03T19:19:30.290Z",
+            "updated_at": "2026-09-16T21:41:25.091Z",
+            "ssn": "",
+            "id": "6a207e428e3c5e6651860144",
+            "workspace_id": "6a039a45dc0412040ef44b91",
+            "tags": [
+                {
+                    "id": "6a1f329a1ee868ad45bb291c",
+                    "name": "Importado via API",
+                    "std_name": "tag_importado_via_api",
+                    "color": "#0C4A6E"
+                },
+                {
+                    "id": "6a3542796d5d0104b896b98d",
+                    "name": "Premium",
+                    "std_name": "tag_premium",
+                    "color": "#7F1D1D"
+                }
+            ],
+            "sla_config_id": null,
+            "score": 18.723682403564453
+        }
+    ],
+    "count": 1,
+    "totalItems": 1,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1
+}
