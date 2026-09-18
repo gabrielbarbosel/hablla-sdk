@@ -120,6 +120,14 @@ describe('prepareAudience', () => {
         expect(prepareAudience(aRequest({ connectionId: '6a04dd9c263b426122d2f2f2' }), ROSTER).fingerprint).not.toBe(base);
     });
 
+    it('fingerprints a different typed value or reformatting differently', () => {
+        const base = prepareAudience(aRequest({ templateVariables: [{ kind: 'literal', value: 'Setembro', formats: [] }] }), ROSTER).fingerprint;
+
+        expect(prepareAudience(aRequest({ templateVariables: [{ kind: 'literal', value: 'Outubro', formats: [] }] }), ROSTER).fingerprint).not.toBe(base);
+        expect(prepareAudience(aRequest({ templateVariables: [{ kind: 'literal', value: 'Setembro', formats: ['upperCase'] }] }), ROSTER).fingerprint).not.toBe(base);
+        expect(prepareAudience(aRequest({ templateVariables: [] }), ROSTER).fingerprint).not.toBe(base);
+    });
+
     it('leaves excluded contacts out of the fingerprint', () => {
         const withExclusion = aRequest({ rows: [aRow('1'), aRow('2')], exclusion: { phones: ['5551999000002'], segmentationFilters: [] } });
 

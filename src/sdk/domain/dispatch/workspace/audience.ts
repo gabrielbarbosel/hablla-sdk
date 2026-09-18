@@ -5,6 +5,7 @@
 
 import type { RosterIndex } from './request-validation';
 import type { AdvisorResolution, ContactOutcome, DispatchContact, ExclusionCriteria, TargetOwner, WorkspaceDispatchRequest, WorkspaceDispatchRow } from './types';
+import type { TemplateVariable } from './template-variables';
 import { brazilianPhoneVariants, collapseWhitespace, hash64Hex, normalizeEmail, phoneIdentity } from '../../../utils';
 import { formatBoundFields } from './template-variables';
 
@@ -79,17 +80,26 @@ export function excludeContacts(contacts: readonly DispatchContact[], excludedPh
 }
 
 /**
- * Fingerprint of an audience: a 64-bit hash of the connection, the template and the
- * sorted phone identities of the contacts in `pendingLookup`, suffixed with their count.
- * Independent of row order.
+ * Fingerprint of an audience: a 64-bit hash of the connection, the template, what its
+ * variables send and the sorted phone identities of the contacts in `pendingLookup`,
+ * suffixed with their count. Independent of row order. The variables are part of it
+ * because the message a typed literal produces is not the one another literal produces, so
+ * two dispatches that differ only there are different dispatches for the duplicate guard.
  */
-export function audienceFingerprint(request: Pick<WorkspaceDispatchRequest, 'connectionId' | 'templateId'>, contacts: readonly DispatchContact[]): string {
+export function audienceFingerprint(request: Pick<WorkspaceDispatchRequest, 'connectionId' | 'templateId' | 'templateVariables'>, contacts: readonly DispatchContact[]): string {
     const identities = contacts
         .filter((contact) => contact.outcome === 'pendingLookup' && contact.phone)
         .map((contact) => phoneIdentity(contact.phone!))
         .sort();
 
-    return `${hash64Hex([request.connectionId, request.templateId, ...identities].join('|'))}-${identities.length}`;
+    return `${hash64Hex([request.connectionId, request.templateId, variablesToken(request.templateVariables), ...identities].join('|'))}-${identities.length}`;
+}
+
+/** The variables' part of the fingerprint: origin, value and reformatting, in template order. */
+function variablesToken(variables: readonly TemplateVariable[]): string {
+    return variables
+        .map((variable) => [variable.kind, variable.kind === 'personField' ? variable.fieldId : variable.value, ...variable.formats].join('~'))
+        .join(',');
 }
 
 /** Builds the contact of one row. */
