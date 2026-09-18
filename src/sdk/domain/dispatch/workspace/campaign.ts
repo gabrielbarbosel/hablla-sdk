@@ -52,6 +52,10 @@ export function buildSegmentationBody(job: DispatchJob): SegmentationCreateBody 
  * variable, in template order — a person-field token resolved per person, or the literal
  * the operator typed — and every one of them declared as not an expression.
  *
+ * Probe 04 proved this against a template with **one** body variable. An empty
+ * `variables.body` and two or more positional entries have only been exercised against the
+ * test double, and wait for the live validation of spec 11.3(j).
+ *
  * @throws Error when the job has no pacing yet (a planning bug).
  */
 export function buildCampaignBody(job: DispatchJob): CampaignCreateBody {
