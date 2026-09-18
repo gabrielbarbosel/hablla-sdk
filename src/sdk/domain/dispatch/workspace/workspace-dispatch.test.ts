@@ -180,6 +180,24 @@ describe('WorkspaceDispatch happy path', () => {
         expect(hablla.persons.get(habllaId('b'))!.users).toEqual([SYSTEM_USER.id, ADVISOR.id]);
     });
 
+    it('keeps the human owner by default and takes it over only under the replace human policy', async () => {
+        const kept = await dispatchToEnd(mixedAudience());
+
+        expect(kept.job.phase).toBe('completed');
+        expect(hablla.persons.get(habllaId('c'))!.users).toEqual([OTHER_ADVISOR.id]);
+    });
+
+    it('replaces a human owner under the replace human policy, keeping the system owner the system policy keeps', async () => {
+        const request = { ...mixedAudience(), humanOwnerPolicy: 'replace' as const, systemOwnerPolicy: 'add' as const };
+
+        hablla.persons.get(habllaId('c'))!.users = [SYSTEM_USER.id, OTHER_ADVISOR.id];
+
+        const done = await dispatchToEnd(request);
+
+        expect(done.job.phase).toBe('completed');
+        expect(hablla.persons.get(habllaId('c'))!.users).toEqual([SYSTEM_USER.id, ADVISOR.id]);
+    });
+
     it('skips unresolved advisors without any call for them under the skip policy', async () => {
         const request = aRequest({ unresolvedAdvisorPolicy: { kind: 'skip' }, rows: [aRow('1'), aRow('7', { advisorKey: '' })] });
         const done = await dispatchToEnd(request);
