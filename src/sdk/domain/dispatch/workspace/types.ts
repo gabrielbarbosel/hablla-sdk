@@ -1,4 +1,5 @@
 import type { PhoneVariants } from '../../../utils';
+import type { TemplateVariable } from './template-variables';
 
 /** Which Hablla user attribute the advisor column of the audience holds. */
 export type AdvisorKeyKind = 'email' | 'userId';
@@ -11,7 +12,11 @@ export interface WorkspaceDispatchRow {
     phone: string;
     /** Advisor identifier interpreted per {@link WorkspaceDispatchRequest.advisorKeyKind}; empty when absent. */
     advisorKey: string;
-    /** Person custom-field values by custom-field id, written only when the person is created. */
+    /**
+     * Person custom-field values by custom-field id, as the mapped audience columns gave
+     * them. Written on creation, and on an existing person per
+     * {@link WorkspaceDispatchRequest.existingPersonFieldPolicy}.
+     */
     customFields: Readonly<Record<string, string>>;
 }
 
@@ -53,6 +58,12 @@ export interface ExclusionSummary {
 /** What to do with an existing person whose only owners are system users. */
 export type SystemOwnerPolicy = 'replace' | 'add';
 
+/** What to do with an existing person already owned by a human other than the row's advisor. */
+export type HumanOwnerPolicy = 'keep' | 'replace';
+
+/** What to do with the mapped person fields of a person that already exists. */
+export type ExistingPersonFieldPolicy = 'updateSentFields' | 'none';
+
 /** What to do with a contact whose advisor cannot be resolved to a human Hablla user. */
 export type UnresolvedAdvisorPolicy =
     | { kind: 'assignReserve'; reserveOwnerId: string }
@@ -63,16 +74,21 @@ export interface WorkspaceDispatchRequest {
     /** Human label used in the segmentation and campaign names. */
     label: string;
     connectionId: string;
-    /** Approved WhatsApp template with exactly one body variable (the first name). */
+    /** Approved WhatsApp template; its body variables are described, in order, by {@link templateVariables}. */
     templateId: string;
+    /**
+     * One entry per body variable of the template, in template order: the value's origin
+     * and the reformatting asked for it. Empty for a template without variables.
+     */
+    templateVariables: readonly TemplateVariable[];
     /** Sector assigned to persons created by this dispatch. */
     sectorId: string;
-    /** Person custom field (target person, type string) that carries the computed first name; from typed config, never created here. */
-    firstNameFieldId: string;
     advisorKeyKind: AdvisorKeyKind;
     /** Hablla user ids treated as system owners (e.g. Martech, Kras). */
     systemUserIds: readonly string[];
     systemOwnerPolicy: SystemOwnerPolicy;
+    humanOwnerPolicy: HumanOwnerPolicy;
+    existingPersonFieldPolicy: ExistingPersonFieldPolicy;
     unresolvedAdvisorPolicy: UnresolvedAdvisorPolicy;
     exclusion: ExclusionCriteria;
     pacing: DispatchPacing;
@@ -127,7 +143,8 @@ export type OwnerChange =
     | { kind: 'keep' }
     | { kind: 'assign'; unfollowFirst: boolean }
     | { kind: 'replaceSystemOwners'; unfollowFirst: boolean; removedOwnerIds: readonly string[] }
-    | { kind: 'addBesideSystemOwners'; unfollowFirst: boolean };
+    | { kind: 'addBesideSystemOwners'; unfollowFirst: boolean }
+    | { kind: 'replaceHumanOwners'; unfollowFirst: boolean; removedOwnerIds: readonly string[] };
 
 /** The person a contact resolved to. */
 export interface ResolvedPerson {
@@ -156,10 +173,9 @@ export interface DispatchContact {
     name: string;
     /** Absent when the phone is invalid. */
     phone?: PhoneVariants;
-    /** Computed first name written to the configured custom field. */
-    firstName: string;
     advisorResolution: AdvisorResolution;
     target?: TargetOwner;
+    /** The row's custom-field values, with the reformatting of the variables bound to them already applied. */
     customFields: Readonly<Record<string, string>>;
     outcome: ContactOutcome;
     person?: ResolvedPerson;
@@ -389,6 +405,6 @@ export interface CampaignCreateBody {
     arrayFilter: readonly SegmentationFilter[];
     query: readonly SegmentationFilter[];
     query_type: 'person';
-    variables: { body: readonly [string] };
-    properties: { variables: { whatsapp: { components: { examples: { body: { '0_is_expression': false } } } } } };
+    variables: { body: readonly string[] };
+    properties: { variables: { whatsapp: { components: { examples: { body: Readonly<Record<string, boolean>> } } } } };
 }

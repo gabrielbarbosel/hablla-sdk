@@ -89,7 +89,7 @@ export function nextContactStep(block: BlockContact, job: DispatchJob, now: numb
         return lookupStep(block, job);
     }
 
-    const write = planContactWrites(contact)[contact.writesDone]!;
+    const write = planContactWrites(contact, job.settings)[contact.writesDone]!;
 
     return { kind: 'calls', purpose: { write }, calls: [writeCallFor(write, contact, job)] };
 }

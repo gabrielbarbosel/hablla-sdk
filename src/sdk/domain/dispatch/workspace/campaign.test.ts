@@ -9,7 +9,7 @@ import {
     toDispatchConfig,
 } from './campaign';
 import { UnexpectedPayloadError } from './errors';
-import { CONNECTION_ID, FIRST_NAME_FIELD_ID, TEMPLATE_ID, aRequest, completed, settingsOf } from './__fixtures__/builders';
+import { CONNECTION_ID, FIRST_NAME_FIELD_ID, TEMPLATE_ID, ZENVIA_IDS_FIELD_ID, aRequest, completed, settingsOf } from './__fixtures__/builders';
 import campaignsByName from './__fixtures__/campaigns-by-name.json';
 import type { DispatchJob } from './types';
 
@@ -60,6 +60,37 @@ describe('buildAudienceQuery and buildCampaignBody', () => {
             variables: { body: [`{{person.custom_fields.${FIRST_NAME_FIELD_ID}}}`] },
             properties: { variables: { whatsapp: { components: { examples: { body: { '0_is_expression': false } } } } } },
         });
+    });
+
+    it('carries one body variable per template variable, in order, mixing person fields and literals', () => {
+        const job = {
+            ...JOB,
+            settings: settingsOf(aRequest({
+                templateVariables: [
+                    { kind: 'personField', fieldId: FIRST_NAME_FIELD_ID, formats: ['firstName', 'capitalize'] },
+                    { kind: 'literal', value: 'quinta-feira', formats: [] },
+                    { kind: 'personField', fieldId: ZENVIA_IDS_FIELD_ID, formats: [] },
+                ],
+            })),
+        } as DispatchJob;
+
+        expect(buildCampaignBody(job).variables.body).toEqual([
+            `{{person.custom_fields.${FIRST_NAME_FIELD_ID}}}`,
+            'quinta-feira',
+            `{{person.custom_fields.${ZENVIA_IDS_FIELD_ID}}}`,
+        ]);
+        expect(buildCampaignBody(job).properties.variables.whatsapp.components.examples.body).toEqual({
+            '0_is_expression': false,
+            '1_is_expression': false,
+            '2_is_expression': false,
+        });
+    });
+
+    it('sends no body variable for a template that has none', () => {
+        const job = { ...JOB, settings: settingsOf(aRequest({ templateVariables: [] })) } as DispatchJob;
+
+        expect(buildCampaignBody(job).variables.body).toEqual([]);
+        expect(buildCampaignBody(job).properties.variables.whatsapp.components.examples.body).toEqual({});
     });
 });
 

@@ -875,16 +875,26 @@ describe('WorkspaceDispatch token rejection', () => {
 });
 
 describe('WorkspaceDispatch fails fast', () => {
-    it('refuses a missing first-name field after reading only the catalogs', async () => {
-        await expect(dispatch.plan(aRequest({ firstNameFieldId: habllaId('f00d') }))).rejects.toBeInstanceOf(DispatchValidationError);
-        expect(hablla.requests.every((request) => request.method === 'GET')).toBe(true);
+    it('refuses a variable bound to a custom field the workspace does not have, after reading only the catalogs', async () => {
+        const request = aRequest({
+            templateVariables: [{ kind: 'personField', fieldId: habllaId('f00d'), formats: [] }],
+            rows: [aRow('1', { customFields: { [habllaId('f00d')]: 'ana' } })],
+        });
+
+        await expect(dispatch.plan(request)).rejects.toBeInstanceOf(DispatchValidationError);
+        expect(hablla.requests.every((call) => call.method === 'GET')).toBe(true);
         expect(store.jobs.size).toBe(0);
     });
 
-    it('refuses a first-name field of the wrong type', async () => {
+    it('refuses a bound custom field of the wrong type', async () => {
         hablla.customFields = [{ id: FIRST_NAME_FIELD_ID, target: 'person', type: 'number', name: 'Primeiro Nome' }];
 
         await expect(dispatch.plan(aRequest())).rejects.toThrow(/type string/);
+    });
+
+    it('refuses a variable whose column the audience does not fill, naming the field', async () => {
+        await expect(dispatch.plan(aRequest({ rows: [aRow('1', { customFields: {} })] }))).rejects.toThrow(/is not filled by 1 of the 1 rows/);
+        expect(store.jobs.size).toBe(0);
     });
 
     it('refuses an empty filter type before any call', async () => {

@@ -8,7 +8,7 @@ import { UrlFetchTransport } from './transport';
 import { PropertiesStrategyCache } from './properties-strategy-cache';
 import { SpreadsheetTableStore } from './spreadsheet-table-store';
 import { SyncPromise, unwrap, drainUnhandledRejections } from './sync-promise';
-import { WorkspaceDispatch } from '../../sdk/domain/dispatch/workspace';
+import { WorkspaceDispatch, formatVariableValue } from '../../sdk/domain/dispatch/workspace';
 import { UrlFetchCallExecutor } from './url-fetch-call-executor';
 import { SheetDispatchJobStore } from './sheet-dispatch-job-store';
 import { gasClock } from './gas-clock';
@@ -300,6 +300,7 @@ export function installHabllaClient(): HabllaClient {
         utils,
         createWorkspaceDispatch: (options: WorkspaceDispatchOptions) => createWorkspaceDispatch(client, baseUrl, vars.workspaceId, options),
         archiveWorkspaceDispatchJob,
+        formatVariableValue,
         executionWindow,
     };
     return client;

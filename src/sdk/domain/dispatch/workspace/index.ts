@@ -20,6 +20,8 @@ export {
     UnexpectedPayloadError,
 } from './errors';
 export { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
+export { VARIABLE_FORMATS, formatVariableValue } from './template-variables';
+export type { TemplateVariable, VariableFormat } from './template-variables';
 export type {
     AdvisorKeyKind,
     AdvisorResolution,
@@ -40,6 +42,8 @@ export type {
     DispatchSettings,
     ExclusionCriteria,
     ExclusionSummary,
+    ExistingPersonFieldPolicy,
+    HumanOwnerPolicy,
     HabllaDispatchConfig,
     JobFailure,
     JobFailureReason,

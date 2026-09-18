@@ -5,7 +5,8 @@
 
 import type { RosterIndex } from './request-validation';
 import type { AdvisorResolution, ContactOutcome, DispatchContact, ExclusionCriteria, TargetOwner, WorkspaceDispatchRequest, WorkspaceDispatchRow } from './types';
-import { brazilianPhoneVariants, capitalizeWord, collapseWhitespace, firstName, hash64Hex, normalizeEmail, phoneIdentity } from '../../../utils';
+import { brazilianPhoneVariants, collapseWhitespace, hash64Hex, normalizeEmail, phoneIdentity } from '../../../utils';
+import { formatBoundFields } from './template-variables';
 
 /** Contacts of a request plus the audience fingerprint used against duplicate dispatches. */
 export interface PreparedAudience {
@@ -101,10 +102,9 @@ function contactOfRow(row: WorkspaceDispatchRow, index: number, request: Workspa
         index,
         name,
         phone,
-        firstName: capitalizeWord(firstName(name)),
         advisorResolution: advisor.resolution,
         target: advisor.target,
-        customFields: row.customFields,
+        customFields: formatBoundFields(row.customFields, request.templateVariables),
         outcome: firstOutcome(name, phone === undefined ? undefined : phoneIdentity(phone), advisor, seenPhones),
         writesDone: 0,
         attempts: 0,

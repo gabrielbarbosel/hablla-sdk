@@ -5,10 +5,12 @@
  */
 
 import type { CustomFieldDefinition, RosterUser } from './payloads';
+import type { TemplateVariable } from './template-variables';
 import type { WorkspaceDispatchRequest } from './types';
 import { normalizeEmail } from '../../../utils';
 import { DispatchValidationError } from './errors';
 import { isJobId } from './job-id';
+import { VARIABLE_FORMATS, boundFieldIds } from './template-variables';
 
 /** Hablla object id: 24 lowercase hex digits. */
 const HABLLA_ID_PATTERN = /^[0-9a-f]{24}$/;
@@ -16,8 +18,15 @@ const HABLLA_ID_PATTERN = /^[0-9a-f]{24}$/;
 /** Custom-field target of person fields. */
 const PERSON_TARGET = 'person';
 
-/** Custom-field type the first-name field must have. */
-const FIRST_NAME_FIELD_TYPE = 'string';
+/** Custom-field type a person field bound to a template variable must have. */
+const VARIABLE_FIELD_TYPE = 'string';
+
+/** The policies of a request and the values each one accepts. */
+const POLICY_VALUES = {
+    systemOwnerPolicy: ['replace', 'add'],
+    humanOwnerPolicy: ['keep', 'replace'],
+    existingPersonFieldPolicy: ['updateSentFields', 'none'],
+} as const;
 
 /** Workspace users indexed for advisor resolution. */
 export interface RosterIndex {
@@ -101,8 +110,8 @@ function requestShapeProblems(request: WorkspaceDispatchRequest): string[] {
     requireHabllaId('connectionId', request.connectionId);
     requireHabllaId('templateId', request.templateId);
     requireHabllaId('sectorId', request.sectorId);
-    requireHabllaId('firstNameFieldId', request.firstNameFieldId);
     request.systemUserIds.forEach((userId, position) => requireHabllaId(`systemUserIds[${position}]`, userId));
+    problems.push(...policyProblems(request));
 
     if (request.unresolvedAdvisorPolicy.kind === 'assignReserve') {
         requireHabllaId('unresolvedAdvisorPolicy.reserveOwnerId', request.unresolvedAdvisorPolicy.reserveOwnerId);
@@ -120,6 +129,7 @@ function requestShapeProblems(request: WorkspaceDispatchRequest): string[] {
         problems.push('rows must hold at least one row');
     }
 
+    problems.push(...templateVariableProblems(request));
     problems.push(...rowProblems(request));
     problems.push(...pacingProblems(request));
     problems.push(...exclusionProblems(request));
@@ -127,7 +137,69 @@ function requestShapeProblems(request: WorkspaceDispatchRequest): string[] {
     return problems;
 }
 
-/** Problems of each row's field types and of rows carrying the computed first name. */
+/** Problems of the policies, each one an enumeration the untyped caller may get wrong. */
+function policyProblems(request: WorkspaceDispatchRequest): string[] {
+    return Object.entries(POLICY_VALUES)
+        .filter(([policy, values]) => !(values as readonly string[]).includes(request[policy as keyof typeof POLICY_VALUES]))
+        .map(([policy, values]) => `${policy} must be one of ${values.join(', ')}, got ${JSON.stringify(request[policy as keyof typeof POLICY_VALUES])}`);
+}
+
+/**
+ * Problems of the template variables: a variable with no origin, a person field that is
+ * not a Hablla id, a literal that is not text, an unknown or repeated reformatting step,
+ * and two variables bound to the same custom field, which would make the value written for
+ * one of them depend on which was applied last.
+ */
+function templateVariableProblems(request: WorkspaceDispatchRequest): string[] {
+    if (!Array.isArray(request.templateVariables)) {
+        return ['templateVariables must be an array, one entry per body variable of the template'];
+    }
+
+    const problems = request.templateVariables.flatMap((variable, position) => variableProblems(variable, position));
+    const bound = request.templateVariables.filter((variable) => variable?.kind === 'personField');
+
+    if (boundFieldIds(bound).length !== bound.length) {
+        problems.push('templateVariables must not bind the same custom field twice');
+    }
+
+    return problems;
+}
+
+/** Problems of one template variable. */
+function variableProblems(variable: TemplateVariable, position: number): string[] {
+    const at = `templateVariables[${position}]`;
+
+    if (variable?.kind === 'personField') {
+        const fieldProblems = HABLLA_ID_PATTERN.test(String(variable.fieldId)) ? [] : [`${at}.fieldId must be a Hablla id, got ${JSON.stringify(variable.fieldId)}`];
+
+        return [...fieldProblems, ...formatProblems(variable, at)];
+    }
+
+    if (variable?.kind === 'literal') {
+        const valueProblems = typeof variable.value === 'string' ? [] : [`${at}.value must be a string`];
+
+        return [...valueProblems, ...formatProblems(variable, at)];
+    }
+
+    return [`${at} must say where its value comes from, personField or literal, got ${JSON.stringify((variable as { kind?: unknown })?.kind)}`];
+}
+
+/** Problems of a variable's reformatting steps. */
+function formatProblems(variable: TemplateVariable, at: string): string[] {
+    if (!Array.isArray(variable.formats)) {
+        return [`${at}.formats must be an array of reformatting steps; an empty one sends the value as it came`];
+    }
+
+    const unknown = variable.formats.filter((format) => !(VARIABLE_FORMATS as readonly string[]).includes(format));
+    const repeated = variable.formats.length !== new Set(variable.formats).size;
+
+    return [
+        ...unknown.map((format) => `${at}.formats holds ${JSON.stringify(format)}, which is not one of ${VARIABLE_FORMATS.join(', ')}`),
+        ...(repeated ? [`${at}.formats must not repeat a step`] : []),
+    ];
+}
+
+/** Problems of each row's field types. */
 function rowProblems(request: WorkspaceDispatchRequest): string[] {
     const problems: string[] = [];
 
@@ -147,10 +219,6 @@ function rowProblems(request: WorkspaceDispatchRequest): string[] {
             if (typeof value !== 'string') {
                 problems.push(`rows[${index}].customFields.${fieldId} must be a string`);
             }
-        }
-
-        if (Object.prototype.hasOwnProperty.call(row.customFields, request.firstNameFieldId)) {
-            problems.push(`rows[${index}].customFields must not set the first-name field ${request.firstNameFieldId}; it is computed from the name`);
         }
     });
 
@@ -211,13 +279,7 @@ function referenceProblems(request: WorkspaceDispatchRequest, roster: RosterInde
         }
     }
 
-    const firstNameField = customFields.get(request.firstNameFieldId);
-
-    if (!firstNameField) {
-        problems.push(`first-name field ${request.firstNameFieldId} does not exist`);
-    } else if (firstNameField.target !== PERSON_TARGET || firstNameField.type !== FIRST_NAME_FIELD_TYPE) {
-        problems.push(`first-name field ${request.firstNameFieldId} must be a ${PERSON_TARGET} field of type ${FIRST_NAME_FIELD_TYPE}, got ${firstNameField.target}/${firstNameField.type}`);
-    }
+    problems.push(...boundFieldProblems(request, customFields));
 
     for (const fieldId of rowCustomFieldIds(request)) {
         const field = customFields.get(fieldId);
@@ -226,6 +288,33 @@ function referenceProblems(request: WorkspaceDispatchRequest, roster: RosterInde
             problems.push(`custom field ${fieldId} used by the rows does not exist`);
         } else if (field.target !== PERSON_TARGET) {
             problems.push(`custom field ${fieldId} used by the rows is not a ${PERSON_TARGET} field`);
+        }
+    }
+
+    return problems;
+}
+
+/**
+ * Problems of the custom fields the template variables bind: a field the workspace does
+ * not have or that cannot carry text, and a field the audience does not fill — the column
+ * the operator mapped the variable to is not there, so the message would go out with a hole.
+ */
+function boundFieldProblems(request: WorkspaceDispatchRequest, customFields: CustomFieldIndex): string[] {
+    const problems: string[] = [];
+
+    for (const fieldId of boundFieldIds(request.templateVariables)) {
+        const field = customFields.get(fieldId);
+
+        if (!field) {
+            problems.push(`custom field ${fieldId} bound by a template variable does not exist`);
+        } else if (field.target !== PERSON_TARGET || field.type !== VARIABLE_FIELD_TYPE) {
+            problems.push(`custom field ${fieldId} bound by a template variable must be a ${PERSON_TARGET} field of type ${VARIABLE_FIELD_TYPE}, got ${field.target}/${field.type}`);
+        }
+
+        const unfilled = request.rows.filter((row) => !Object.prototype.hasOwnProperty.call(row.customFields ?? {}, fieldId)).length;
+
+        if (unfilled > 0) {
+            problems.push(`custom field ${fieldId} bound by a template variable is not filled by ${unfilled} of the ${request.rows.length} rows`);
         }
     }
 
