@@ -330,7 +330,11 @@ export interface CallBudget {
  */
 export interface DispatchCallBudget {
     estimate: CallBudget;
-    /** Calls the job has sent, counting the ones `plan` spent reading the catalogs. */
+    /**
+     * Calls the job has sent, counting the ones `plan` spent reading the catalogs. A floor:
+     * calls of a confirmation that failed, or of a round whose update was lost to another
+     * execution, were spent at Hablla and never reached the ledger (see `spendCalls`).
+     */
     spent: number;
     /** Estimated calls still ahead; zero once the job spent its whole estimate. */
     remaining: number;

@@ -169,8 +169,9 @@ export class WorkspaceDispatch {
                 return this.ports.store.update(toCompleted(renewed.job, now), renewed.excluded);
             }
 
-            const segmentationId = await this.createSegmentation(renewed.job);
-            const confirmed = toConfirmed(spendCalls(renewed.job, CREATE_SEGMENTATION_CALLS), segmentationId, options.operatorEmail, this.ports.clock.now());
+            const charged = spendCalls(renewed.job, CREATE_SEGMENTATION_CALLS);
+            const segmentationId = await this.createSegmentation(charged);
+            const confirmed = toConfirmed(charged, segmentationId, options.operatorEmail, this.ports.clock.now());
 
             return this.ports.store.update(confirmed, renewed.excluded);
         });

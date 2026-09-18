@@ -231,7 +231,13 @@ export function trackInterruptedRounds(job: DispatchJob, results: readonly CallR
     };
 }
 
-/** The job with more calls on its ledger; the only place the count grows. */
+/**
+ * The job with more calls on its ledger; the only place the count grows. Calls are charged
+ * before their result is read, so a refusal costs what it spent — but a charge only reaches
+ * the ledger when the job that carries it is stored, so the calls of a confirmation that
+ * threw, or of a round whose compare-and-set was lost, are spent at Hablla and missing
+ * here. The count is a floor, never an exact meter.
+ */
 export function spendCalls(job: DispatchJob, count: number): DispatchJob {
     return count === 0 ? job : { ...job, callsSpent: job.callsSpent + count };
 }
