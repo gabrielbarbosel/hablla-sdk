@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.0 (2026-09-17)
+
+**Classification:** `breaking` — a requisição do disparo por workspace ganha as variáveis do template e as duas políticas novas, e perde o campo de primeiro nome; `DispatchProgress` passa a carregar o orçamento de chamadas.
+
+### Adicionado
+
+- Variáveis do corpo por origem declarada: cada variável do template vem de um campo de pessoa (a coluna da audiência mapeada para ele) ou de um valor digitado, na ordem do template, com reformatação opcional por variável (`firstName`, `capitalize`, `upperCase`) desligada por padrão. Um template pode ter nenhuma, uma ou várias.
+- `humanOwnerPolicy`: pessoa já pertencente a outro assessor humano é mantida por padrão e trocada sob demanda, compondo com a política de dono de sistema.
+- `existingPersonFieldPolicy`: em pessoa existente, atualiza só os campos que a linha enviou (padrão) ou nada.
+- `jobIds(phases)` e `listJobs(phases)`: listagem dos jobs armazenados por conjunto de fases, do mais novo para o mais velho.
+- `DispatchProgress.callBudget`: estimativa, gasto e restante das chamadas do job, mais a cota que a estimativa conferiu.
+- `start(jobId, { exclusion })`: exclusão relida na confirmação, aplicada antes de qualquer escrita.
+- `Hablla.formatVariableValue` e `utils.capitalizeWords`, para a prévia do app reformatar com a mesma função do disparo.
+
+### Alterado
+
+- O valor de uma variável vai literalmente como veio da coluna ou do campo digitado; o domínio não calcula mais primeiro nome nem capitaliza por conta própria.
+- `decideOwnerChange` recebe as settings de dono em vez de dois argumentos soltos, e `OwnerChange` ganha a variante `replaceHumanOwners`.
+- A campanha monta `variables.body` com uma entrada por variável e `'<i>_is_expression': false` por índice.
+
+### Removido
+
+- `WorkspaceDispatchRequest.firstNameFieldId` e `DispatchContact.firstName`, com a regra que proibia a linha de trazer o campo de primeiro nome.
+
 ## v0.4.0 (2026-09-17)
 
 **Classification:** `breaking` — nova superfície de disparo por token de workspace; `deployToRpo` passa a exigir a verificação de compatibilidade; o disparo em massa por import fica obsoleto.
