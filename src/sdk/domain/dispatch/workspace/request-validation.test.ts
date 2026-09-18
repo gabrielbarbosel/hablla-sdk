@@ -126,6 +126,19 @@ describe('assertValidRequest', () => {
         ]);
     });
 
+    it('refuses a person-field variable while the policy writes nothing into an existing person', () => {
+        const problems = problemsOf(aRequest({ existingPersonFieldPolicy: 'none' }));
+
+        expect(problems).toEqual([
+            `templateVariables read the custom fields ${FIRST_NAME_FIELD_ID} from each person, which existingPersonFieldPolicy 'none' never writes into a person that already exists: choose 'updateSentFields' or a literal variable`,
+        ]);
+    });
+
+    it('accepts the none field policy with literal variables or none at all', () => {
+        expect(problemsOf(aRequest({ existingPersonFieldPolicy: 'none', templateVariables: [] }))).toEqual([]);
+        expect(problemsOf(aRequest({ existingPersonFieldPolicy: 'none', templateVariables: [{ kind: 'literal', value: 'Setembro', formats: [] }] }))).toEqual([]);
+    });
+
     it('reports a templateVariables that is not a list, without crashing on the reference checks', () => {
         expect(problemsOf(aRequest({ templateVariables: undefined as never }))).toEqual([
             'templateVariables must be an array, one entry per body variable of the template',

@@ -98,7 +98,7 @@ function throwWhenAny(problems: readonly string[]): void {
     }
 }
 
-/** Problems of ids, label, rows, pacing and exclusion. */
+/** Problems of ids, label, policies, template variables, rows, pacing and exclusion. */
 function requestShapeProblems(request: WorkspaceDispatchRequest): string[] {
     const problems: string[] = [];
     const requireHabllaId = (field: string, value: unknown): void => {
@@ -130,6 +130,7 @@ function requestShapeProblems(request: WorkspaceDispatchRequest): string[] {
     }
 
     problems.push(...templateVariableProblems(request));
+    problems.push(...fieldPolicyProblems(request));
     problems.push(...rowProblems(request));
     problems.push(...pacingProblems(request));
     problems.push(...exclusionProblems(request));
@@ -163,6 +164,27 @@ function templateVariableProblems(request: WorkspaceDispatchRequest): string[] {
     }
 
     return problems;
+}
+
+/**
+ * Problem of the two options that cannot hold at once: a variable that reads a person
+ * field while the policy writes nothing into a person that already exists. The campaign
+ * would send `{{person.custom_fields.<id>}}` for someone whose field the row's value never
+ * reaches, so the message goes out with that variable empty or carrying a value from an
+ * earlier dispatch. The operator chooses `updateSentFields` or a literal variable.
+ */
+function fieldPolicyProblems(request: WorkspaceDispatchRequest): string[] {
+    if (request.existingPersonFieldPolicy !== 'none' || !Array.isArray(request.templateVariables)) {
+        return [];
+    }
+
+    const bound = boundFieldIds(request.templateVariables.filter((variable) => variable?.kind === 'personField'));
+
+    if (bound.length === 0) {
+        return [];
+    }
+
+    return [`templateVariables read the custom fields ${bound.join(', ')} from each person, which existingPersonFieldPolicy 'none' never writes into a person that already exists: choose 'updateSentFields' or a literal variable`];
 }
 
 /** Problems of one template variable. */

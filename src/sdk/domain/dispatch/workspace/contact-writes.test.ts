@@ -20,6 +20,11 @@ function settings(overrides: Partial<WorkspaceDispatchRequest> = {}): DispatchSe
     return aJob(overrides).settings;
 }
 
+/** Settings that write nothing into an existing person; valid only with no variable read from a person field. */
+function noFieldWrites(): DispatchSettings {
+    return settings({ existingPersonFieldPolicy: 'none', templateVariables: [{ kind: 'literal', value: 'Setembro', formats: [] }] });
+}
+
 /** A ready contact for an existing person with the given owner change. */
 function existing(ownerChange: DispatchContact['ownerChange']): DispatchContact {
     return aContact({ outcome: 'ready', person: { id: 'p1', existed: true }, ownerChange, lookupPurpose: 'send' });
@@ -48,7 +53,7 @@ describe('planContactWrites', () => {
     });
 
     it('skips the field write when the policy updates nothing in an existing person', () => {
-        expect(planContactWrites(existing({ kind: 'keep' }), settings({ existingPersonFieldPolicy: 'none' })).map((write) => write.kind)).toEqual(['joinAudience']);
+        expect(planContactWrites(existing({ kind: 'keep' }), noFieldWrites()).map((write) => write.kind)).toEqual(['joinAudience']);
     });
 
     it('skips the field write when the row sent no field at all', () => {
@@ -58,7 +63,7 @@ describe('planContactWrites', () => {
     });
 
     it('still writes the fields of a person it creates, whatever the existing-person policy says', () => {
-        expect(planContactWrites(aContact({ outcome: 'ready' }), settings({ existingPersonFieldPolicy: 'none' }))).toEqual([{ kind: 'createPerson' }, { kind: 'joinAudience' }]);
+        expect(planContactWrites(aContact({ outcome: 'ready' }), noFieldWrites())).toEqual([{ kind: 'createPerson' }, { kind: 'joinAudience' }]);
     });
 });
 

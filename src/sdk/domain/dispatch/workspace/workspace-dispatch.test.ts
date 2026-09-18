@@ -187,14 +187,24 @@ describe('WorkspaceDispatch happy path', () => {
         expect(hablla.persons.get(habllaId('b'))!.custom_fields).toEqual([{ custom_field: FIRST_NAME_FIELD_ID, value: 'Bruno' }]);
     });
 
-    it('writes nothing into an existing person under the none field policy, and still creates the new ones with their fields', async () => {
+    it('refuses the none field policy while a variable reads a person field, instead of sending the variable empty', async () => {
         const request = { ...mixedAudience(), existingPersonFieldPolicy: 'none' as const };
+
+        await expect(dispatch.plan(request)).rejects.toThrow(DispatchValidationError);
+    });
+
+    it('writes nothing into an existing person under the none field policy, and still creates the new ones with their fields', async () => {
+        const request: WorkspaceDispatchRequest = {
+            ...mixedAudience(),
+            existingPersonFieldPolicy: 'none',
+            templateVariables: [{ kind: 'literal', value: 'Setembro', formats: [] }],
+        };
         const done = await dispatchToEnd(request);
 
         expect(done.job.phase).toBe('completed');
         expect(hablla.requestsTo('PUT', /\/persons\/[^/]+$/)).toHaveLength(0);
         expect(hablla.persons.get(habllaId('b'))!.custom_fields).toEqual([]);
-        expect(personWithPhone(phoneOf('1'))[0]!.custom_fields).toEqual([{ custom_field: FIRST_NAME_FIELD_ID, value: 'Ana' }]);
+        expect(personWithPhone(phoneOf('1'))[0]!.custom_fields).toEqual([{ custom_field: FIRST_NAME_FIELD_ID, value: 'ana nova' }]);
     });
 
     it('keeps the human owner by default and takes it over only under the replace human policy', async () => {
