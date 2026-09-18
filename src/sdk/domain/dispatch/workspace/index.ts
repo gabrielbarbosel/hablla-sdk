@@ -8,6 +8,7 @@ export type { WorkspaceDispatchPorts } from './workspace-dispatch';
 export { CLAIMING_OUTCOMES, holdsPersonClaim } from './person-claims';
 export type { Clock, DispatchJobStore } from './ports';
 export {
+    ArchivedJobError,
     CallBudgetExceededError,
     DispatchThrottledError,
     DispatchTransportError,

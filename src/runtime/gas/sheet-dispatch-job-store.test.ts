@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CONTACTS_SHEET, CorruptedJobStoreError, EXCLUSIVE_ACCESS_WAIT_MS, JOBS_SHEET, SheetDispatchJobStore } from './sheet-dispatch-job-store';
-import { JobNotFoundError, StaleJobError } from '../../sdk/domain/dispatch/workspace';
+import { CONTACTS_SHEET, CorruptedJobStoreError, EXCLUSIVE_ACCESS_WAIT_MS, IncompatibleJobStoreError, JOBS_SHEET, SheetDispatchJobStore } from './sheet-dispatch-job-store';
+import { ArchivedJobError, JobNotFoundError, StaleJobError } from '../../sdk/domain/dispatch/workspace';
 import { createJob } from '../../sdk/domain/dispatch/workspace/job-machine';
 import { prepareAudience } from '../../sdk/domain/dispatch/workspace/audience';
 import { NO_CALLS_SPENT, ROSTER, aRequest, aRow } from '../../sdk/domain/dispatch/workspace/__fixtures__/builders';
@@ -196,7 +196,33 @@ describe('SheetDispatchJobStore', () => {
         await store.archive(first.job.id, NOW);
 
         expect(await store.loadContacts(second.job.id, { offset: 0, limit: 3 })).toEqual(second.contacts);
-        await expect(store.loadContacts(first.job.id, { offset: 0, limit: 2 })).rejects.toThrow(/archived/);
+        await expect(store.loadContacts(first.job.id, { offset: 0, limit: 2 })).rejects.toBeInstanceOf(ArchivedJobError);
         expect((await store.load(first.job.id)).phase).toBe('completed');
+    });
+
+    it('leaves an archived job out of the listing by phase, so nobody opens what has no contacts', async () => {
+        const store = new SheetDispatchJobStore({ spreadsheetId: 'sheet-1' });
+        const { job, contacts } = aJobWith(2, '1');
+        await store.insert(job, contacts);
+        await store.update({ ...job, phase: 'completed' }, []);
+
+        expect((await store.findByPhases(['completed'])).map((found) => found.id)).toEqual([job.id]);
+
+        await store.archive(job.id, NOW);
+
+        expect(await store.findByPhases(['completed'])).toEqual([]);
+    });
+
+    it('refuses a job header stored before the call ledger existed, naming it', async () => {
+        const store = new SheetDispatchJobStore({ spreadsheetId: 'sheet-1' });
+        const { job, contacts } = aJobWith(1, '1');
+        await store.insert(job, contacts);
+
+        const { callEstimate: _estimate, callsSpent: _spent, ...legacy } = job;
+        const row = sheets.get(JOBS_SHEET)!.data[1]!;
+        row[row.length - 1] = JSON.stringify(legacy);
+
+        await expect(store.load(job.id)).rejects.toBeInstanceOf(IncompatibleJobStoreError);
+        await expect(store.findByPhases(['resolving'])).rejects.toThrow(job.id);
     });
 });

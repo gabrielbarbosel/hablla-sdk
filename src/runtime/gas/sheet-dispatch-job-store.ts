@@ -1,5 +1,5 @@
 import type { ContactOutcome, ContactPage, DispatchContact, DispatchJob, DispatchJobPhase, DispatchJobStore } from '../../sdk/domain/dispatch/workspace';
-import { holdsPersonClaim, JobNotFoundError, StaleJobError } from '../../sdk/domain/dispatch/workspace';
+import { ArchivedJobError, holdsPersonClaim, JobNotFoundError, StaleJobError } from '../../sdk/domain/dispatch/workspace';
 
 /** Apps Script bindings the store uses. */
 declare const SpreadsheetApp: {
@@ -58,6 +58,14 @@ export class CorruptedJobStoreError extends Error {
     constructor(readonly jobId: string, readonly row: number, readonly detail: string) {
         super(`Dispatch job store is corrupted at ${CONTACTS_SHEET} row ${row} of job ${jobId}: ${detail}`);
         this.name = 'CorruptedJobStoreError';
+    }
+}
+
+/** A job header was stored by a version whose shape this one cannot read; the tab has to be emptied. */
+export class IncompatibleJobStoreError extends Error {
+    constructor(readonly jobId: string, readonly detail: string) {
+        super(`Dispatch job ${jobId} was stored in a shape this version cannot read: ${detail}`);
+        this.name = 'IncompatibleJobStoreError';
     }
 }
 
@@ -127,8 +135,11 @@ export class SheetDispatchJobStore implements DispatchJobStore {
         return this.jobRows().filter((values) => String(values[jobColumn('fingerprint')]) === fingerprint).map(jobOfRow);
     }
 
+    /** Jobs of the given phases whose contacts are still stored; an archived job answers nothing a caller could page. */
     async findByPhases(phases: readonly DispatchJobPhase[]): Promise<DispatchJob[]> {
-        return this.jobRows().filter((values) => phases.includes(String(values[jobColumn('phase')]) as DispatchJobPhase)).map(jobOfRow);
+        return this.jobRows()
+            .filter((values) => !isArchivedRow(values) && phases.includes(String(values[jobColumn('phase')]) as DispatchJobPhase))
+            .map(jobOfRow);
     }
 
     async loadContacts(jobId: string, page: ContactPage): Promise<DispatchContact[]> {
@@ -190,7 +201,8 @@ export class SheetDispatchJobStore implements DispatchJobStore {
 
     /**
      * Frees the contact block of a finished job that no execution holds, shifting the
-     * blocks stored after it, and keeps the header marked as archived.
+     * blocks stored after it, and keeps the header marked as archived — out of
+     * {@link findByPhases} from then on, since nothing can be paged from it any more.
      *
      * @throws Error when the job is not in a finished phase or is leased.
      */
@@ -235,10 +247,15 @@ export class SheetDispatchJobStore implements DispatchJobStore {
         return { row: FIRST_DATA_ROW + position, values: rows[position]!, job: jobOfRow(rows[position]!) };
     }
 
-    /** Where a job's contacts live; archived jobs have none left. */
+    /**
+     * Where a job's contacts live.
+     *
+     * @throws ArchivedJobError when the job was archived, so its caller can report it
+     *   instead of breaking on an anonymous failure.
+     */
     private contactBlock(located: LocatedJob): { firstRow: number; contactCount: number } {
-        if (String(located.values[jobColumn('archivedAt')]) !== '') {
-            throw new Error(`Dispatch job ${located.job.id} is archived; its contacts were removed`);
+        if (isArchivedRow(located.values)) {
+            throw new ArchivedJobError(located.job.id);
         }
 
         return { firstRow: Number(located.values[jobColumn('contactsFirstRow')]), contactCount: Number(located.values[jobColumn('contactCount')]) };
@@ -293,6 +310,11 @@ function jobColumn(column: (typeof JOB_COLUMNS)[number]): number {
     return JOB_COLUMNS.indexOf(column);
 }
 
+/** True when the job row was archived, so its contact block was freed. */
+function isArchivedRow(values: readonly unknown[]): boolean {
+    return String(values[jobColumn('archivedAt')]) !== '';
+}
+
 /** Column position of a contact field. */
 function contactColumn(column: (typeof CONTACT_COLUMNS)[number]): number {
     return CONTACT_COLUMNS.indexOf(column);
@@ -303,9 +325,20 @@ function jobRow(job: DispatchJob, contactsFirstRow: number, contactCount: number
     return [job.id, job.revision, job.fingerprint, job.phase, job.createdAt, job.updatedAt, contactsFirstRow, contactCount, job.leaseUntil ?? '', archivedAt, JSON.stringify(job)];
 }
 
-/** The job header of a row. */
+/**
+ * The job header of a row.
+ *
+ * @throws IncompatibleJobStoreError when the header has no call ledger, which every job
+ *   stored before v0.5.0 lacks and every answer of the dispatch reads.
+ */
 function jobOfRow(values: readonly unknown[]): DispatchJob {
-    return JSON.parse(String(values[jobColumn('_raw')])) as DispatchJob;
+    const job = JSON.parse(String(values[jobColumn('_raw')])) as DispatchJob;
+
+    if (job.callEstimate === undefined || job.callsSpent === undefined) {
+        throw new IncompatibleJobStoreError(String(values[jobColumn('id')]), 'the header has no callEstimate/callsSpent; it was stored before v0.5.0');
+    }
+
+    return job;
 }
 
 /** The row of a contact. */
