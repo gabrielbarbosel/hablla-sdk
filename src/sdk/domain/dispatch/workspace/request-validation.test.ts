@@ -126,6 +126,12 @@ describe('assertValidRequest', () => {
         ]);
     });
 
+    it('reports a templateVariables that is not a list, without crashing on the reference checks', () => {
+        expect(problemsOf(aRequest({ templateVariables: undefined as never }))).toEqual([
+            'templateVariables must be an array, one entry per body variable of the template',
+        ]);
+    });
+
     it('reports a variable that does not say where its value comes from', () => {
         const problems = problemsOf(aRequest({ templateVariables: [{ fieldId: FIRST_NAME_FIELD_ID, formats: [] } as never] }));
 

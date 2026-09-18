@@ -298,8 +298,13 @@ function referenceProblems(request: WorkspaceDispatchRequest, roster: RosterInde
  * Problems of the custom fields the template variables bind: a field the workspace does
  * not have or that cannot carry text, and a field the audience does not fill — the column
  * the operator mapped the variable to is not there, so the message would go out with a hole.
+ * A `templateVariables` that is not a list was already reported by the shape check.
  */
 function boundFieldProblems(request: WorkspaceDispatchRequest, customFields: CustomFieldIndex): string[] {
+    if (!Array.isArray(request.templateVariables)) {
+        return [];
+    }
+
     const problems: string[] = [];
 
     for (const fieldId of boundFieldIds(request.templateVariables)) {
