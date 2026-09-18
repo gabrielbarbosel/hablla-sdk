@@ -25,6 +25,7 @@ export type { TemplateVariable, VariableFormat } from './template-variables';
 export type {
     AdvisorKeyKind,
     AdvisorResolution,
+    CallBudget,
     CampaignCreateBody,
     ChunkedPhase,
     ContactFailure,
@@ -32,6 +33,7 @@ export type {
     ContactPage,
     CustomFieldValue,
     ContinueOptions,
+    DispatchCallBudget,
     DispatchContact,
     DispatchJob,
     DispatchJobPhase,

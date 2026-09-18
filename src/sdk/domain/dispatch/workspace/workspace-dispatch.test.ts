@@ -975,6 +975,37 @@ describe('WorkspaceDispatch status', () => {
     });
 });
 
+describe('WorkspaceDispatch call budget', () => {
+    it('reports the estimate the plan was checked against, already charged for the catalog reads', async () => {
+        const planned = await dispatch.plan(aRequest({ rows: [aRow('1')] }));
+
+        expect(planned.callBudget.estimate).toEqual(estimateCallBudget(store.contactsOf(planned.job.id), { roster: 1, customFields: 1 }, 0));
+        expect(planned.callBudget.spent).toBe(2);
+        expect(planned.callBudget.remaining).toBe(planned.callBudget.estimate.total - 2);
+        expect(planned.callBudget.dailyCallQuota).toBe(1_000_000);
+    });
+
+    it('charges every call the job sends, so what is spent only grows and what is left only shrinks', async () => {
+        const planned = await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] }));
+        const resolved = await drive(planned);
+
+        expect(resolved.callBudget.spent).toBeGreaterThan(planned.callBudget.spent);
+        expect(resolved.callBudget.spent).toBe(hablla.requests.length);
+
+        const done = await drive(await dispatch.start(resolved.job.id, OPERATOR));
+
+        expect(done.callBudget.spent).toBe(hablla.requests.length);
+        expect(done.callBudget.remaining).toBe(Math.max(0, done.callBudget.estimate.total - done.callBudget.spent));
+    });
+
+    it('carries the ledger into a status read, which sends no call of its own', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+        const view = await dispatch.status(planned.job.id, { offset: 0, limit: 10 });
+
+        expect(view.callBudget).toEqual(planned.callBudget);
+    });
+});
+
 describe('WorkspaceDispatch job listing', () => {
     it('lists the jobs of the asked phases, newest first, with the step each one waits for', async () => {
         const first = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));

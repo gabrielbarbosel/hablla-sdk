@@ -25,7 +25,7 @@ import { prepareAudience } from './audience';
 import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { InvalidJobTransitionError } from './errors';
 import { isJobId, jobIdOf } from './job-id';
-import { ROSTER, aContact, aRequest, aRow, completed } from './__fixtures__/builders';
+import { NO_CALLS_SPENT, ROSTER, aContact, aRequest, aRow, completed } from './__fixtures__/builders';
 import type { DispatchJob, DispatchJobPhase, JobFailure } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -35,7 +35,7 @@ const FILTERS = [{ type: 'in_segmentation', segmentation: '6a589ac29c70672890006
 /** A job created from a request with three rows (one invalid phone). */
 function aJob(overrides: Partial<DispatchJob> = {}): DispatchJob {
     const request = aRequest({ rows: [aRow('1', { phone: 'bad' }), aRow('2'), aRow('3')], exclusion: { phones: ['5551999000009'], segmentationFilters: [] } });
-    return { ...createJob(prepareAudience(request, ROSTER), request, NOW), ...overrides };
+    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT), ...overrides };
 }
 
 describe('createJob', () => {
@@ -53,12 +53,12 @@ describe('createJob', () => {
     it('awaits confirmation right away when no contact needs a lookup', () => {
         const request = aRequest({ rows: [aRow('1', { phone: 'bad' })] });
 
-        expect(createJob(prepareAudience(request, ROSTER), request, NOW).phase).toBe('awaitingConfirmation');
+        expect(createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT).phase).toBe('awaitingConfirmation');
     });
 
     it('resolves the exclusion first when the request excludes by filter', () => {
         const request = aRequest({ exclusion: { phones: [], segmentationFilters: FILTERS } });
-        const job = createJob(prepareAudience(request, ROSTER), request, NOW);
+        const job = createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT);
 
         expect(job).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'preview', exclusionCursor: FIRST_EXCLUSION_PAGE, exclusionAttempts: 0 });
         expect(job.exclusion.segmentationFilters).toEqual(FILTERS);
@@ -67,7 +67,7 @@ describe('createJob', () => {
     it('skips the exclusion phase when no contact needs a lookup', () => {
         const request = aRequest({ rows: [aRow('1', { phone: 'bad' })], exclusion: { phones: [], segmentationFilters: FILTERS } });
 
-        expect(createJob(prepareAudience(request, ROSTER), request, NOW).phase).toBe('awaitingConfirmation');
+        expect(createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT).phase).toBe('awaitingConfirmation');
     });
 });
 

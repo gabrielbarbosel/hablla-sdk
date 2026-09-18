@@ -276,6 +276,10 @@ export interface DispatchJob {
     exclusionListed?: number;
     /** Rounds interrupted in a row (see `trackInterruptedRounds`); reset by the first round that is not. */
     consecutiveInterruptedRounds: number;
+    /** The estimate `plan` checked against the daily quota, kept so every answer can report it. */
+    callEstimate: CallBudget;
+    /** HTTP calls this job has sent, from the catalog reads of `plan` onwards. */
+    callsSpent: number;
     startedBy?: string;
     startedAt?: number;
     segmentationId?: string;
@@ -309,16 +313,39 @@ export interface HabllaDispatchConfig {
     batch_interval: number;
 }
 
+/** Estimated HTTP calls of one dispatch, by token. */
+export interface CallBudget {
+    workspace: number;
+    bearer: number;
+    total: number;
+}
+
+/**
+ * The call-budget ledger of a job, as every answer reports it: what `plan` estimated and
+ * checked against the quota, what the job has really spent so far and what is still
+ * expected, so the caller has one gate instead of waiting for the estimate to be exceeded.
+ */
+export interface DispatchCallBudget {
+    estimate: CallBudget;
+    /** Calls the job has sent, counting the ones `plan` spent reading the catalogs. */
+    spent: number;
+    /** Estimated calls still ahead; zero once the job spent its whole estimate. */
+    remaining: number;
+    /** The quota the estimate was checked against (see {@link WorkspaceDispatchLimits.dailyCallQuota}). */
+    dailyCallQuota: number;
+}
+
 /** What the caller should do after a call returns. */
 export type DispatchNextStep =
     | { kind: 'continueAfter'; delayMs: number }
     | { kind: 'awaitConfirmation' }
     | { kind: 'finished' };
 
-/** A job with the step its caller should take next. */
+/** A job with the step its caller should take next and what it has cost so far. */
 export interface DispatchProgress {
     job: DispatchJob;
     next: DispatchNextStep;
+    callBudget: DispatchCallBudget;
 }
 
 /** A page of the per-contact drill-down. */

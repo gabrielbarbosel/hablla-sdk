@@ -23,10 +23,10 @@ import type {
 } from './types';
 import { DISPATCH_JOB_PHASES, RESUMABLE_PHASES } from './types';
 import { excludesByFilter, prepareAudience } from './audience';
-import { estimateCallBudget } from './call-budget';
+import { callBudgetOf, estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
 import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName, readAudienceCount } from './campaign';
-import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, EXCLUSION_PAGE_LIMIT, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
+import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, CREATE_SEGMENTATION_CALLS, EXCLUSION_PAGE_LIMIT, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
 import { EXCLUSION_UNIVERSE_COUNT, applyExcludedPhones, exclusionPageCount, resolveExclusionPage, resolveExclusionUniverse } from './exclusion';
 import { resolveDispatchLimits } from './limits';
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
@@ -39,6 +39,7 @@ import {
     isLeased,
     isResumablePhase,
     nextStepOf,
+    spendCalls,
     tallyOutcomes,
     toAbandoned,
     toAfterExclusions,
@@ -74,6 +75,12 @@ interface ContinueSession {
 
 /** How one step of the `continue` loop ended: keep looping, yield until the next step's delay, or stop early. */
 type LoopSignal = { kind: 'next' } | { kind: 'yield' } | { kind: 'stop'; stop: EarlyStop };
+
+/** What one exclusion run will cost, measured before the job is stored. */
+interface ExclusionMeasure {
+    pages: number;
+    calls: number;
+}
 
 /** A catalog read by pages. */
 interface CatalogRead<T> {
@@ -116,13 +123,15 @@ export class WorkspaceDispatch {
 
         const prepared = prepareAudience(request, rosterIndex);
         const catalogPages: CatalogPages = { roster: roster.pages, customFields: customFields.pages };
-        const budget = estimateCallBudget(prepared.contacts, catalogPages, await this.measureExclusionRun(request));
+        const exclusionRun = await this.measureExclusionRun(request);
+        const estimate = estimateCallBudget(prepared.contacts, catalogPages, exclusionRun.pages);
 
-        if (budget.total > this.limits.dailyCallQuota) {
-            throw new CallBudgetExceededError(budget, this.limits.dailyCallQuota);
+        if (estimate.total > this.limits.dailyCallQuota) {
+            throw new CallBudgetExceededError(estimate, this.limits.dailyCallQuota);
         }
 
-        const job = createJob(prepared, request, this.ports.clock.now());
+        const spent = roster.pages + customFields.pages + exclusionRun.calls;
+        const job = createJob(prepared, request, this.ports.clock.now(), { estimate, spent });
         const inserted = await this.ports.store.withExclusiveAccess(() => this.insertUnlessDuplicate(job, prepared.contacts, request.repeatOfJobId));
 
         return this.progressOf(inserted);
@@ -154,8 +163,9 @@ export class WorkspaceDispatch {
             }
 
             const segmentationId = await this.createSegmentation(job);
+            const confirmed = toConfirmed(spendCalls(job, CREATE_SEGMENTATION_CALLS), segmentationId, options.operatorEmail, this.ports.clock.now());
 
-            return this.ports.store.update(toConfirmed(job, segmentationId, options.operatorEmail, this.ports.clock.now()), []);
+            return this.ports.store.update(confirmed, []);
         });
 
         return this.progressOf(started);
@@ -187,7 +197,7 @@ export class WorkspaceDispatch {
             const stop = await this.runUntilDeadline(session, options.deadlineAt);
             const released = await this.ports.store.update({ ...session.job, leaseUntil: undefined }, []);
 
-            return { job: released, next: nextStepOf(released, stop, this.ports.clock.now()) };
+            return { ...this.progressOf(released), next: nextStepOf(released, stop, this.ports.clock.now()) };
         } catch (error) {
             if (error instanceof StaleJobError) {
                 return this.progressOf(await this.ports.store.load(jobId));
@@ -249,9 +259,9 @@ export class WorkspaceDispatch {
         return jobs.sort((one, other) => other.createdAt - one.createdAt).map((job) => this.progressOf(job));
     }
 
-    /** The job with the next step computed now. */
+    /** The job with the next step computed now and the call budget it has spent so far. */
     private progressOf(job: DispatchJob): DispatchProgress {
-        return { job, next: nextStepOf(job, undefined, this.ports.clock.now()) };
+        return { job, next: nextStepOf(job, undefined, this.ports.clock.now()), callBudget: callBudgetOf(job, this.limits.dailyCallQuota) };
     }
 
     /**
@@ -271,15 +281,15 @@ export class WorkspaceDispatch {
 
     /**
      * Pages one exclusion run will read, from a Bearer count of the filters' universe, or 0
-     * when the request excludes nobody by filter. Above the configured ceiling it fails the
-     * plan, before anything is stored: a truncated exclusion would dispatch to people the
-     * operator left out.
+     * when the request excludes nobody by filter, together with the calls the measurement
+     * itself cost. Above the configured ceiling it fails the plan, before anything is
+     * stored: a truncated exclusion would dispatch to people the operator left out.
      *
      * @throws DispatchValidationError, DispatchThrottledError or DispatchTransportError.
      */
-    private async measureExclusionRun(request: WorkspaceDispatchRequest): Promise<number> {
+    private async measureExclusionRun(request: WorkspaceDispatchRequest): Promise<ExclusionMeasure> {
         if (!excludesByFilter(request.exclusion)) {
-            return 0;
+            return { pages: 0, calls: 0 };
         }
 
         const [result] = await this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)]);
@@ -295,7 +305,7 @@ export class WorkspaceDispatch {
             ]);
         }
 
-        return pages;
+        return { pages, calls: 1 };
     }
 
     /** Inserts the job unless a duplicate blocks it, superseding idle jobs of the same audience. */
@@ -600,9 +610,9 @@ export class WorkspaceDispatch {
         return this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt;
     }
 
-    /** Runs one round of calls, keeping the job's interrupted-round bookkeeping. */
+    /** Runs one round of calls, charging them to the job and keeping its interrupted-round bookkeeping. */
     private async executeRound(session: ContinueSession, calls: readonly HttpCall[]): Promise<readonly CallResult[]> {
-        const tracked = trackInterruptedRounds(session.job, await this.ports.executor.executeAll(calls));
+        const tracked = trackInterruptedRounds(spendCalls(session.job, calls.length), await this.ports.executor.executeAll(calls));
 
         session.job = tracked.job;
 

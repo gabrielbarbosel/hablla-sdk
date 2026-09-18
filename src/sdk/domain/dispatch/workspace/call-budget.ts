@@ -5,15 +5,8 @@
  * failure can push a dispatch past it.
  */
 
-import type { DispatchContact } from './types';
+import type { CallBudget, DispatchCallBudget, DispatchContact, DispatchJob } from './types';
 import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, MAX_CALL_ATTEMPTS } from './constants';
-
-/** Estimated HTTP calls of one dispatch, by token. */
-export interface CallBudget {
-    workspace: number;
-    bearer: number;
-    total: number;
-}
 
 /** Pages of the catalogs read by `plan`. */
 export interface CatalogPages {
@@ -61,6 +54,16 @@ export function estimateCallBudget(contacts: readonly DispatchContact[], catalog
     const bearer = catalogPages.customFields + FIXED_BEARER_CALLS + exclusionBearerCalls(exclusionPages);
 
     return { workspace, bearer, total: workspace + bearer };
+}
+
+/** The ledger a job reports: its estimate, what it has spent and what is still expected. */
+export function callBudgetOf(job: Pick<DispatchJob, 'callEstimate' | 'callsSpent'>, dailyCallQuota: number): DispatchCallBudget {
+    return {
+        estimate: job.callEstimate,
+        spent: job.callsSpent,
+        remaining: Math.max(0, job.callEstimate.total - job.callsSpent),
+        dailyCallQuota,
+    };
 }
 
 /** Bearer calls of the exclusion: the universe count `plan` reads, plus one count and the pages of every run. */

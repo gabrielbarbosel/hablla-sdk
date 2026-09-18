@@ -7,6 +7,7 @@ import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { AuthStrategy } from '../../../core/strategy';
 import type { PreparedAudience } from './audience';
 import type { StopCause } from './call-failures';
+import type { CallBudget } from './types';
 import type {
     ChunkedPhase,
     ContactOutcome,
@@ -35,6 +36,12 @@ const TERMINAL_PHASES: readonly DispatchJobPhase[] = ['completed', 'superseded',
 
 /** Why a call returned early, as `nextStepOf` understands it. */
 export type EarlyStop = { cause: StopCause } | { waitUntil: number };
+
+/** What `plan` estimated for a job and what it already spent getting there. */
+export interface JobCallLedger {
+    estimate: CallBudget;
+    spent: number;
+}
 
 /** What `plan` must do given the jobs that share the fingerprint. */
 export type DuplicateVerdict =
@@ -75,7 +82,7 @@ export function tallyOutcomes(counts: Readonly<Record<ContactOutcome, number>>, 
  * A new job at revision 0: `resolvingExclusions` when the request excludes by filter,
  * `resolving` when it does not, or `awaitingConfirmation` when no contact needs a lookup.
  */
-export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number): DispatchJob {
+export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number, calls: JobCallLedger): DispatchJob {
     const { rows: _rows, exclusion, ...settings } = request;
     const firstPending = prepared.contacts.find((contact) => contact.outcome === 'pendingLookup');
     const job: DispatchJob = {
@@ -93,6 +100,8 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
         counts: countOutcomes(prepared.contacts),
         revalidationShifts: {},
         consecutiveInterruptedRounds: 0,
+        callEstimate: calls.estimate,
+        callsSpent: calls.spent,
         warnings: [],
     };
 
@@ -220,6 +229,11 @@ export function trackInterruptedRounds(job: DispatchJob, results: readonly CallR
         job: tracked,
         results: results.map((result) => (result.kind === 'interrupted' ? { kind: 'transportFailed', message: result.message } : result)),
     };
+}
+
+/** The job with more calls on its ledger; the only place the count grows. */
+export function spendCalls(job: DispatchJob, count: number): DispatchJob {
+    return count === 0 ? job : { ...job, callsSpent: job.callsSpent + count };
 }
 
 /** True for a phase a `continue` works on; every other phase is left untouched. */

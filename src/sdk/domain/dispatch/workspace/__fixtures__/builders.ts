@@ -5,6 +5,7 @@
 
 import type { CallResult } from '../../../../core/call-executor';
 import type { RosterUser } from '../payloads';
+import type { JobCallLedger } from '../job-machine';
 import type { TemplateVariable } from '../template-variables';
 import type { DispatchContact, DispatchSettings, WorkspaceDispatchRequest, WorkspaceDispatchRow } from '../types';
 import { indexRoster } from '../request-validation';
@@ -67,6 +68,9 @@ export function aRequest(overrides: Partial<WorkspaceDispatchRequest> = {}): Wor
         ...overrides,
     };
 }
+
+/** The call ledger of a job built straight from a request, with nothing spent yet. */
+export const NO_CALLS_SPENT: JobCallLedger = { estimate: { workspace: 0, bearer: 0, total: 0 }, spent: 0 };
 
 /** The persisted settings of a request. */
 export function settingsOf(request: WorkspaceDispatchRequest): DispatchSettings {

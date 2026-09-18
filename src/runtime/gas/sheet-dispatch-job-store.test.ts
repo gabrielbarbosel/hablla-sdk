@@ -3,7 +3,7 @@ import { CONTACTS_SHEET, CorruptedJobStoreError, EXCLUSIVE_ACCESS_WAIT_MS, JOBS_
 import { JobNotFoundError, StaleJobError } from '../../sdk/domain/dispatch/workspace';
 import { createJob } from '../../sdk/domain/dispatch/workspace/job-machine';
 import { prepareAudience } from '../../sdk/domain/dispatch/workspace/audience';
-import { ROSTER, aRequest, aRow } from '../../sdk/domain/dispatch/workspace/__fixtures__/builders';
+import { NO_CALLS_SPENT, ROSTER, aRequest, aRow } from '../../sdk/domain/dispatch/workspace/__fixtures__/builders';
 import type { DispatchContact, DispatchJob } from '../../sdk/domain/dispatch/workspace';
 
 /** Dense in-memory sheet with the calls the store uses, including row deletion. */
@@ -93,7 +93,7 @@ const NOW = 1_800_000_000_000;
 function aJobWith(count: number, suffix = '0'): { job: DispatchJob; contacts: DispatchContact[] } {
     const request = aRequest({ label: `job ${suffix}`, rows: Array.from({ length: count }, (_unused, index) => aRow(`${suffix}${index + 1}`)) });
     const prepared = prepareAudience(request, ROSTER);
-    return { job: createJob(prepared, request, NOW + Number(suffix)), contacts: prepared.contacts };
+    return { job: createJob(prepared, request, NOW + Number(suffix), NO_CALLS_SPENT), contacts: prepared.contacts };
 }
 
 describe('SheetDispatchJobStore', () => {

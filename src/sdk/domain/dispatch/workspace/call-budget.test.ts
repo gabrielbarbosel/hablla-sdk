@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ESTIMATED_CALLS_PER_CONTACT, EXCLUSION_RUNS_PER_DISPATCH, estimateCallBudget } from './call-budget';
+import { ESTIMATED_CALLS_PER_CONTACT, EXCLUSION_RUNS_PER_DISPATCH, callBudgetOf, estimateCallBudget } from './call-budget';
 import { aContact } from './__fixtures__/builders';
 
 describe('estimateCallBudget', () => {
@@ -24,5 +24,22 @@ describe('estimateCallBudget', () => {
         expect(withExclusion.bearer - withoutExclusion.bearer).toBe(1 + (1 + 3) * EXCLUSION_RUNS_PER_DISPATCH);
         expect(withExclusion.workspace).toBe(withoutExclusion.workspace);
         expect(withExclusion.total).toBe(withExclusion.workspace + withExclusion.bearer);
+    });
+});
+
+describe('callBudgetOf', () => {
+    const estimate = { workspace: 30, bearer: 10, total: 40 };
+
+    it('reports what is left of the estimate against the quota it was checked with', () => {
+        expect(callBudgetOf({ callEstimate: estimate, callsSpent: 12 }, 20_000)).toEqual({
+            estimate,
+            spent: 12,
+            remaining: 28,
+            dailyCallQuota: 20_000,
+        });
+    });
+
+    it('never reports a negative remainder, since the estimate is not a ceiling', () => {
+        expect(callBudgetOf({ callEstimate: estimate, callsSpent: 41 }, 20_000).remaining).toBe(0);
     });
 });

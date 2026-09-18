@@ -80,3 +80,6 @@ export const FIRST_EXCLUSION_PAGE = 1;
 
 /** Longest failure detail kept on a contact or a job. */
 export const FAILURE_DETAIL_MAX_LENGTH = 300;
+
+/** The one Bearer call `start` spends creating the job's segmentation. */
+export const CREATE_SEGMENTATION_CALLS = 1;

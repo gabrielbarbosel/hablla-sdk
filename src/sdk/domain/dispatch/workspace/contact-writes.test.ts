@@ -3,7 +3,7 @@ import { applyWriteResult, planContactWrites, withWriteAhead, writeCallFor, type
 import { CALL_RETRY_DELAY_MS, RECONCILIATION_DELAY_MS } from './constants';
 import { createJob } from './job-machine';
 import { prepareAudience } from './audience';
-import { ADVISOR, FIRST_NAME_FIELD_ID, OTHER_ADVISOR, ROSTER, SECTOR_ID, SYSTEM_USER, ZENVIA_IDS_FIELD_ID, aContact, aRequest, completed } from './__fixtures__/builders';
+import { ADVISOR, FIRST_NAME_FIELD_ID, NO_CALLS_SPENT, OTHER_ADVISOR, ROSTER, SECTOR_ID, SYSTEM_USER, ZENVIA_IDS_FIELD_ID, aContact, aRequest, completed } from './__fixtures__/builders';
 import type { DispatchContact, DispatchJob, DispatchSettings, WorkspaceDispatchRequest } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -12,7 +12,7 @@ const SEGMENTATION_ID = '6aab098d88aca07a08c6566f';
 /** A materializing job with a segmentation. */
 function aJob(overrides: Partial<WorkspaceDispatchRequest> = {}): DispatchJob {
     const request = aRequest(overrides);
-    return { ...createJob(prepareAudience(request, ROSTER), request, NOW), phase: 'materializing', segmentationId: SEGMENTATION_ID };
+    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT), phase: 'materializing', segmentationId: SEGMENTATION_ID };
 }
 
 /** The settings of a job built from the default request. */
