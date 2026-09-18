@@ -126,6 +126,14 @@ describe('assertValidRequest', () => {
         ]);
     });
 
+    it('counts a blank cell of the mapped column as unfilled, the way an absent column is', () => {
+        const request = aRequest({ rows: [aRow('1', { customFields: { [FIRST_NAME_FIELD_ID]: '' } }), aRow('2', { customFields: { [FIRST_NAME_FIELD_ID]: '   ' } }), aRow('3')] });
+
+        expect(problemsOf(request)).toEqual([
+            `custom field ${FIRST_NAME_FIELD_ID} bound by a template variable is not filled by 2 of the 3 rows`,
+        ]);
+    });
+
     it('refuses a person-field variable while the policy writes nothing into an existing person', () => {
         const problems = problemsOf(aRequest({ existingPersonFieldPolicy: 'none' }));
 

@@ -6,7 +6,7 @@
 
 import type { CustomFieldDefinition, RosterUser } from './payloads';
 import type { TemplateVariable } from './template-variables';
-import type { WorkspaceDispatchRequest } from './types';
+import type { WorkspaceDispatchRequest, WorkspaceDispatchRow } from './types';
 import { normalizeEmail } from '../../../utils';
 import { DispatchValidationError } from './errors';
 import { isJobId } from './job-id';
@@ -319,8 +319,9 @@ function referenceProblems(request: WorkspaceDispatchRequest, roster: RosterInde
 /**
  * Problems of the custom fields the template variables bind: a field the workspace does
  * not have or that cannot carry text, and a field the audience does not fill — the column
- * the operator mapped the variable to is not there, so the message would go out with a hole.
- * A `templateVariables` that is not a list was already reported by the shape check.
+ * the operator mapped the variable to is missing or blank in some row, so the message would
+ * go out with a hole. A `templateVariables` that is not a list was already reported by the
+ * shape check.
  */
 function boundFieldProblems(request: WorkspaceDispatchRequest, customFields: CustomFieldIndex): string[] {
     if (!Array.isArray(request.templateVariables)) {
@@ -338,7 +339,7 @@ function boundFieldProblems(request: WorkspaceDispatchRequest, customFields: Cus
             problems.push(`custom field ${fieldId} bound by a template variable must be a ${PERSON_TARGET} field of type ${VARIABLE_FIELD_TYPE}, got ${field.target}/${field.type}`);
         }
 
-        const unfilled = request.rows.filter((row) => !Object.prototype.hasOwnProperty.call(row.customFields ?? {}, fieldId)).length;
+        const unfilled = request.rows.filter((row) => !fillsBoundField(row, fieldId)).length;
 
         if (unfilled > 0) {
             problems.push(`custom field ${fieldId} bound by a template variable is not filled by ${unfilled} of the ${request.rows.length} rows`);
@@ -346,6 +347,17 @@ function boundFieldProblems(request: WorkspaceDispatchRequest, customFields: Cus
     }
 
     return problems;
+}
+
+/**
+ * True when the row carries text in the column bound to a variable. A blank cell arrives
+ * as an empty string, which no reformatting turns into text, so it is as unfilled as an
+ * absent column: both would send that variable empty.
+ */
+function fillsBoundField(row: WorkspaceDispatchRow, fieldId: string): boolean {
+    const value = row.customFields?.[fieldId];
+
+    return typeof value === 'string' && value.trim() !== '';
 }
 
 /** Distinct custom-field ids across every row. */
