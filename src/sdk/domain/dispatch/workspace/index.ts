@@ -19,7 +19,7 @@ export {
     StaleJobError,
     UnexpectedPayloadError,
 } from './errors';
-export { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
+export { CONTACT_OUTCOMES, DISPATCH_JOB_PHASES, RESUMABLE_PHASES } from './types';
 export { VARIABLE_FORMATS, formatVariableValue } from './template-variables';
 export type { TemplateVariable, VariableFormat } from './template-variables';
 export type {

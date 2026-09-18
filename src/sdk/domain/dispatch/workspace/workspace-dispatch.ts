@@ -14,13 +14,14 @@ import type {
     ContinueOptions,
     DispatchContact,
     DispatchJob,
+    DispatchJobPhase,
     DispatchJobView,
     DispatchProgress,
     OperatorOptions,
     WorkspaceDispatchLimits,
     WorkspaceDispatchRequest,
 } from './types';
-import { RESUMABLE_PHASES } from './types';
+import { DISPATCH_JOB_PHASES, RESUMABLE_PHASES } from './types';
 import { excludesByFilter, prepareAudience } from './audience';
 import { estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
@@ -221,7 +222,31 @@ export class WorkspaceDispatch {
 
     /** Ids of the jobs a continuation should work on. */
     async resumableJobIds(): Promise<string[]> {
-        return (await this.ports.store.findByPhases(RESUMABLE_PHASES)).map((job) => job.id);
+        return this.jobIds(RESUMABLE_PHASES);
+    }
+
+    /**
+     * Ids of every stored job in one of the given phases, newest first — the listing that
+     * spares the caller an index of its own.
+     *
+     * @throws DispatchValidationError for an empty list or an unknown phase.
+     */
+    async jobIds(phases: readonly DispatchJobPhase[]): Promise<string[]> {
+        return (await this.listJobs(phases)).map((progress) => progress.job.id);
+    }
+
+    /**
+     * Every stored job in one of the given phases with its next step, newest first. Headers
+     * only: the contacts of a job come from {@link status}.
+     *
+     * @throws DispatchValidationError for an empty list or an unknown phase.
+     */
+    async listJobs(phases: readonly DispatchJobPhase[]): Promise<DispatchProgress[]> {
+        assertKnownPhases(phases);
+
+        const jobs = await this.ports.store.findByPhases(phases);
+
+        return jobs.sort((one, other) => other.createdAt - one.createdAt).map((job) => this.progressOf(job));
     }
 
     /** The job with the next step computed now. */
@@ -675,6 +700,24 @@ export class WorkspaceDispatch {
             case 'stop':
                 return { kind: 'stop', stop: { cause: resolution.cause } };
         }
+    }
+}
+
+/**
+ * Guards a phase listing, so a typo does not come back as an empty list the caller reads
+ * as "no dispatch is running".
+ *
+ * @throws DispatchValidationError naming the empty list or each unknown phase.
+ */
+function assertKnownPhases(phases: readonly DispatchJobPhase[]): void {
+    if (!Array.isArray(phases) || phases.length === 0) {
+        throw new DispatchValidationError(['phases must hold at least one dispatch job phase']);
+    }
+
+    const unknown = phases.filter((phase) => !(DISPATCH_JOB_PHASES as readonly string[]).includes(phase));
+
+    if (unknown.length > 0) {
+        throw new DispatchValidationError(unknown.map((phase) => `${JSON.stringify(phase)} is not a dispatch job phase (${DISPATCH_JOB_PHASES.join(', ')})`));
     }
 }
 

@@ -974,3 +974,38 @@ describe('WorkspaceDispatch status', () => {
         expect(await dispatch.resumableJobIds()).toEqual([planned.job.id]);
     });
 });
+
+describe('WorkspaceDispatch job listing', () => {
+    it('lists the jobs of the asked phases, newest first, with the step each one waits for', async () => {
+        const first = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+
+        clock.current += 1_000;
+
+        const second = await drive(await dispatch.plan(aRequest({ rows: [aRow('2')] })));
+        const listed = await dispatch.listJobs(['awaitingConfirmation']);
+
+        expect(listed.map((progress) => progress.job.id)).toEqual([second.job.id, first.job.id]);
+        expect(listed.every((progress) => progress.next.kind === 'awaitConfirmation')).toBe(true);
+        expect(await dispatch.jobIds(['awaitingConfirmation'])).toEqual([second.job.id, first.job.id]);
+    });
+
+    it('finds a finished job, which the resumable listing never names', async () => {
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
+
+        expect(await dispatch.jobIds(['completed'])).toEqual([done.job.id]);
+        expect(await dispatch.resumableJobIds()).toEqual([]);
+    });
+
+    it('is empty for a phase no job is in, without any call', async () => {
+        await dispatch.plan(aRequest());
+        const before = hablla.requests.length;
+
+        expect(await dispatch.jobIds(['failed', 'abandoned'])).toEqual([]);
+        expect(hablla.requests).toHaveLength(before);
+    });
+
+    it('refuses an empty list or an unknown phase instead of answering nothing', async () => {
+        await expect(dispatch.jobIds([])).rejects.toBeInstanceOf(DispatchValidationError);
+        await expect(dispatch.jobIds(['running' as never])).rejects.toThrow(/is not a dispatch job phase/);
+    });
+});

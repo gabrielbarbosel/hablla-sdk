@@ -205,11 +205,15 @@ export const RESUMABLE_PHASES = ['resolvingExclusions', 'resolving', 'materializ
 export type ResumePhase = (typeof RESUMABLE_PHASES)[number];
 
 /**
- * Phase of a dispatch job; `awaitingConfirmation` waits for the operator, the last four are
- * over. `resolvingExclusions` runs twice, before `resolving` and on the confirmed job before
+ * Every phase of a dispatch job, and the source of {@link DispatchJobPhase}:
+ * `awaitingConfirmation` waits for the operator, the last four are over.
+ * `resolvingExclusions` runs twice, before `resolving` and on the confirmed job before
  * `materializing`; {@link DispatchJob.exclusionPurpose} tells the two runs apart.
  */
-export type DispatchJobPhase = ResumePhase | 'awaitingConfirmation' | 'completed' | 'failed' | 'superseded' | 'abandoned';
+export const DISPATCH_JOB_PHASES = [...RESUMABLE_PHASES, 'awaitingConfirmation', 'completed', 'failed', 'superseded', 'abandoned'] as const;
+
+/** Phase of a dispatch job; see {@link DISPATCH_JOB_PHASES}. */
+export type DispatchJobPhase = (typeof DISPATCH_JOB_PHASES)[number];
 
 /** Phases whose work is done contact by contact, in chunks. */
 export type ChunkedPhase = 'resolving' | 'materializing';
