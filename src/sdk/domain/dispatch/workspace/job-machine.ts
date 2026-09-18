@@ -21,12 +21,12 @@ import type {
     JobFailureReason,
     WorkspaceDispatchRequest,
 } from './types';
-import { excludeContacts, excludesByFilter } from './audience';
+import { excludeContacts, excludesByFilter, unreadablePhones } from './audience';
 import { rejectedTokenStrategy } from './call-failures';
 import { toDispatchConfig } from './campaign';
 import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { workOutcomeOf } from './contact-step';
-import { InvalidJobTransitionError } from './errors';
+import { DispatchValidationError, InvalidJobTransitionError } from './errors';
 import { jobIdOf } from './job-id';
 import { requireAudienceSize, requireExclusionCursor, requireExclusionPurpose } from './requirements';
 import { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
@@ -313,9 +313,19 @@ export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEm
  * `awaitingConfirmation` with the exclusion renewed at confirmation time: the outcomes of
  * the contacts the renewed list took out, and the size of the list, kept apart from the
  * one `plan` applied so the audit says which list took whom out.
+ *
+ * @throws DispatchValidationError when a value of the renewed list is not a phone. This is
+ *   the last gate before the writes: a list pasted from the wrong column would take nobody
+ *   out and confirm the dispatch anyway, with the audit claiming it had been applied.
  */
 export function withRenewedExclusion(job: DispatchJob, contacts: readonly DispatchContact[], phones: readonly string[], now: number): { job: DispatchJob; excluded: DispatchContact[] } {
     assertPhase(job, ['awaitingConfirmation'], 'renew its exclusion');
+
+    const unreadable = unreadablePhones(phones);
+
+    if (unreadable.length > 0) {
+        throw new DispatchValidationError(unreadable.map((phone) => `exclusion.phones holds ${JSON.stringify(phone)}, which is not a Brazilian phone`));
+    }
 
     const after = excludeContacts(contacts, phones);
     const excluded = after.filter((contact, position) => contact !== contacts[position]);

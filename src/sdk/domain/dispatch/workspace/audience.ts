@@ -80,6 +80,15 @@ export function excludeContacts(contacts: readonly DispatchContact[], excludedPh
 }
 
 /**
+ * The excluded values {@link excludeContacts} cannot read as a Brazilian phone, so they
+ * would take nobody out. At `plan` they are tolerated, but a list read again to be applied
+ * right before the writes is the last gate, and a garbled one has to be seen.
+ */
+export function unreadablePhones(phones: readonly string[]): string[] {
+    return phones.filter((phone) => brazilianPhoneVariants(phone) === undefined);
+}
+
+/**
  * Fingerprint of an audience: a 64-bit hash of the connection, the template, what its
  * variables send and the sorted phone identities of the contacts in `pendingLookup`,
  * suffixed with their count. Independent of row order. The variables are part of it

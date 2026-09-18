@@ -1021,6 +1021,17 @@ describe('WorkspaceDispatch exclusion renewed at the confirmation', () => {
         expect(confirmed.job.exclusion.renewedPhoneCount).toBeUndefined();
     });
 
+    it('refuses a renewed list holding anything that is not a phone, instead of confirming as if it had been applied', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] })));
+
+        await expect(dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [phoneOf('2'), 'Telefone'] } })).rejects.toBeInstanceOf(DispatchValidationError);
+
+        const untouched = await dispatch.status(planned.job.id, { offset: 0, limit: 2 });
+
+        expect(untouched.job.phase).toBe('awaitingConfirmation');
+        expect(untouched.job.exclusion.renewedPhoneCount).toBeUndefined();
+    });
+
     it('refuses a renewal on a job that was already written to', async () => {
         const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
 
