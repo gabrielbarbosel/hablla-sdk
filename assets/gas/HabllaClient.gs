@@ -8348,9 +8348,6 @@
   function bodyExpressionFlags(variables) {
     return Object.fromEntries(variables.map((_variable, index) => [`${index}_is_expression`, false]));
   }
-  function toCustomFieldValues(customFields) {
-    return Object.entries(customFields).map(([customField, value]) => ({ custom_field: customField, value }));
-  }
   function applyFormat(value, format) {
     switch (format) {
       case "firstName":
@@ -8389,9 +8386,15 @@
     }
     return contacts.map((contact) => EXCLUDABLE_OUTCOMES.includes(contact.outcome) && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone)) ? __spreadProps(__spreadValues({}, contact), { outcome: "excluded" }) : contact);
   }
+  function unreadablePhones(phones) {
+    return phones.filter((phone) => brazilianPhoneVariants(phone) === void 0);
+  }
   function audienceFingerprint(request, contacts) {
     const identities = contacts.filter((contact) => contact.outcome === "pendingLookup" && contact.phone).map((contact) => phoneIdentity(contact.phone)).sort();
-    return `${hash64Hex([request.connectionId, request.templateId, ...identities].join("|"))}-${identities.length}`;
+    return `${hash64Hex([request.connectionId, request.templateId, variablesToken(request.templateVariables), ...identities].join("|"))}-${identities.length}`;
+  }
+  function variablesToken(variables) {
+    return variables.map((variable) => [variable.kind, variable.kind === "personField" ? variable.fieldId : variable.value, ...variable.formats].join("~")).join(",");
   }
   function contactOfRow(row, index, request, roster, seenPhones) {
     const name = collapseWhitespace(row.name);
@@ -8683,6 +8686,13 @@
       super(`Dispatch job ${jobId} was not found`);
       __publicField(this, "jobId", jobId);
       this.name = "JobNotFoundError";
+    }
+  };
+  var ArchivedJobError = class extends Error {
+    constructor(jobId) {
+      super(`Dispatch job ${jobId} is archived; its contacts were removed`);
+      __publicField(this, "jobId", jobId);
+      this.name = "ArchivedJobError";
     }
   };
   var JobBusyError = class extends Error {
@@ -9094,6 +9104,9 @@
       }
       throw error;
     }
+  }
+  function toCustomFieldValues(customFields) {
+    return Object.entries(customFields).map(([customField, value]) => ({ custom_field: customField, value }));
   }
   function statusOf2(result) {
     return result.kind === "completed" ? result.status : "transport";
@@ -9563,6 +9576,10 @@
   function withRenewedExclusion(job, contacts, phones, now) {
     var _a;
     assertPhase(job, ["awaitingConfirmation"], "renew its exclusion");
+    const unreadable = unreadablePhones(phones);
+    if (unreadable.length > 0) {
+      throw new DispatchValidationError(unreadable.map((phone) => `exclusion.phones holds ${JSON.stringify(phone)}, which is not a Brazilian phone`));
+    }
     const after = excludeContacts(contacts, phones);
     const excluded = after.filter((contact, position) => contact !== contacts[position]);
     return {
@@ -9882,6 +9899,7 @@
       problems.push("rows must hold at least one row");
     }
     problems.push(...templateVariableProblems(request));
+    problems.push(...fieldPolicyProblems(request));
     problems.push(...rowProblems(request));
     problems.push(...pacingProblems(request));
     problems.push(...exclusionProblems(request));
@@ -9900,6 +9918,16 @@
       problems.push("templateVariables must not bind the same custom field twice");
     }
     return problems;
+  }
+  function fieldPolicyProblems(request) {
+    if (request.existingPersonFieldPolicy !== "none" || !Array.isArray(request.templateVariables)) {
+      return [];
+    }
+    const bound = boundFieldIds(request.templateVariables.filter((variable) => (variable == null ? void 0 : variable.kind) === "personField"));
+    if (bound.length === 0) {
+      return [];
+    }
+    return [`templateVariables read the custom fields ${bound.join(", ")} from each person, which existingPersonFieldPolicy 'none' never writes into a person that already exists: choose 'updateSentFields' or a literal variable`];
   }
   function variableProblems(variable, position) {
     const at = `templateVariables[${position}]`;
@@ -10002,15 +10030,17 @@
       } else if (field.target !== PERSON_TARGET || field.type !== VARIABLE_FIELD_TYPE) {
         problems.push(`custom field ${fieldId} bound by a template variable must be a ${PERSON_TARGET} field of type ${VARIABLE_FIELD_TYPE}, got ${field.target}/${field.type}`);
       }
-      const unfilled = request.rows.filter((row) => {
-        var _a;
-        return !Object.prototype.hasOwnProperty.call((_a = row.customFields) != null ? _a : {}, fieldId);
-      }).length;
+      const unfilled = request.rows.filter((row) => !fillsBoundField(row, fieldId)).length;
       if (unfilled > 0) {
         problems.push(`custom field ${fieldId} bound by a template variable is not filled by ${unfilled} of the ${request.rows.length} rows`);
       }
     }
     return problems;
+  }
+  function fillsBoundField(row, fieldId) {
+    var _a;
+    const value = (_a = row.customFields) == null ? void 0 : _a[fieldId];
+    return typeof value === "string" && value.trim() !== "";
   }
   function rowCustomFieldIds(request) {
     const ids = /* @__PURE__ */ new Set();
@@ -10190,8 +10220,9 @@
           if (renewed.job.counts.ready === 0) {
             return this.ports.store.update(toCompleted(renewed.job, now), renewed.excluded);
           }
-          const segmentationId = yield this.createSegmentation(renewed.job);
-          const confirmed = toConfirmed(spendCalls(renewed.job, CREATE_SEGMENTATION_CALLS), segmentationId, options.operatorEmail, this.ports.clock.now());
+          const charged = spendCalls(renewed.job, CREATE_SEGMENTATION_CALLS);
+          const segmentationId = yield this.createSegmentation(charged);
+          const confirmed = toConfirmed(charged, segmentationId, options.operatorEmail, this.ports.clock.now());
           return this.ports.store.update(confirmed, renewed.excluded);
         }));
         return this.progressOf(started);
@@ -11825,6 +11856,14 @@
       this.name = "CorruptedJobStoreError";
     }
   };
+  var IncompatibleJobStoreError = class extends Error {
+    constructor(jobId, detail) {
+      super(`Dispatch job ${jobId} was stored in a shape this version cannot read: ${detail}`);
+      __publicField(this, "jobId", jobId);
+      __publicField(this, "detail", detail);
+      this.name = "IncompatibleJobStoreError";
+    }
+  };
   var SheetDispatchJobStore = class {
     constructor(options) {
       __publicField(this, "options", options);
@@ -11874,9 +11913,10 @@
         return this.jobRows().filter((values) => String(values[jobColumn("fingerprint")]) === fingerprint).map(jobOfRow);
       });
     }
+    /** Jobs of the given phases whose contacts are still stored; an archived job answers nothing a caller could page. */
     findByPhases(phases) {
       return __async(this, null, function* () {
-        return this.jobRows().filter((values) => phases.includes(String(values[jobColumn("phase")]))).map(jobOfRow);
+        return this.jobRows().filter((values) => !isArchivedRow(values) && phases.includes(String(values[jobColumn("phase")]))).map(jobOfRow);
       });
     }
     loadContacts(jobId, page) {
@@ -11930,7 +11970,8 @@
     }
     /**
      * Frees the contact block of a finished job that no execution holds, shifting the
-     * blocks stored after it, and keeps the header marked as archived.
+     * blocks stored after it, and keeps the header marked as archived — out of
+     * {@link findByPhases} from then on, since nothing can be paged from it any more.
      *
      * @throws Error when the job is not in a finished phase or is leased.
      */
@@ -11967,10 +12008,15 @@
       }
       return { row: FIRST_DATA_ROW + position, values: rows[position], job: jobOfRow(rows[position]) };
     }
-    /** Where a job's contacts live; archived jobs have none left. */
+    /**
+     * Where a job's contacts live.
+     *
+     * @throws ArchivedJobError when the job was archived, so its caller can report it
+     *   instead of breaking on an anonymous failure.
+     */
     contactBlock(located) {
-      if (String(located.values[jobColumn("archivedAt")]) !== "") {
-        throw new Error(`Dispatch job ${located.job.id} is archived; its contacts were removed`);
+      if (isArchivedRow(located.values)) {
+        throw new ArchivedJobError(located.job.id);
       }
       return { firstRow: Number(located.values[jobColumn("contactsFirstRow")]), contactCount: Number(located.values[jobColumn("contactCount")]) };
     }
@@ -12011,6 +12057,9 @@
   function jobColumn(column) {
     return JOB_COLUMNS.indexOf(column);
   }
+  function isArchivedRow(values) {
+    return String(values[jobColumn("archivedAt")]) !== "";
+  }
   function contactColumn(column) {
     return CONTACT_COLUMNS.indexOf(column);
   }
@@ -12019,7 +12068,11 @@
     return [job.id, job.revision, job.fingerprint, job.phase, job.createdAt, job.updatedAt, contactsFirstRow, contactCount, (_a = job.leaseUntil) != null ? _a : "", archivedAt, JSON.stringify(job)];
   }
   function jobOfRow(values) {
-    return JSON.parse(String(values[jobColumn("_raw")]));
+    const job = JSON.parse(String(values[jobColumn("_raw")]));
+    if (job.callEstimate === void 0 || job.callsSpent === void 0) {
+      throw new IncompatibleJobStoreError(String(values[jobColumn("id")]), "the header has no callEstimate/callsSpent; it was stored before v0.5.0");
+    }
+    return job;
   }
   function contactRow(jobId, contact) {
     var _a, _b, _c, _d, _e, _f, _g, _h;
