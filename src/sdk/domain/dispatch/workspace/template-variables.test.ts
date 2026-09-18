@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { boundFieldIds, bodyExpressionFlags, campaignBodyVariables, formatBoundFields, formatVariableValue, toCustomFieldValues } from './template-variables';
+import { boundFieldIds, bodyExpressionFlags, campaignBodyVariables, formatBoundFields, formatVariableValue } from './template-variables';
 import { habllaId } from './__fixtures__/builders';
 
 const NAME_FIELD = habllaId('c1');
@@ -86,14 +86,5 @@ describe('bodyExpressionFlags', () => {
 
     it('is empty for a template without variables', () => {
         expect(bodyExpressionFlags([])).toEqual({});
-    });
-});
-
-describe('toCustomFieldValues', () => {
-    it('maps the record to the shape the person routes take', () => {
-        expect(toCustomFieldValues({ [NAME_FIELD]: 'Ana', [DATE_FIELD]: '10/09' })).toEqual([
-            { custom_field: NAME_FIELD, value: 'Ana' },
-            { custom_field: DATE_FIELD, value: '10/09' },
-        ]);
     });
 });

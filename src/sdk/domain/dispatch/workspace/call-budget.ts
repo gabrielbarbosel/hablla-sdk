@@ -20,7 +20,7 @@ const LOOKUP_CALLS = 4;
 /** Lookups per contact: the preview and the send-time lookup. */
 const LOOKUPS_PER_CONTACT = 2;
 
-/** Writes of the longest plan: first name, unfollow, add owner, remove system owners, join. */
+/** Writes of the longest plan: the row's person fields, unfollow, add owner, remove owners, join. */
 const MAX_WRITES_PER_CONTACT = 5;
 
 /** Calls of the largest single step (a lookup stage or a reconciliation over both phone shapes). */

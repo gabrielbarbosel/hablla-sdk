@@ -5,7 +5,6 @@
  * shows a value the campaign will not send.
  */
 
-import type { CustomFieldValue } from './types';
 import { capitalizeWords, firstName } from '../../../utils';
 
 /**
@@ -72,11 +71,6 @@ export function campaignBodyVariables(variables: readonly TemplateVariable[]): s
  */
 export function bodyExpressionFlags(variables: readonly TemplateVariable[]): Record<string, boolean> {
     return Object.fromEntries(variables.map((_variable, index) => [`${index}_is_expression`, false]));
-}
-
-/** Custom-field values of a contact in the shape the person routes take, in field order. */
-export function toCustomFieldValues(customFields: Readonly<Record<string, string>>): CustomFieldValue[] {
-    return Object.entries(customFields).map(([customField, value]) => ({ custom_field: customField, value }));
 }
 
 /** One reformatting step. */

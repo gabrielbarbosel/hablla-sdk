@@ -8,7 +8,7 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { ContactResolution, StopCause } from './call-failures';
-import type { DispatchContact, DispatchJob, DispatchSettings, PendingWrite } from './types';
+import type { CustomFieldValue, DispatchContact, DispatchJob, DispatchSettings, PendingWrite } from './types';
 import { phoneIdentity } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt, truncateDetail } from './call-failures';
 import { RECONCILIATION_DELAY_MS } from './constants';
@@ -16,7 +16,6 @@ import { requireOwnerChange, requirePerson, requirePhone, requireSegmentationId,
 import { UnexpectedPayloadError } from './errors';
 import { toCreatedId } from './payloads';
 import { addPersonOwners, addSegmentationItem, createPerson, removePersonFollowers, removePersonOwners, updatePerson } from './routes';
-import { toCustomFieldValues } from './template-variables';
 
 /** One write of a contact's plan. */
 export type ContactWrite =
@@ -204,6 +203,11 @@ function createdIdOf(result: CallResult, payload: string): string | undefined {
         }
         throw error;
     }
+}
+
+/** The contact's custom-field values in the shape the person routes take, in field order. */
+function toCustomFieldValues(customFields: Readonly<Record<string, string>>): CustomFieldValue[] {
+    return Object.entries(customFields).map(([customField, value]) => ({ custom_field: customField, value }));
 }
 
 /** The HTTP status of a completed result. */

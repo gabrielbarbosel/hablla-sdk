@@ -6,7 +6,7 @@ export type AdvisorKeyKind = 'email' | 'userId';
 
 /** One audience line as the operator's sheet provides it. */
 export interface WorkspaceDispatchRow {
-    /** Full contact name; stored upper-cased on creation and the source of the first name. */
+    /** Full contact name; stored upper-cased on a person the dispatch creates, and never written to one that exists. */
     name: string;
     /** Brazilian phone, with or without the 55 country code. */
     phone: string;
