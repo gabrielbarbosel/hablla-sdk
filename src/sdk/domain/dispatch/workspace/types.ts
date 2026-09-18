@@ -51,7 +51,10 @@ export interface ExclusionCriteria {
 
 /** Audit summary of the exclusion kept in the job (the phone list itself is not persisted). */
 export interface ExclusionSummary {
+    /** Phones the operator listed at `plan`. */
     phoneCount: number;
+    /** Phones of the list `start` re-read at the confirmation, when the operator renewed it. */
+    renewedPhoneCount?: number;
     segmentationFilters: readonly SegmentationFilter[];
 }
 
@@ -262,7 +265,7 @@ export interface DispatchJob {
     /** Earliest `retryNotBefore` of the contacts deferred during the current pass. */
     passDeferredUntil?: number;
     counts: Readonly<Record<ContactOutcome, number>>;
-    /** Contacts that left `ready` at the confirmed exclusion run or the send-time lookup, by the outcome they moved to. */
+    /** Contacts that left `ready` at the renewed exclusion of `start`, the confirmed exclusion run or the send-time lookup, by the outcome they moved to. */
     revalidationShifts: Readonly<Partial<Record<ContactOutcome, number>>>;
     /** Which exclusion run is in progress: `preview` before `resolving`, `send` on the confirmed job. */
     exclusionPurpose?: LookupPurpose;
@@ -370,6 +373,17 @@ export interface ContinueOptions {
 /** Who is acting on the job; recorded on the job. */
 export interface OperatorOptions {
     operatorEmail: string;
+}
+
+/** Who is confirming a job and, when the operator re-read them, the phones to leave out now. */
+export interface StartOptions extends OperatorOptions {
+    /**
+     * Phones excluded as of the confirmation, applied before the job is confirmed. Only a
+     * job awaiting confirmation takes one: it is what spares the caller a preview with a
+     * shelf life, since the phones that entered the exclusion meanwhile are taken out
+     * before any write.
+     */
+    exclusion?: { phones: readonly string[] };
 }
 
 /** Limits from the app's typed config; each one has a default (see `resolveDispatchLimits`). */

@@ -21,7 +21,7 @@ import type {
     JobFailureReason,
     WorkspaceDispatchRequest,
 } from './types';
-import { excludesByFilter } from './audience';
+import { excludeContacts, excludesByFilter } from './audience';
 import { rejectedTokenStrategy } from './call-failures';
 import { toDispatchConfig } from './campaign';
 import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
@@ -307,6 +307,31 @@ export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEm
     };
 
     return excludesByFilter(job.exclusion) ? withExclusionRun(confirmed, 'send', now) : confirmed;
+}
+
+/**
+ * `awaitingConfirmation` with the exclusion renewed at confirmation time: the outcomes of
+ * the contacts the renewed list took out, and the size of the list, kept apart from the
+ * one `plan` applied so the audit says which list took whom out.
+ */
+export function withRenewedExclusion(job: DispatchJob, contacts: readonly DispatchContact[], phones: readonly string[], now: number): { job: DispatchJob; excluded: DispatchContact[] } {
+    assertPhase(job, ['awaitingConfirmation'], 'renew its exclusion');
+
+    const after = excludeContacts(contacts, phones);
+    const excluded = after.filter((contact, position) => contact !== contacts[position]);
+
+    return {
+        job: {
+            ...job,
+            exclusion: { ...job.exclusion, renewedPhoneCount: phones.length },
+            counts: tallyOutcomes(job.counts, contacts, after),
+            revalidationShifts: excluded.length === 0
+                ? job.revalidationShifts
+                : { ...job.revalidationShifts, excluded: (job.revalidationShifts.excluded ?? 0) + excluded.length },
+            updatedAt: now,
+        },
+        excluded,
+    };
 }
 
 /** `resolvingExclusions` → its next page, with the page's attempts reset. */

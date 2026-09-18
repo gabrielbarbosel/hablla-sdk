@@ -61,6 +61,7 @@ export type {
     ResolvedPerson,
     ResumePhase,
     SegmentationCreateBody,
+    StartOptions,
     SegmentationFilter,
     SystemOwnerPolicy,
     TargetOwner,

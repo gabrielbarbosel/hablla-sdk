@@ -975,6 +975,51 @@ describe('WorkspaceDispatch status', () => {
     });
 });
 
+describe('WorkspaceDispatch exclusion renewed at the confirmation', () => {
+    it('takes out a phone that entered the exclusion after the preview, before any write', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] })));
+
+        expect(planned.job.counts).toMatchObject({ ready: 2, excluded: 0 });
+
+        const confirmed = await dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [phoneOf('2')] } });
+
+        expect(confirmed.job.counts).toMatchObject({ ready: 1, excluded: 1 });
+        expect(confirmed.job.exclusion).toMatchObject({ phoneCount: 0, renewedPhoneCount: 1 });
+        expect(confirmed.job.revalidationShifts).toEqual({ excluded: 1 });
+
+        const done = await drive(confirmed);
+
+        expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:excluded']);
+        expect(personWithPhone(phoneOf('2'))).toEqual([]);
+    });
+
+    it('completes without a campaign when the renewed list takes everybody out', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+        const confirmed = await dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [phoneOf('1')] } });
+
+        expect(confirmed.job).toMatchObject({ phase: 'completed', audienceSize: 0 });
+        expect(confirmed.next).toEqual({ kind: 'finished' });
+        expect(hablla.campaigns).toHaveLength(0);
+        expect(hablla.requestsTo('POST', /\/segmentations$/)).toHaveLength(0);
+    });
+
+    it('confirms without a renewal exactly as before', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+        const confirmed = await dispatch.start(planned.job.id, OPERATOR);
+
+        expect(confirmed.job.phase).toBe('materializing');
+        expect(confirmed.job.exclusion.renewedPhoneCount).toBeUndefined();
+    });
+
+    it('refuses a renewal on a job that was already written to', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+
+        await dispatch.start(planned.job.id, OPERATOR);
+
+        await expect(dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [] } })).rejects.toBeInstanceOf(InvalidJobTransitionError);
+    });
+});
+
 describe('WorkspaceDispatch call budget', () => {
     it('reports the estimate the plan was checked against, already charged for the catalog reads', async () => {
         const planned = await dispatch.plan(aRequest({ rows: [aRow('1')] }));

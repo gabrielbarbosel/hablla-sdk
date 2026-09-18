@@ -18,6 +18,7 @@ import type {
     DispatchJobView,
     DispatchProgress,
     OperatorOptions,
+    StartOptions,
     WorkspaceDispatchLimits,
     WorkspaceDispatchRequest,
 } from './types';
@@ -53,6 +54,7 @@ import {
     toSuperseded,
     tokenRejectedReason,
     trackInterruptedRounds,
+    withRenewedExclusion,
 } from './job-machine';
 import { toCreatedId, toCustomFieldDefinition, toPayloadPage, toRosterUser } from './payloads';
 import { requireExclusionCursor } from './requirements';
@@ -138,17 +140,20 @@ export class WorkspaceDispatch {
     }
 
     /**
-     * Confirms a job awaiting confirmation (creating its segmentation) or resumes a failed
-     * job at its resume phase.
+     * Confirms a job awaiting confirmation (applying the renewed exclusion, if the operator
+     * re-read it, and creating its segmentation) or resumes a failed job at its resume phase.
      *
-     * @throws JobBusyError, DuplicateDispatchError or InvalidJobTransitionError.
+     * @throws JobBusyError, DuplicateDispatchError or InvalidJobTransitionError — the last
+     *   one also when a phase that cannot take a renewed exclusion is given one.
      */
-    async start(jobId: string, options: OperatorOptions): Promise<DispatchProgress> {
+    async start(jobId: string, options: StartOptions): Promise<DispatchProgress> {
         const started = await this.ports.store.withExclusiveAccess(async () => {
             const job = await this.loadIdle(jobId);
             const now = this.ports.clock.now();
 
             if (job.phase === 'failed') {
+                this.assertNoRenewal(job, options);
+
                 return this.ports.store.update(toResumed(job, now), []);
             }
 
@@ -158,14 +163,16 @@ export class WorkspaceDispatch {
 
             await this.assertNoOtherActiveJob(job, now);
 
-            if (job.counts.ready === 0) {
-                return this.ports.store.update(toCompleted(job, now), []);
+            const renewed = await this.renewExclusion(job, options, now);
+
+            if (renewed.job.counts.ready === 0) {
+                return this.ports.store.update(toCompleted(renewed.job, now), renewed.excluded);
             }
 
-            const segmentationId = await this.createSegmentation(job);
-            const confirmed = toConfirmed(spendCalls(job, CREATE_SEGMENTATION_CALLS), segmentationId, options.operatorEmail, this.ports.clock.now());
+            const segmentationId = await this.createSegmentation(renewed.job);
+            const confirmed = toConfirmed(spendCalls(renewed.job, CREATE_SEGMENTATION_CALLS), segmentationId, options.operatorEmail, this.ports.clock.now());
 
-            return this.ports.store.update(confirmed, []);
+            return this.ports.store.update(confirmed, renewed.excluded);
         });
 
         return this.progressOf(started);
@@ -336,6 +343,33 @@ export class WorkspaceDispatch {
                 throw new JobBusyError(job.id);
             }
             throw error;
+        }
+    }
+
+    /**
+     * The job with the phones the operator re-read at the confirmation already applied, and
+     * the contacts they took out, to persist with it. The job untouched when no list came.
+     */
+    private async renewExclusion(job: DispatchJob, options: StartOptions, now: number): Promise<{ job: DispatchJob; excluded: DispatchContact[] }> {
+        if (!options.exclusion) {
+            return { job, excluded: [] };
+        }
+
+        const contacts = await this.ports.store.loadContacts(job.id, { offset: 0, limit: job.contactCount });
+
+        return withRenewedExclusion(job, contacts, options.exclusion.phones, now);
+    }
+
+    /**
+     * Guards a renewed exclusion given to a phase that cannot apply it: a resumed job was
+     * already written to, so taking somebody out now would be a promise the dispatch cannot
+     * keep.
+     *
+     * @throws InvalidJobTransitionError when the options carry one.
+     */
+    private assertNoRenewal(job: DispatchJob, options: StartOptions): void {
+        if (options.exclusion) {
+            throw new InvalidJobTransitionError(job.id, job.phase, 'renew its exclusion');
         }
     }
 
