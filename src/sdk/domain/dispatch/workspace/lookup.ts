@@ -112,7 +112,7 @@ export function resolveAttendanceLookup(contact: DispatchContact, person: Person
             ...settledLookup(contact, purpose, now),
             outcome: 'ready',
             person: { id: person.id, existed: true },
-            ownerChange: decideOwnerChange(person, requireTarget(contact), settings.systemUserIds, settings.systemOwnerPolicy),
+            ownerChange: decideOwnerChange(person, requireTarget(contact), settings),
         },
     };
 }

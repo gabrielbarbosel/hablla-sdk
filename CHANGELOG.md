@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.5.0 (2026-09-17)
+
+**Classification:** `breaking` — a requisição do disparo por workspace ganha as variáveis do template e as duas políticas novas, e perde o campo de primeiro nome; `DispatchProgress` passa a carregar o orçamento de chamadas.
+
+### Adicionado
+
+- Variáveis do corpo por origem declarada: cada variável do template vem de um campo de pessoa (a coluna da audiência mapeada para ele) ou de um valor digitado, na ordem do template, com reformatação opcional por variável (`firstName`, `capitalize`, `upperCase`) desligada por padrão. Um template pode ter nenhuma, uma ou várias.
+- `humanOwnerPolicy`: pessoa já pertencente a outro assessor humano é mantida por padrão e trocada sob demanda, compondo com a política de dono de sistema.
+- `existingPersonFieldPolicy`: em pessoa existente, atualiza só os campos que a linha enviou (padrão) ou nada.
+- `jobIds(phases)` e `listJobs(phases)`: listagem dos jobs armazenados por conjunto de fases, do mais novo para o mais velho.
+- `DispatchProgress.callBudget`: estimativa, gasto e restante das chamadas do job, mais a cota que a estimativa conferiu.
+- `start(jobId, { exclusion })`: exclusão relida na confirmação, aplicada antes de qualquer escrita.
+- `Hablla.formatVariableValue` e `utils.capitalizeWords`, para a prévia do app reformatar com a mesma função do disparo.
+- `ArchivedJobError`: leitura de contatos de um job arquivado falha como erro de domínio nomeado, em vez de `Error` cru.
+
+### Alterado
+
+- O valor de uma variável vai literalmente como veio da coluna ou do campo digitado; o domínio não calcula mais primeiro nome nem capitaliza por conta própria.
+- `decideOwnerChange` recebe as settings de dono em vez de dois argumentos soltos, e `OwnerChange` ganha a variante `replaceHumanOwners`.
+- A campanha monta `variables.body` com uma entrada por variável e `'<i>_is_expression': false` por índice.
+- `DispatchJob` passa a exigir `callEstimate` e `callsSpent`: **job gravado pela v0.4.0 não é legível pela v0.5.0** — a aba `dispatch_jobs` precisa ser esvaziada, e um header sem esses campos lança `IncompatibleJobStoreError` nomeando o job em vez de `TypeError`.
+- `existingPersonFieldPolicy: 'none'` com variável de campo de pessoa é **recusada** na validação: a campanha leria o campo que essa política nunca grava e a mensagem sairia com a variável vazia.
+- Célula em branco da coluna mapeada conta como não preenchida, junto com a coluna ausente.
+- A impressão digital da audiência inclui as variáveis do corpo, para dois disparos que só diferem no valor digitado não serem a mesma coisa para o guard de duplicata.
+- `start(jobId, { exclusion })` recusa valor que não seja telefone brasileiro, em vez de ignorá-lo e confirmar o disparo.
+- `listJobs`/`jobIds` não devolvem mais job arquivado (não sobrou contato para paginar).
+- `DispatchCallBudget.spent` é documentado como piso: a chamada é cobrada antes de o resultado ser lido, mas o que uma confirmação que falhou ou uma rodada perdida gastou não chega ao extrato.
+
+### Removido
+
+- `WorkspaceDispatchRequest.firstNameFieldId` e `DispatchContact.firstName`, com a regra que proibia a linha de trazer o campo de primeiro nome.
+
 ## v0.4.0 (2026-09-17)
 
 **Classification:** `breaking` — nova superfície de disparo por token de workspace; `deployToRpo` passa a exigir a verificação de compatibilidade; o disparo em massa por import fica obsoleto.

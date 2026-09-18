@@ -5,6 +5,8 @@
 
 import type { CallResult } from '../../../../core/call-executor';
 import type { RosterUser } from '../payloads';
+import type { JobCallLedger } from '../job-machine';
+import type { TemplateVariable } from '../template-variables';
 import type { DispatchContact, DispatchSettings, WorkspaceDispatchRequest, WorkspaceDispatchRow } from '../types';
 import { indexRoster } from '../request-validation';
 import personsV2Page from './persons-v2-by-phone.json';
@@ -27,15 +29,23 @@ export const RESERVE_OWNER = { id: habllaId('7e'), email: 'reserve@example.com',
 export const ROSTER_USERS: readonly RosterUser[] = [ADVISOR, OTHER_ADVISOR, SYSTEM_USER, RESERVE_OWNER];
 export const ROSTER = indexRoster(ROSTER_USERS);
 
-/** A row for the advisor, with a valid mobile phone ending in `phoneSuffix`. */
+/** The one body variable of the fixture template: the audience's name column, reformatted to a capitalized first name. */
+export const NAME_VARIABLE: TemplateVariable = { kind: 'personField', fieldId: FIRST_NAME_FIELD_ID, formats: ['firstName', 'capitalize'] };
+
+/**
+ * A row for the advisor, with a valid mobile phone ending in `phoneSuffix`. Its name
+ * column is also mapped to the first-name custom field, the way the app maps the column
+ * behind {@link NAME_VARIABLE}.
+ */
 export function aRow(phoneSuffix: string, overrides: Partial<WorkspaceDispatchRow> = {}): WorkspaceDispatchRow {
-    return {
+    const row = {
         name: 'ana paula souza',
         phone: `51999${phoneSuffix.padStart(6, '0')}`,
         advisorKey: ADVISOR.email,
-        customFields: {},
         ...overrides,
     };
+
+    return { ...row, customFields: overrides.customFields ?? { [FIRST_NAME_FIELD_ID]: row.name } };
 }
 
 /** A valid request with the given rows. */
@@ -44,11 +54,13 @@ export function aRequest(overrides: Partial<WorkspaceDispatchRequest> = {}): Wor
         label: 'Campanha setembro',
         connectionId: CONNECTION_ID,
         templateId: TEMPLATE_ID,
+        templateVariables: [NAME_VARIABLE],
         sectorId: SECTOR_ID,
-        firstNameFieldId: FIRST_NAME_FIELD_ID,
         advisorKeyKind: 'email',
         systemUserIds: [SYSTEM_USER.id],
         systemOwnerPolicy: 'replace',
+        humanOwnerPolicy: 'keep',
+        existingPersonFieldPolicy: 'updateSentFields',
         unresolvedAdvisorPolicy: { kind: 'assignReserve', reserveOwnerId: RESERVE_OWNER.id },
         exclusion: { phones: [], segmentationFilters: [] },
         pacing: { batchSize: 5, intervalSeconds: 10 },
@@ -56,6 +68,9 @@ export function aRequest(overrides: Partial<WorkspaceDispatchRequest> = {}): Wor
         ...overrides,
     };
 }
+
+/** The call ledger of a job built straight from a request, with nothing spent yet. */
+export const NO_CALLS_SPENT: JobCallLedger = { estimate: { workspace: 0, bearer: 0, total: 0 }, spent: 0 };
 
 /** The persisted settings of a request. */
 export function settingsOf(request: WorkspaceDispatchRequest): DispatchSettings {
@@ -69,10 +84,9 @@ export function aContact(overrides: Partial<DispatchContact> = {}): DispatchCont
         index: 0,
         name: 'ana paula souza',
         phone: { digits: '5551999000001', alternate: '555199000001' },
-        firstName: 'Ana',
         advisorResolution: 'matched',
         target: { userId: ADVISOR.id, source: 'advisor' },
-        customFields: {},
+        customFields: { [FIRST_NAME_FIELD_ID]: 'Ana' },
         outcome: 'pendingLookup',
         writesDone: 0,
         attempts: 0,

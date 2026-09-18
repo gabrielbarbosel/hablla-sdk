@@ -26,6 +26,7 @@ export const expandByWeight = (users: readonly string[], weights?: Readonly<Reco
 export const hash64Hex = (value: string): string => bag().hash64Hex(value);
 export const collapseWhitespace = (value: string): string => bag().collapseWhitespace(value);
 export const capitalizeWord = (word: string): string => bag().capitalizeWord(word);
+export const capitalizeWords = (text: string): string => bag().capitalizeWords(text);
 export const brazilianPhoneVariants = (value: unknown): PhoneVariants | undefined => bag().brazilianPhoneVariants(value);
 export const phoneIdentity = (variants: PhoneVariants): string => bag().phoneIdentity(variants);
 export const normalizeEmail = (value: string): string => bag().normalizeEmail(value);

@@ -1,17 +1,22 @@
 import type { PhoneVariants } from '../../../utils';
+import type { TemplateVariable } from './template-variables';
 
 /** Which Hablla user attribute the advisor column of the audience holds. */
 export type AdvisorKeyKind = 'email' | 'userId';
 
 /** One audience line as the operator's sheet provides it. */
 export interface WorkspaceDispatchRow {
-    /** Full contact name; stored upper-cased on creation and the source of the first name. */
+    /** Full contact name; stored upper-cased on a person the dispatch creates, and never written to one that exists. */
     name: string;
     /** Brazilian phone, with or without the 55 country code. */
     phone: string;
     /** Advisor identifier interpreted per {@link WorkspaceDispatchRequest.advisorKeyKind}; empty when absent. */
     advisorKey: string;
-    /** Person custom-field values by custom-field id, written only when the person is created. */
+    /**
+     * Person custom-field values by custom-field id, as the mapped audience columns gave
+     * them. Written on creation, and on an existing person per
+     * {@link WorkspaceDispatchRequest.existingPersonFieldPolicy}.
+     */
     customFields: Readonly<Record<string, string>>;
 }
 
@@ -46,12 +51,21 @@ export interface ExclusionCriteria {
 
 /** Audit summary of the exclusion kept in the job (the phone list itself is not persisted). */
 export interface ExclusionSummary {
+    /** Phones the operator listed at `plan`. */
     phoneCount: number;
+    /** Phones of the list `start` re-read at the confirmation, when the operator renewed it. */
+    renewedPhoneCount?: number;
     segmentationFilters: readonly SegmentationFilter[];
 }
 
 /** What to do with an existing person whose only owners are system users. */
 export type SystemOwnerPolicy = 'replace' | 'add';
+
+/** What to do with an existing person already owned by a human other than the row's advisor. */
+export type HumanOwnerPolicy = 'keep' | 'replace';
+
+/** What to do with the mapped person fields of a person that already exists. */
+export type ExistingPersonFieldPolicy = 'updateSentFields' | 'none';
 
 /** What to do with a contact whose advisor cannot be resolved to a human Hablla user. */
 export type UnresolvedAdvisorPolicy =
@@ -63,16 +77,21 @@ export interface WorkspaceDispatchRequest {
     /** Human label used in the segmentation and campaign names. */
     label: string;
     connectionId: string;
-    /** Approved WhatsApp template with exactly one body variable (the first name). */
+    /** Approved WhatsApp template; its body variables are described, in order, by {@link templateVariables}. */
     templateId: string;
+    /**
+     * One entry per body variable of the template, in template order: the value's origin
+     * and the reformatting asked for it. Empty for a template without variables.
+     */
+    templateVariables: readonly TemplateVariable[];
     /** Sector assigned to persons created by this dispatch. */
     sectorId: string;
-    /** Person custom field (target person, type string) that carries the computed first name; from typed config, never created here. */
-    firstNameFieldId: string;
     advisorKeyKind: AdvisorKeyKind;
     /** Hablla user ids treated as system owners (e.g. Martech, Kras). */
     systemUserIds: readonly string[];
     systemOwnerPolicy: SystemOwnerPolicy;
+    humanOwnerPolicy: HumanOwnerPolicy;
+    existingPersonFieldPolicy: ExistingPersonFieldPolicy;
     unresolvedAdvisorPolicy: UnresolvedAdvisorPolicy;
     exclusion: ExclusionCriteria;
     pacing: DispatchPacing;
@@ -127,7 +146,8 @@ export type OwnerChange =
     | { kind: 'keep' }
     | { kind: 'assign'; unfollowFirst: boolean }
     | { kind: 'replaceSystemOwners'; unfollowFirst: boolean; removedOwnerIds: readonly string[] }
-    | { kind: 'addBesideSystemOwners'; unfollowFirst: boolean };
+    | { kind: 'addBesideSystemOwners'; unfollowFirst: boolean }
+    | { kind: 'replaceHumanOwners'; unfollowFirst: boolean; removedOwnerIds: readonly string[] };
 
 /** The person a contact resolved to. */
 export interface ResolvedPerson {
@@ -156,10 +176,9 @@ export interface DispatchContact {
     name: string;
     /** Absent when the phone is invalid. */
     phone?: PhoneVariants;
-    /** Computed first name written to the configured custom field. */
-    firstName: string;
     advisorResolution: AdvisorResolution;
     target?: TargetOwner;
+    /** The row's custom-field values, with the reformatting of the variables bound to them already applied. */
     customFields: Readonly<Record<string, string>>;
     outcome: ContactOutcome;
     person?: ResolvedPerson;
@@ -189,11 +208,15 @@ export const RESUMABLE_PHASES = ['resolvingExclusions', 'resolving', 'materializ
 export type ResumePhase = (typeof RESUMABLE_PHASES)[number];
 
 /**
- * Phase of a dispatch job; `awaitingConfirmation` waits for the operator, the last four are
- * over. `resolvingExclusions` runs twice, before `resolving` and on the confirmed job before
+ * Every phase of a dispatch job, and the source of {@link DispatchJobPhase}:
+ * `awaitingConfirmation` waits for the operator, the last four are over.
+ * `resolvingExclusions` runs twice, before `resolving` and on the confirmed job before
  * `materializing`; {@link DispatchJob.exclusionPurpose} tells the two runs apart.
  */
-export type DispatchJobPhase = ResumePhase | 'awaitingConfirmation' | 'completed' | 'failed' | 'superseded' | 'abandoned';
+export const DISPATCH_JOB_PHASES = [...RESUMABLE_PHASES, 'awaitingConfirmation', 'completed', 'failed', 'superseded', 'abandoned'] as const;
+
+/** Phase of a dispatch job; see {@link DISPATCH_JOB_PHASES}. */
+export type DispatchJobPhase = (typeof DISPATCH_JOB_PHASES)[number];
 
 /** Phases whose work is done contact by contact, in chunks. */
 export type ChunkedPhase = 'resolving' | 'materializing';
@@ -242,7 +265,7 @@ export interface DispatchJob {
     /** Earliest `retryNotBefore` of the contacts deferred during the current pass. */
     passDeferredUntil?: number;
     counts: Readonly<Record<ContactOutcome, number>>;
-    /** Contacts that left `ready` at the confirmed exclusion run or the send-time lookup, by the outcome they moved to. */
+    /** Contacts that left `ready` at the renewed exclusion of `start`, the confirmed exclusion run or the send-time lookup, by the outcome they moved to. */
     revalidationShifts: Readonly<Partial<Record<ContactOutcome, number>>>;
     /** Which exclusion run is in progress: `preview` before `resolving`, `send` on the confirmed job. */
     exclusionPurpose?: LookupPurpose;
@@ -256,6 +279,10 @@ export interface DispatchJob {
     exclusionListed?: number;
     /** Rounds interrupted in a row (see `trackInterruptedRounds`); reset by the first round that is not. */
     consecutiveInterruptedRounds: number;
+    /** The estimate `plan` checked against the daily quota, kept so every answer can report it. */
+    callEstimate: CallBudget;
+    /** HTTP calls this job has sent, from the catalog reads of `plan` onwards. */
+    callsSpent: number;
     startedBy?: string;
     startedAt?: number;
     segmentationId?: string;
@@ -289,16 +316,43 @@ export interface HabllaDispatchConfig {
     batch_interval: number;
 }
 
+/** Estimated HTTP calls of one dispatch, by token. */
+export interface CallBudget {
+    workspace: number;
+    bearer: number;
+    total: number;
+}
+
+/**
+ * The call-budget ledger of a job, as every answer reports it: what `plan` estimated and
+ * checked against the quota, what the job has really spent so far and what is still
+ * expected, so the caller has one gate instead of waiting for the estimate to be exceeded.
+ */
+export interface DispatchCallBudget {
+    estimate: CallBudget;
+    /**
+     * Calls the job has sent, counting the ones `plan` spent reading the catalogs. A floor:
+     * calls of a confirmation that failed, or of a round whose update was lost to another
+     * execution, were spent at Hablla and never reached the ledger (see `spendCalls`).
+     */
+    spent: number;
+    /** Estimated calls still ahead; zero once the job spent its whole estimate. */
+    remaining: number;
+    /** The quota the estimate was checked against (see {@link WorkspaceDispatchLimits.dailyCallQuota}). */
+    dailyCallQuota: number;
+}
+
 /** What the caller should do after a call returns. */
 export type DispatchNextStep =
     | { kind: 'continueAfter'; delayMs: number }
     | { kind: 'awaitConfirmation' }
     | { kind: 'finished' };
 
-/** A job with the step its caller should take next. */
+/** A job with the step its caller should take next and what it has cost so far. */
 export interface DispatchProgress {
     job: DispatchJob;
     next: DispatchNextStep;
+    callBudget: DispatchCallBudget;
 }
 
 /** A page of the per-contact drill-down. */
@@ -323,6 +377,17 @@ export interface ContinueOptions {
 /** Who is acting on the job; recorded on the job. */
 export interface OperatorOptions {
     operatorEmail: string;
+}
+
+/** Who is confirming a job and, when the operator re-read them, the phones to leave out now. */
+export interface StartOptions extends OperatorOptions {
+    /**
+     * Phones excluded as of the confirmation, applied before the job is confirmed. Only a
+     * job awaiting confirmation takes one: it is what spares the caller a preview with a
+     * shelf life, since the phones that entered the exclusion meanwhile are taken out
+     * before any write.
+     */
+    exclusion?: { phones: readonly string[] };
 }
 
 /** Limits from the app's typed config; each one has a default (see `resolveDispatchLimits`). */
@@ -389,6 +454,6 @@ export interface CampaignCreateBody {
     arrayFilter: readonly SegmentationFilter[];
     query: readonly SegmentationFilter[];
     query_type: 'person';
-    variables: { body: readonly [string] };
-    properties: { variables: { whatsapp: { components: { examples: { body: { '0_is_expression': false } } } } } };
+    variables: { body: readonly string[] };
+    properties: { variables: { whatsapp: { components: { examples: { body: Readonly<Record<string, boolean>> } } } } };
 }

@@ -14,18 +14,20 @@ import type {
     ContinueOptions,
     DispatchContact,
     DispatchJob,
+    DispatchJobPhase,
     DispatchJobView,
     DispatchProgress,
     OperatorOptions,
+    StartOptions,
     WorkspaceDispatchLimits,
     WorkspaceDispatchRequest,
 } from './types';
-import { RESUMABLE_PHASES } from './types';
+import { DISPATCH_JOB_PHASES, RESUMABLE_PHASES } from './types';
 import { excludesByFilter, prepareAudience } from './audience';
-import { estimateCallBudget } from './call-budget';
+import { callBudgetOf, estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
 import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName, readAudienceCount } from './campaign';
-import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, EXCLUSION_PAGE_LIMIT, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
+import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, CREATE_SEGMENTATION_CALLS, EXCLUSION_PAGE_LIMIT, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
 import { EXCLUSION_UNIVERSE_COUNT, applyExcludedPhones, exclusionPageCount, resolveExclusionPage, resolveExclusionUniverse } from './exclusion';
 import { resolveDispatchLimits } from './limits';
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
@@ -38,6 +40,7 @@ import {
     isLeased,
     isResumablePhase,
     nextStepOf,
+    spendCalls,
     tallyOutcomes,
     toAbandoned,
     toAfterExclusions,
@@ -51,6 +54,7 @@ import {
     toSuperseded,
     tokenRejectedReason,
     trackInterruptedRounds,
+    withRenewedExclusion,
 } from './job-machine';
 import { toCreatedId, toCustomFieldDefinition, toPayloadPage, toRosterUser } from './payloads';
 import { requireExclusionCursor } from './requirements';
@@ -73,6 +77,12 @@ interface ContinueSession {
 
 /** How one step of the `continue` loop ended: keep looping, yield until the next step's delay, or stop early. */
 type LoopSignal = { kind: 'next' } | { kind: 'yield' } | { kind: 'stop'; stop: EarlyStop };
+
+/** What one exclusion run will cost, measured before the job is stored. */
+interface ExclusionMeasure {
+    pages: number;
+    calls: number;
+}
 
 /** A catalog read by pages. */
 interface CatalogRead<T> {
@@ -115,30 +125,35 @@ export class WorkspaceDispatch {
 
         const prepared = prepareAudience(request, rosterIndex);
         const catalogPages: CatalogPages = { roster: roster.pages, customFields: customFields.pages };
-        const budget = estimateCallBudget(prepared.contacts, catalogPages, await this.measureExclusionRun(request));
+        const exclusionRun = await this.measureExclusionRun(request);
+        const estimate = estimateCallBudget(prepared.contacts, catalogPages, exclusionRun.pages);
 
-        if (budget.total > this.limits.dailyCallQuota) {
-            throw new CallBudgetExceededError(budget, this.limits.dailyCallQuota);
+        if (estimate.total > this.limits.dailyCallQuota) {
+            throw new CallBudgetExceededError(estimate, this.limits.dailyCallQuota);
         }
 
-        const job = createJob(prepared, request, this.ports.clock.now());
+        const spent = roster.pages + customFields.pages + exclusionRun.calls;
+        const job = createJob(prepared, request, this.ports.clock.now(), { estimate, spent });
         const inserted = await this.ports.store.withExclusiveAccess(() => this.insertUnlessDuplicate(job, prepared.contacts, request.repeatOfJobId));
 
         return this.progressOf(inserted);
     }
 
     /**
-     * Confirms a job awaiting confirmation (creating its segmentation) or resumes a failed
-     * job at its resume phase.
+     * Confirms a job awaiting confirmation (applying the renewed exclusion, if the operator
+     * re-read it, and creating its segmentation) or resumes a failed job at its resume phase.
      *
-     * @throws JobBusyError, DuplicateDispatchError or InvalidJobTransitionError.
+     * @throws JobBusyError, DuplicateDispatchError or InvalidJobTransitionError — the last
+     *   one also when a phase that cannot take a renewed exclusion is given one.
      */
-    async start(jobId: string, options: OperatorOptions): Promise<DispatchProgress> {
+    async start(jobId: string, options: StartOptions): Promise<DispatchProgress> {
         const started = await this.ports.store.withExclusiveAccess(async () => {
             const job = await this.loadIdle(jobId);
             const now = this.ports.clock.now();
 
             if (job.phase === 'failed') {
+                this.assertNoRenewal(job, options);
+
                 return this.ports.store.update(toResumed(job, now), []);
             }
 
@@ -148,13 +163,17 @@ export class WorkspaceDispatch {
 
             await this.assertNoOtherActiveJob(job, now);
 
-            if (job.counts.ready === 0) {
-                return this.ports.store.update(toCompleted(job, now), []);
+            const renewed = await this.renewExclusion(job, options, now);
+
+            if (renewed.job.counts.ready === 0) {
+                return this.ports.store.update(toCompleted(renewed.job, now), renewed.excluded);
             }
 
-            const segmentationId = await this.createSegmentation(job);
+            const charged = spendCalls(renewed.job, CREATE_SEGMENTATION_CALLS);
+            const segmentationId = await this.createSegmentation(charged);
+            const confirmed = toConfirmed(charged, segmentationId, options.operatorEmail, this.ports.clock.now());
 
-            return this.ports.store.update(toConfirmed(job, segmentationId, options.operatorEmail, this.ports.clock.now()), []);
+            return this.ports.store.update(confirmed, renewed.excluded);
         });
 
         return this.progressOf(started);
@@ -186,7 +205,7 @@ export class WorkspaceDispatch {
             const stop = await this.runUntilDeadline(session, options.deadlineAt);
             const released = await this.ports.store.update({ ...session.job, leaseUntil: undefined }, []);
 
-            return { job: released, next: nextStepOf(released, stop, this.ports.clock.now()) };
+            return { ...this.progressOf(released), next: nextStepOf(released, stop, this.ports.clock.now()) };
         } catch (error) {
             if (error instanceof StaleJobError) {
                 return this.progressOf(await this.ports.store.load(jobId));
@@ -221,12 +240,36 @@ export class WorkspaceDispatch {
 
     /** Ids of the jobs a continuation should work on. */
     async resumableJobIds(): Promise<string[]> {
-        return (await this.ports.store.findByPhases(RESUMABLE_PHASES)).map((job) => job.id);
+        return this.jobIds(RESUMABLE_PHASES);
     }
 
-    /** The job with the next step computed now. */
+    /**
+     * Ids of every stored job in one of the given phases, newest first — the listing that
+     * spares the caller an index of its own.
+     *
+     * @throws DispatchValidationError for an empty list or an unknown phase.
+     */
+    async jobIds(phases: readonly DispatchJobPhase[]): Promise<string[]> {
+        return (await this.listJobs(phases)).map((progress) => progress.job.id);
+    }
+
+    /**
+     * Every stored job in one of the given phases with its next step, newest first. Headers
+     * only: the contacts of a job come from {@link status}.
+     *
+     * @throws DispatchValidationError for an empty list or an unknown phase.
+     */
+    async listJobs(phases: readonly DispatchJobPhase[]): Promise<DispatchProgress[]> {
+        assertKnownPhases(phases);
+
+        const jobs = await this.ports.store.findByPhases(phases);
+
+        return jobs.sort((one, other) => other.createdAt - one.createdAt).map((job) => this.progressOf(job));
+    }
+
+    /** The job with the next step computed now and the call budget it has spent so far. */
     private progressOf(job: DispatchJob): DispatchProgress {
-        return { job, next: nextStepOf(job, undefined, this.ports.clock.now()) };
+        return { job, next: nextStepOf(job, undefined, this.ports.clock.now()), callBudget: callBudgetOf(job, this.limits.dailyCallQuota) };
     }
 
     /**
@@ -246,15 +289,15 @@ export class WorkspaceDispatch {
 
     /**
      * Pages one exclusion run will read, from a Bearer count of the filters' universe, or 0
-     * when the request excludes nobody by filter. Above the configured ceiling it fails the
-     * plan, before anything is stored: a truncated exclusion would dispatch to people the
-     * operator left out.
+     * when the request excludes nobody by filter, together with the calls the measurement
+     * itself cost. Above the configured ceiling it fails the plan, before anything is
+     * stored: a truncated exclusion would dispatch to people the operator left out.
      *
      * @throws DispatchValidationError, DispatchThrottledError or DispatchTransportError.
      */
-    private async measureExclusionRun(request: WorkspaceDispatchRequest): Promise<number> {
+    private async measureExclusionRun(request: WorkspaceDispatchRequest): Promise<ExclusionMeasure> {
         if (!excludesByFilter(request.exclusion)) {
-            return 0;
+            return { pages: 0, calls: 0 };
         }
 
         const [result] = await this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)]);
@@ -270,7 +313,7 @@ export class WorkspaceDispatch {
             ]);
         }
 
-        return pages;
+        return { pages, calls: 1 };
     }
 
     /** Inserts the job unless a duplicate blocks it, superseding idle jobs of the same audience. */
@@ -301,6 +344,33 @@ export class WorkspaceDispatch {
                 throw new JobBusyError(job.id);
             }
             throw error;
+        }
+    }
+
+    /**
+     * The job with the phones the operator re-read at the confirmation already applied, and
+     * the contacts they took out, to persist with it. The job untouched when no list came.
+     */
+    private async renewExclusion(job: DispatchJob, options: StartOptions, now: number): Promise<{ job: DispatchJob; excluded: DispatchContact[] }> {
+        if (!options.exclusion) {
+            return { job, excluded: [] };
+        }
+
+        const contacts = await this.ports.store.loadContacts(job.id, { offset: 0, limit: job.contactCount });
+
+        return withRenewedExclusion(job, contacts, options.exclusion.phones, now);
+    }
+
+    /**
+     * Guards a renewed exclusion given to a phase that cannot apply it: a resumed job was
+     * already written to, so taking somebody out now would be a promise the dispatch cannot
+     * keep.
+     *
+     * @throws InvalidJobTransitionError when the options carry one.
+     */
+    private assertNoRenewal(job: DispatchJob, options: StartOptions): void {
+        if (options.exclusion) {
+            throw new InvalidJobTransitionError(job.id, job.phase, 'renew its exclusion');
         }
     }
 
@@ -575,9 +645,9 @@ export class WorkspaceDispatch {
         return this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt;
     }
 
-    /** Runs one round of calls, keeping the job's interrupted-round bookkeeping. */
+    /** Runs one round of calls, charging them to the job and keeping its interrupted-round bookkeeping. */
     private async executeRound(session: ContinueSession, calls: readonly HttpCall[]): Promise<readonly CallResult[]> {
-        const tracked = trackInterruptedRounds(session.job, await this.ports.executor.executeAll(calls));
+        const tracked = trackInterruptedRounds(spendCalls(session.job, calls.length), await this.ports.executor.executeAll(calls));
 
         session.job = tracked.job;
 
@@ -675,6 +745,24 @@ export class WorkspaceDispatch {
             case 'stop':
                 return { kind: 'stop', stop: { cause: resolution.cause } };
         }
+    }
+}
+
+/**
+ * Guards a phase listing, so a typo does not come back as an empty list the caller reads
+ * as "no dispatch is running".
+ *
+ * @throws DispatchValidationError naming the empty list or each unknown phase.
+ */
+function assertKnownPhases(phases: readonly DispatchJobPhase[]): void {
+    if (!Array.isArray(phases) || phases.length === 0) {
+        throw new DispatchValidationError(['phases must hold at least one dispatch job phase']);
+    }
+
+    const unknown = phases.filter((phase) => !(DISPATCH_JOB_PHASES as readonly string[]).includes(phase));
+
+    if (unknown.length > 0) {
+        throw new DispatchValidationError(unknown.map((phase) => `${JSON.stringify(phase)} is not a dispatch job phase (${DISPATCH_JOB_PHASES.join(', ')})`));
     }
 }
 

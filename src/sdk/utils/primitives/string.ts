@@ -63,3 +63,9 @@ export const capitalizeWord = (word: string): string => {
     const lowerCased = word.toLocaleLowerCase('pt-BR');
     return lowerCased.charAt(0).toLocaleUpperCase('pt-BR') + lowerCased.slice(1);
 };
+
+/** Capitalizes every word of a text, keeping the whitespace between them (`'ANA  PAULA'` → `'Ana  Paula'`). */
+export const capitalizeWords = (text: string): string => text
+    .split(/(\s+)/)
+    .map((part) => (part.trim() === '' ? part : capitalizeWord(part)))
+    .join('');

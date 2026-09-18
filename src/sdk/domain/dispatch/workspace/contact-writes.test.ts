@@ -3,16 +3,26 @@ import { applyWriteResult, planContactWrites, withWriteAhead, writeCallFor, type
 import { CALL_RETRY_DELAY_MS, RECONCILIATION_DELAY_MS } from './constants';
 import { createJob } from './job-machine';
 import { prepareAudience } from './audience';
-import { ADVISOR, FIRST_NAME_FIELD_ID, ROSTER, SECTOR_ID, SYSTEM_USER, ZENVIA_IDS_FIELD_ID, aContact, aRequest, completed } from './__fixtures__/builders';
-import type { DispatchContact, DispatchJob } from './types';
+import { ADVISOR, FIRST_NAME_FIELD_ID, NO_CALLS_SPENT, OTHER_ADVISOR, ROSTER, SECTOR_ID, SYSTEM_USER, ZENVIA_IDS_FIELD_ID, aContact, aRequest, completed } from './__fixtures__/builders';
+import type { DispatchContact, DispatchJob, DispatchSettings, WorkspaceDispatchRequest } from './types';
 
 const NOW = 1_800_000_000_000;
 const SEGMENTATION_ID = '6aab098d88aca07a08c6566f';
 
 /** A materializing job with a segmentation. */
-function aJob(): DispatchJob {
-    const request = aRequest();
-    return { ...createJob(prepareAudience(request, ROSTER), request, NOW), phase: 'materializing', segmentationId: SEGMENTATION_ID };
+function aJob(overrides: Partial<WorkspaceDispatchRequest> = {}): DispatchJob {
+    const request = aRequest(overrides);
+    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT), phase: 'materializing', segmentationId: SEGMENTATION_ID };
+}
+
+/** The settings of a job built from the default request. */
+function settings(overrides: Partial<WorkspaceDispatchRequest> = {}): DispatchSettings {
+    return aJob(overrides).settings;
+}
+
+/** Settings that write nothing into an existing person; valid only with no variable read from a person field. */
+function noFieldWrites(): DispatchSettings {
+    return settings({ existingPersonFieldPolicy: 'none', templateVariables: [{ kind: 'literal', value: 'Setembro', formats: [] }] });
 }
 
 /** A ready contact for an existing person with the given owner change. */
@@ -22,29 +32,44 @@ function existing(ownerChange: DispatchContact['ownerChange']): DispatchContact 
 
 describe('planContactWrites', () => {
     it('creates a new person and then joins', () => {
-        expect(planContactWrites(aContact({ outcome: 'ready' }))).toEqual([{ kind: 'createPerson' }, { kind: 'joinAudience' }]);
+        expect(planContactWrites(aContact({ outcome: 'ready' }), settings())).toEqual([{ kind: 'createPerson' }, { kind: 'joinAudience' }]);
     });
 
     it('keeps the new-person plan after the create, so the next write is the join', () => {
         const created = aContact({ outcome: 'ready', person: { id: 'p9', existed: false }, writesDone: 1 });
 
-        expect(planContactWrites(created)[created.writesDone]).toEqual({ kind: 'joinAudience' });
+        expect(planContactWrites(created, settings())[created.writesDone]).toEqual({ kind: 'joinAudience' });
     });
 
     it.each([
-        ['keep', { kind: 'keep' }, ['setFirstName', 'joinAudience']],
-        ['assign', { kind: 'assign', unfollowFirst: false }, ['setFirstName', 'addTargetOwner', 'joinAudience']],
-        ['assign after unfollowing', { kind: 'assign', unfollowFirst: true }, ['setFirstName', 'unfollowTarget', 'addTargetOwner', 'joinAudience']],
-        ['add beside system owners', { kind: 'addBesideSystemOwners', unfollowFirst: false }, ['setFirstName', 'addTargetOwner', 'joinAudience']],
-        ['replace system owners', { kind: 'replaceSystemOwners', unfollowFirst: true, removedOwnerIds: [SYSTEM_USER.id] }, ['setFirstName', 'unfollowTarget', 'addTargetOwner', 'removeSystemOwners', 'joinAudience']],
+        ['keep', { kind: 'keep' }, ['setPersonFields', 'joinAudience']],
+        ['assign', { kind: 'assign', unfollowFirst: false }, ['setPersonFields', 'addTargetOwner', 'joinAudience']],
+        ['assign after unfollowing', { kind: 'assign', unfollowFirst: true }, ['setPersonFields', 'unfollowTarget', 'addTargetOwner', 'joinAudience']],
+        ['add beside system owners', { kind: 'addBesideSystemOwners', unfollowFirst: false }, ['setPersonFields', 'addTargetOwner', 'joinAudience']],
+        ['replace system owners', { kind: 'replaceSystemOwners', unfollowFirst: true, removedOwnerIds: [SYSTEM_USER.id] }, ['setPersonFields', 'unfollowTarget', 'addTargetOwner', 'removeOwners', 'joinAudience']],
+        ['replace human owners', { kind: 'replaceHumanOwners', unfollowFirst: false, removedOwnerIds: [OTHER_ADVISOR.id] }, ['setPersonFields', 'addTargetOwner', 'removeOwners', 'joinAudience']],
     ] as Array<[string, DispatchContact['ownerChange'], string[]]>)('plans %s for an existing person', (_label, ownerChange, kinds) => {
-        expect(planContactWrites(existing(ownerChange)).map((write) => write.kind)).toEqual(kinds);
+        expect(planContactWrites(existing(ownerChange), settings()).map((write) => write.kind)).toEqual(kinds);
+    });
+
+    it('skips the field write when the policy updates nothing in an existing person', () => {
+        expect(planContactWrites(existing({ kind: 'keep' }), noFieldWrites()).map((write) => write.kind)).toEqual(['joinAudience']);
+    });
+
+    it('skips the field write when the row sent no field at all', () => {
+        const contact = { ...existing({ kind: 'keep' }), customFields: {} };
+
+        expect(planContactWrites(contact, settings()).map((write) => write.kind)).toEqual(['joinAudience']);
+    });
+
+    it('still writes the fields of a person it creates, whatever the existing-person policy says', () => {
+        expect(planContactWrites(aContact({ outcome: 'ready' }), noFieldWrites())).toEqual([{ kind: 'createPerson' }, { kind: 'joinAudience' }]);
     });
 });
 
 describe('writeCallFor', () => {
     it('creates the person upper-cased, with the 13-digit WhatsApp phone, owner, sector and custom fields', () => {
-        const contact = aContact({ name: 'Ana Paula Souza', phone: { digits: '555199000001', alternate: '5551999000001' }, customFields: { [ZENVIA_IDS_FIELD_ID]: '42' } });
+        const contact = aContact({ name: 'Ana Paula Souza', phone: { digits: '555199000001', alternate: '5551999000001' }, customFields: { [FIRST_NAME_FIELD_ID]: 'Ana', [ZENVIA_IDS_FIELD_ID]: '42' } });
 
         expect(writeCallFor({ kind: 'createPerson' }, contact, aJob())).toEqual({
             method: 'POST',
@@ -60,11 +85,13 @@ describe('writeCallFor', () => {
         });
     });
 
-    it('sets only the first name of an existing person', () => {
-        expect(writeCallFor({ kind: 'setFirstName' }, existing({ kind: 'keep' }), aJob())).toMatchObject({
+    it('sets on an existing person exactly the fields the row sent', () => {
+        const contact = { ...existing({ kind: 'keep' }), customFields: { [FIRST_NAME_FIELD_ID]: 'Ana', [ZENVIA_IDS_FIELD_ID]: '42' } };
+
+        expect(writeCallFor({ kind: 'setPersonFields' }, contact, aJob())).toMatchObject({
             method: 'PUT',
             pathParams: { person_id: 'p1' },
-            body: { custom_fields: [{ custom_field: FIRST_NAME_FIELD_ID, value: 'Ana' }] },
+            body: { custom_fields: [{ custom_field: FIRST_NAME_FIELD_ID, value: 'Ana' }, { custom_field: ZENVIA_IDS_FIELD_ID, value: '42' }] },
         });
     });
 
@@ -74,7 +101,7 @@ describe('writeCallFor', () => {
 
         expect(writeCallFor({ kind: 'unfollowTarget' }, contact, job).body).toEqual({ followers: [ADVISOR.id] });
         expect(writeCallFor({ kind: 'addTargetOwner' }, contact, job).body).toEqual({ users: [ADVISOR.id] });
-        expect(writeCallFor({ kind: 'removeSystemOwners', userIds: [SYSTEM_USER.id] }, contact, job).body).toEqual({ users: [SYSTEM_USER.id] });
+        expect(writeCallFor({ kind: 'removeOwners', userIds: [SYSTEM_USER.id] }, contact, job).body).toEqual({ users: [SYSTEM_USER.id] });
         expect(writeCallFor({ kind: 'joinAudience' }, contact, job)).toMatchObject({ pathParams: { segmentation_id: SEGMENTATION_ID }, body: { person: 'p1' } });
     });
 });
@@ -92,7 +119,7 @@ describe('withWriteAhead', () => {
 describe('applyWriteResult', () => {
     const CREATE: ContactWrite = { kind: 'createPerson' };
     const JOIN: ContactWrite = { kind: 'joinAudience' };
-    const PUT: ContactWrite = { kind: 'setFirstName' };
+    const PUT: ContactWrite = { kind: 'setPersonFields' };
     const pendingCreate = withWriteAhead(aContact({ outcome: 'ready' }), { kind: 'createPerson' });
 
     it('records the created person and advances', () => {

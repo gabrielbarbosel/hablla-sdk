@@ -10,6 +10,7 @@ import { isSuccess, payloadOf } from './call-failures';
 import { requireDispatchConfig, requireSegmentationId } from './requirements';
 import { UnexpectedPayloadError } from './errors';
 import { toCampaignSummary, toPayloadPage } from './payloads';
+import { bodyExpressionFlags, campaignBodyVariables } from './template-variables';
 
 /** Hablla's campaign pacing is in minutes; the operator's is in seconds. */
 export const SECONDS_PER_MINUTE = 60;
@@ -47,8 +48,13 @@ export function buildSegmentationBody(job: DispatchJob): SegmentationCreateBody 
 }
 
 /**
- * Body of the job's campaign: the probe-04 recipe, with the first-name custom field as
- * the single body variable, resolved per person (`0_is_expression: false`).
+ * Body of the job's campaign: the probe-04 recipe, with one body variable per template
+ * variable, in template order — a person-field token resolved per person, or the literal
+ * the operator typed — and every one of them declared as not an expression.
+ *
+ * Probe 04 proved this against a template with **one** body variable. An empty
+ * `variables.body` and two or more positional entries have only been exercised against the
+ * test double, and wait for the live validation of spec 11.3(j).
  *
  * @throws Error when the job has no pacing yet (a planning bug).
  */
@@ -67,8 +73,8 @@ export function buildCampaignBody(job: DispatchJob): CampaignCreateBody {
         arrayFilter: audience.membership,
         query: audience.query,
         query_type: 'person',
-        variables: { body: [`{{person.custom_fields.${job.settings.firstNameFieldId}}}`] },
-        properties: { variables: { whatsapp: { components: { examples: { body: { '0_is_expression': false } } } } } },
+        variables: { body: campaignBodyVariables(job.settings.templateVariables) },
+        properties: { variables: { whatsapp: { components: { examples: { body: bodyExpressionFlags(job.settings.templateVariables) } } } } },
     };
 }
 

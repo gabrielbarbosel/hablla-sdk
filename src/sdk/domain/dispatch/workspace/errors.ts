@@ -40,6 +40,14 @@ export class JobNotFoundError extends Error {
     }
 }
 
+/** The job was archived: its header is still stored, its contacts are gone, so no answer can page them. */
+export class ArchivedJobError extends Error {
+    constructor(readonly jobId: string) {
+        super(`Dispatch job ${jobId} is archived; its contacts were removed`);
+        this.name = 'ArchivedJobError';
+    }
+}
+
 /** Another execution holds the job's lease. */
 export class JobBusyError extends Error {
     constructor(readonly jobId: string) {

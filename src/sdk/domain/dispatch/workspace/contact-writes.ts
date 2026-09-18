@@ -8,7 +8,7 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { ContactResolution, StopCause } from './call-failures';
-import type { DispatchContact, DispatchJob, PendingWrite } from './types';
+import type { CustomFieldValue, DispatchContact, DispatchJob, DispatchSettings, PendingWrite } from './types';
 import { phoneIdentity } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt, truncateDetail } from './call-failures';
 import { RECONCILIATION_DELAY_MS } from './constants';
@@ -20,10 +20,10 @@ import { addPersonOwners, addSegmentationItem, createPerson, removePersonFollowe
 /** One write of a contact's plan. */
 export type ContactWrite =
     | { kind: 'createPerson' }
-    | { kind: 'setFirstName' }
+    | { kind: 'setPersonFields' }
     | { kind: 'unfollowTarget' }
     | { kind: 'addTargetOwner' }
-    | { kind: 'removeSystemOwners'; userIds: readonly string[] }
+    | { kind: 'removeOwners'; userIds: readonly string[] }
     | { kind: 'joinAudience' };
 
 /** A write that is not idempotent, so its intent is persisted before sending and reconciled when its outcome is lost. */
@@ -33,17 +33,22 @@ export type WriteAheadWrite = Extract<ContactWrite, { kind: PendingWrite }>;
 const CREATED_PHONE_TYPE = 'personal';
 
 /**
- * The writes of a contact. A new person (no person yet, or one this dispatch created) is
- * `[createPerson, joinAudience]`, so after the create the next write is the join. An
- * existing person gets the first name, then the owner change it was resolved with, then
- * the join.
+ * The writes of a contact, from its persisted state and the job's policies. A new person
+ * (no person yet, or one this dispatch created) is `[createPerson, joinAudience]`, so
+ * after the create the next write is the join. An existing person gets the fields the row
+ * sent, then the owner change it was resolved with, then the join.
  */
-export function planContactWrites(contact: DispatchContact): ContactWrite[] {
+export function planContactWrites(contact: DispatchContact, settings: DispatchSettings): ContactWrite[] {
     if (!contact.person || !contact.person.existed) {
         return [{ kind: 'createPerson' }, { kind: 'joinAudience' }];
     }
 
-    const writes: ContactWrite[] = [{ kind: 'setFirstName' }];
+    const writes: ContactWrite[] = [];
+
+    if (updatesFields(contact, settings)) {
+        writes.push({ kind: 'setPersonFields' });
+    }
+
     const ownerChange = requireOwnerChange(contact);
 
     if (ownerChange.kind !== 'keep') {
@@ -53,14 +58,19 @@ export function planContactWrites(contact: DispatchContact): ContactWrite[] {
 
         writes.push({ kind: 'addTargetOwner' });
 
-        if (ownerChange.kind === 'replaceSystemOwners') {
-            writes.push({ kind: 'removeSystemOwners', userIds: ownerChange.removedOwnerIds });
+        if ('removedOwnerIds' in ownerChange) {
+            writes.push({ kind: 'removeOwners', userIds: ownerChange.removedOwnerIds });
         }
     }
 
     writes.push({ kind: 'joinAudience' });
 
     return writes;
+}
+
+/** True when the dispatch writes the row's fields to an existing person: the policy asks for it and the row sent some. */
+function updatesFields(contact: DispatchContact, settings: DispatchSettings): boolean {
+    return settings.existingPersonFieldPolicy === 'updateSentFields' && Object.keys(contact.customFields).length > 0;
 }
 
 /** True for the writes that need a write-ahead marker. */
@@ -88,18 +98,15 @@ export function writeCallFor(write: ContactWrite, contact: DispatchContact, job:
                 phones: [{ phone: phoneIdentity(requirePhone(contact)), is_whatsapp: true, type: CREATED_PHONE_TYPE }],
                 users: [requireTarget(contact).userId],
                 sectors: [settings.sectorId],
-                custom_fields: [
-                    { custom_field: settings.firstNameFieldId, value: contact.firstName },
-                    ...Object.entries(contact.customFields).map(([customField, value]) => ({ custom_field: customField, value })),
-                ],
+                custom_fields: toCustomFieldValues(contact.customFields),
             });
-        case 'setFirstName':
-            return updatePerson(requirePerson(contact).id, { custom_fields: [{ custom_field: settings.firstNameFieldId, value: contact.firstName }] });
+        case 'setPersonFields':
+            return updatePerson(requirePerson(contact).id, { custom_fields: toCustomFieldValues(contact.customFields) });
         case 'unfollowTarget':
             return removePersonFollowers(requirePerson(contact).id, [requireTarget(contact).userId]);
         case 'addTargetOwner':
             return addPersonOwners(requirePerson(contact).id, [requireTarget(contact).userId]);
-        case 'removeSystemOwners':
+        case 'removeOwners':
             return removePersonOwners(requirePerson(contact).id, write.userIds);
         case 'joinAudience':
             return addSegmentationItem(requireSegmentationId(job), requirePerson(contact).id);
@@ -196,6 +203,11 @@ function createdIdOf(result: CallResult, payload: string): string | undefined {
         }
         throw error;
     }
+}
+
+/** The contact's custom-field values in the shape the person routes take, in field order. */
+function toCustomFieldValues(customFields: Readonly<Record<string, string>>): CustomFieldValue[] {
+    return Object.entries(customFields).map(([customField, value]) => ({ custom_field: customField, value }));
 }
 
 /** The HTTP status of a completed result. */

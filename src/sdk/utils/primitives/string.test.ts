@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toDigits, firstName, hashString, hash64Hex, collapseWhitespace, capitalizeWord } from './string';
+import { toDigits, firstName, hashString, hash64Hex, collapseWhitespace, capitalizeWord, capitalizeWords } from './string';
 
 describe('toDigits', () => {
     it('keeps only digits', () => {
@@ -87,5 +87,19 @@ describe('capitalizeWord', () => {
 
     it('keeps an empty word empty', () => {
         expect(capitalizeWord('')).toBe('');
+    });
+});
+
+describe('capitalizeWords', () => {
+    it('capitalizes every word of a full name', () => {
+        expect(capitalizeWords('ANA PAULA SOUZA')).toBe('Ana Paula Souza');
+    });
+
+    it('keeps the whitespace between the words', () => {
+        expect(capitalizeWords('  ana   paula ')).toBe('  Ana   Paula ');
+    });
+
+    it('keeps an empty text empty', () => {
+        expect(capitalizeWords('')).toBe('');
     });
 });

@@ -180,6 +180,51 @@ describe('WorkspaceDispatch happy path', () => {
         expect(hablla.persons.get(habllaId('b'))!.users).toEqual([SYSTEM_USER.id, ADVISOR.id]);
     });
 
+    it('updates only the fields the row sent in a person that already exists', async () => {
+        const done = await dispatchToEnd(mixedAudience());
+
+        expect(done.job.phase).toBe('completed');
+        expect(hablla.persons.get(habllaId('b'))!.custom_fields).toEqual([{ custom_field: FIRST_NAME_FIELD_ID, value: 'Bruno' }]);
+    });
+
+    it('refuses the none field policy while a variable reads a person field, instead of sending the variable empty', async () => {
+        const request = { ...mixedAudience(), existingPersonFieldPolicy: 'none' as const };
+
+        await expect(dispatch.plan(request)).rejects.toThrow(DispatchValidationError);
+    });
+
+    it('writes nothing into an existing person under the none field policy, and still creates the new ones with their fields', async () => {
+        const request: WorkspaceDispatchRequest = {
+            ...mixedAudience(),
+            existingPersonFieldPolicy: 'none',
+            templateVariables: [{ kind: 'literal', value: 'Setembro', formats: [] }],
+        };
+        const done = await dispatchToEnd(request);
+
+        expect(done.job.phase).toBe('completed');
+        expect(hablla.requestsTo('PUT', /\/persons\/[^/]+$/)).toHaveLength(0);
+        expect(hablla.persons.get(habllaId('b'))!.custom_fields).toEqual([]);
+        expect(personWithPhone(phoneOf('1'))[0]!.custom_fields).toEqual([{ custom_field: FIRST_NAME_FIELD_ID, value: 'ana nova' }]);
+    });
+
+    it('keeps the human owner by default and takes it over only under the replace human policy', async () => {
+        const kept = await dispatchToEnd(mixedAudience());
+
+        expect(kept.job.phase).toBe('completed');
+        expect(hablla.persons.get(habllaId('c'))!.users).toEqual([OTHER_ADVISOR.id]);
+    });
+
+    it('replaces a human owner under the replace human policy, keeping the system owner the system policy keeps', async () => {
+        const request = { ...mixedAudience(), humanOwnerPolicy: 'replace' as const, systemOwnerPolicy: 'add' as const };
+
+        hablla.persons.get(habllaId('c'))!.users = [SYSTEM_USER.id, OTHER_ADVISOR.id];
+
+        const done = await dispatchToEnd(request);
+
+        expect(done.job.phase).toBe('completed');
+        expect(hablla.persons.get(habllaId('c'))!.users).toEqual([SYSTEM_USER.id, ADVISOR.id]);
+    });
+
     it('skips unresolved advisors without any call for them under the skip policy', async () => {
         const request = aRequest({ unresolvedAdvisorPolicy: { kind: 'skip' }, rows: [aRow('1'), aRow('7', { advisorKey: '' })] });
         const done = await dispatchToEnd(request);
@@ -875,16 +920,26 @@ describe('WorkspaceDispatch token rejection', () => {
 });
 
 describe('WorkspaceDispatch fails fast', () => {
-    it('refuses a missing first-name field after reading only the catalogs', async () => {
-        await expect(dispatch.plan(aRequest({ firstNameFieldId: habllaId('f00d') }))).rejects.toBeInstanceOf(DispatchValidationError);
-        expect(hablla.requests.every((request) => request.method === 'GET')).toBe(true);
+    it('refuses a variable bound to a custom field the workspace does not have, after reading only the catalogs', async () => {
+        const request = aRequest({
+            templateVariables: [{ kind: 'personField', fieldId: habllaId('f00d'), formats: [] }],
+            rows: [aRow('1', { customFields: { [habllaId('f00d')]: 'ana' } })],
+        });
+
+        await expect(dispatch.plan(request)).rejects.toBeInstanceOf(DispatchValidationError);
+        expect(hablla.requests.every((call) => call.method === 'GET')).toBe(true);
         expect(store.jobs.size).toBe(0);
     });
 
-    it('refuses a first-name field of the wrong type', async () => {
+    it('refuses a bound custom field of the wrong type', async () => {
         hablla.customFields = [{ id: FIRST_NAME_FIELD_ID, target: 'person', type: 'number', name: 'Primeiro Nome' }];
 
         await expect(dispatch.plan(aRequest())).rejects.toThrow(/type string/);
+    });
+
+    it('refuses a variable whose column the audience does not fill, naming the field', async () => {
+        await expect(dispatch.plan(aRequest({ rows: [aRow('1', { customFields: {} })] }))).rejects.toThrow(/is not filled by 1 of the 1 rows/);
+        expect(store.jobs.size).toBe(0);
     });
 
     it('refuses an empty filter type before any call', async () => {
@@ -927,5 +982,127 @@ describe('WorkspaceDispatch status', () => {
         expect(view.next).toEqual({ kind: 'continueAfter', delayMs: 0 });
         expect(hablla.requests).toHaveLength(before);
         expect(await dispatch.resumableJobIds()).toEqual([planned.job.id]);
+    });
+});
+
+describe('WorkspaceDispatch exclusion renewed at the confirmation', () => {
+    it('takes out a phone that entered the exclusion after the preview, before any write', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] })));
+
+        expect(planned.job.counts).toMatchObject({ ready: 2, excluded: 0 });
+
+        const confirmed = await dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [phoneOf('2')] } });
+
+        expect(confirmed.job.counts).toMatchObject({ ready: 1, excluded: 1 });
+        expect(confirmed.job.exclusion).toMatchObject({ phoneCount: 0, renewedPhoneCount: 1 });
+        expect(confirmed.job.revalidationShifts).toEqual({ excluded: 1 });
+
+        const done = await drive(confirmed);
+
+        expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:excluded']);
+        expect(personWithPhone(phoneOf('2'))).toEqual([]);
+    });
+
+    it('completes without a campaign when the renewed list takes everybody out', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+        const confirmed = await dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [phoneOf('1')] } });
+
+        expect(confirmed.job).toMatchObject({ phase: 'completed', audienceSize: 0 });
+        expect(confirmed.next).toEqual({ kind: 'finished' });
+        expect(hablla.campaigns).toHaveLength(0);
+        expect(hablla.requestsTo('POST', /\/segmentations$/)).toHaveLength(0);
+    });
+
+    it('confirms without a renewal exactly as before', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+        const confirmed = await dispatch.start(planned.job.id, OPERATOR);
+
+        expect(confirmed.job.phase).toBe('materializing');
+        expect(confirmed.job.exclusion.renewedPhoneCount).toBeUndefined();
+    });
+
+    it('refuses a renewed list holding anything that is not a phone, instead of confirming as if it had been applied', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] })));
+
+        await expect(dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [phoneOf('2'), 'Telefone'] } })).rejects.toBeInstanceOf(DispatchValidationError);
+
+        const untouched = await dispatch.status(planned.job.id, { offset: 0, limit: 2 });
+
+        expect(untouched.job.phase).toBe('awaitingConfirmation');
+        expect(untouched.job.exclusion.renewedPhoneCount).toBeUndefined();
+    });
+
+    it('refuses a renewal on a job that was already written to', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+
+        await dispatch.start(planned.job.id, OPERATOR);
+
+        await expect(dispatch.start(planned.job.id, { ...OPERATOR, exclusion: { phones: [] } })).rejects.toBeInstanceOf(InvalidJobTransitionError);
+    });
+});
+
+describe('WorkspaceDispatch call budget', () => {
+    it('reports the estimate the plan was checked against, already charged for the catalog reads', async () => {
+        const planned = await dispatch.plan(aRequest({ rows: [aRow('1')] }));
+
+        expect(planned.callBudget.estimate).toEqual(estimateCallBudget(store.contactsOf(planned.job.id), { roster: 1, customFields: 1 }, 0));
+        expect(planned.callBudget.spent).toBe(2);
+        expect(planned.callBudget.remaining).toBe(planned.callBudget.estimate.total - 2);
+        expect(planned.callBudget.dailyCallQuota).toBe(1_000_000);
+    });
+
+    it('charges every call the job sends, so what is spent only grows and what is left only shrinks', async () => {
+        const planned = await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] }));
+        const resolved = await drive(planned);
+
+        expect(resolved.callBudget.spent).toBeGreaterThan(planned.callBudget.spent);
+        expect(resolved.callBudget.spent).toBe(hablla.requests.length);
+
+        const done = await drive(await dispatch.start(resolved.job.id, OPERATOR));
+
+        expect(done.callBudget.spent).toBe(hablla.requests.length);
+        expect(done.callBudget.remaining).toBe(Math.max(0, done.callBudget.estimate.total - done.callBudget.spent));
+    });
+
+    it('carries the ledger into a status read, which sends no call of its own', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+        const view = await dispatch.status(planned.job.id, { offset: 0, limit: 10 });
+
+        expect(view.callBudget).toEqual(planned.callBudget);
+    });
+});
+
+describe('WorkspaceDispatch job listing', () => {
+    it('lists the jobs of the asked phases, newest first, with the step each one waits for', async () => {
+        const first = await drive(await dispatch.plan(aRequest({ rows: [aRow('1')] })));
+
+        clock.current += 1_000;
+
+        const second = await drive(await dispatch.plan(aRequest({ rows: [aRow('2')] })));
+        const listed = await dispatch.listJobs(['awaitingConfirmation']);
+
+        expect(listed.map((progress) => progress.job.id)).toEqual([second.job.id, first.job.id]);
+        expect(listed.every((progress) => progress.next.kind === 'awaitConfirmation')).toBe(true);
+        expect(await dispatch.jobIds(['awaitingConfirmation'])).toEqual([second.job.id, first.job.id]);
+    });
+
+    it('finds a finished job, which the resumable listing never names', async () => {
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
+
+        expect(await dispatch.jobIds(['completed'])).toEqual([done.job.id]);
+        expect(await dispatch.resumableJobIds()).toEqual([]);
+    });
+
+    it('is empty for a phase no job is in, without any call', async () => {
+        await dispatch.plan(aRequest());
+        const before = hablla.requests.length;
+
+        expect(await dispatch.jobIds(['failed', 'abandoned'])).toEqual([]);
+        expect(hablla.requests).toHaveLength(before);
+    });
+
+    it('refuses an empty list or an unknown phase instead of answering nothing', async () => {
+        await expect(dispatch.jobIds([])).rejects.toBeInstanceOf(DispatchValidationError);
+        await expect(dispatch.jobIds(['running' as never])).rejects.toThrow(/is not a dispatch job phase/);
     });
 });

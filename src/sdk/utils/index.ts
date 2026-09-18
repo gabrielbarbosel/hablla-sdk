@@ -11,7 +11,7 @@
  */
 
 /** primitives (global) */
-export { toDigits, firstName, hashString, hash64Hex, collapseWhitespace, capitalizeWord } from './primitives/string';
+export { toDigits, firstName, hashString, hash64Hex, collapseWhitespace, capitalizeWord, capitalizeWords } from './primitives/string';
 export { collectIndexed } from './primitives/record';
 export { distributeOwners, expandByWeight } from './primitives/distribute';
 export type { OwnerStrategy } from './primitives/distribute';

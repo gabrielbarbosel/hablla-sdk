@@ -5,7 +5,7 @@ import { prepareAudience } from './audience';
 import { EXCLUSION_PAGE_LIMIT, FIRST_EXCLUSION_PAGE, MAX_CALL_ATTEMPTS } from './constants';
 import { UnexpectedPayloadError } from './errors';
 import { countAudience, listFilteredPersonsPage } from './routes';
-import { ROSTER, aRequest, aRow, completed } from './__fixtures__/builders';
+import { NO_CALLS_SPENT, ROSTER, aRequest, aRow, completed } from './__fixtures__/builders';
 import type { DispatchJob } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -21,7 +21,7 @@ const COUNT_CALL = countAudience(FILTERS);
 function aJob(exclusionPurpose: 'preview' | 'send', overrides: Partial<DispatchJob> = {}): DispatchJob {
     const request = aRequest({ rows: [aRow('1'), aRow('2'), aRow('3')], exclusion: { phones: [], segmentationFilters: FILTERS } });
 
-    return { ...createJob(prepareAudience(request, ROSTER), request, NOW), exclusionPurpose, exclusionUniverseSize: 0, ...overrides };
+    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT), exclusionPurpose, exclusionUniverseSize: 0, ...overrides };
 }
 
 /** A listing page holding one person per phone. */

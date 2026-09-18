@@ -5,7 +5,9 @@
 
 import type { RosterIndex } from './request-validation';
 import type { AdvisorResolution, ContactOutcome, DispatchContact, ExclusionCriteria, TargetOwner, WorkspaceDispatchRequest, WorkspaceDispatchRow } from './types';
-import { brazilianPhoneVariants, capitalizeWord, collapseWhitespace, firstName, hash64Hex, normalizeEmail, phoneIdentity } from '../../../utils';
+import type { TemplateVariable } from './template-variables';
+import { brazilianPhoneVariants, collapseWhitespace, hash64Hex, normalizeEmail, phoneIdentity } from '../../../utils';
+import { formatBoundFields } from './template-variables';
 
 /** Contacts of a request plus the audience fingerprint used against duplicate dispatches. */
 export interface PreparedAudience {
@@ -78,17 +80,35 @@ export function excludeContacts(contacts: readonly DispatchContact[], excludedPh
 }
 
 /**
- * Fingerprint of an audience: a 64-bit hash of the connection, the template and the
- * sorted phone identities of the contacts in `pendingLookup`, suffixed with their count.
- * Independent of row order.
+ * The excluded values {@link excludeContacts} cannot read as a Brazilian phone, so they
+ * would take nobody out. At `plan` they are tolerated, but a list read again to be applied
+ * right before the writes is the last gate, and a garbled one has to be seen.
  */
-export function audienceFingerprint(request: Pick<WorkspaceDispatchRequest, 'connectionId' | 'templateId'>, contacts: readonly DispatchContact[]): string {
+export function unreadablePhones(phones: readonly string[]): string[] {
+    return phones.filter((phone) => brazilianPhoneVariants(phone) === undefined);
+}
+
+/**
+ * Fingerprint of an audience: a 64-bit hash of the connection, the template, what its
+ * variables send and the sorted phone identities of the contacts in `pendingLookup`,
+ * suffixed with their count. Independent of row order. The variables are part of it
+ * because the message a typed literal produces is not the one another literal produces, so
+ * two dispatches that differ only there are different dispatches for the duplicate guard.
+ */
+export function audienceFingerprint(request: Pick<WorkspaceDispatchRequest, 'connectionId' | 'templateId' | 'templateVariables'>, contacts: readonly DispatchContact[]): string {
     const identities = contacts
         .filter((contact) => contact.outcome === 'pendingLookup' && contact.phone)
         .map((contact) => phoneIdentity(contact.phone!))
         .sort();
 
-    return `${hash64Hex([request.connectionId, request.templateId, ...identities].join('|'))}-${identities.length}`;
+    return `${hash64Hex([request.connectionId, request.templateId, variablesToken(request.templateVariables), ...identities].join('|'))}-${identities.length}`;
+}
+
+/** The variables' part of the fingerprint: origin, value and reformatting, in template order. */
+function variablesToken(variables: readonly TemplateVariable[]): string {
+    return variables
+        .map((variable) => [variable.kind, variable.kind === 'personField' ? variable.fieldId : variable.value, ...variable.formats].join('~'))
+        .join(',');
 }
 
 /** Builds the contact of one row. */
@@ -101,10 +121,9 @@ function contactOfRow(row: WorkspaceDispatchRow, index: number, request: Workspa
         index,
         name,
         phone,
-        firstName: capitalizeWord(firstName(name)),
         advisorResolution: advisor.resolution,
         target: advisor.target,
-        customFields: row.customFields,
+        customFields: formatBoundFields(row.customFields, request.templateVariables),
         outcome: firstOutcome(name, phone === undefined ? undefined : phoneIdentity(phone), advisor, seenPhones),
         writesDone: 0,
         attempts: 0,

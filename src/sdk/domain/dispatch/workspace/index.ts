@@ -8,6 +8,7 @@ export type { WorkspaceDispatchPorts } from './workspace-dispatch';
 export { CLAIMING_OUTCOMES, holdsPersonClaim } from './person-claims';
 export type { Clock, DispatchJobStore } from './ports';
 export {
+    ArchivedJobError,
     CallBudgetExceededError,
     DispatchThrottledError,
     DispatchTransportError,
@@ -19,10 +20,13 @@ export {
     StaleJobError,
     UnexpectedPayloadError,
 } from './errors';
-export { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
+export { CONTACT_OUTCOMES, DISPATCH_JOB_PHASES, RESUMABLE_PHASES } from './types';
+export { VARIABLE_FORMATS, formatVariableValue } from './template-variables';
+export type { TemplateVariable, VariableFormat } from './template-variables';
 export type {
     AdvisorKeyKind,
     AdvisorResolution,
+    CallBudget,
     CampaignCreateBody,
     ChunkedPhase,
     ContactFailure,
@@ -30,6 +34,7 @@ export type {
     ContactPage,
     CustomFieldValue,
     ContinueOptions,
+    DispatchCallBudget,
     DispatchContact,
     DispatchJob,
     DispatchJobPhase,
@@ -40,6 +45,8 @@ export type {
     DispatchSettings,
     ExclusionCriteria,
     ExclusionSummary,
+    ExistingPersonFieldPolicy,
+    HumanOwnerPolicy,
     HabllaDispatchConfig,
     JobFailure,
     JobFailureReason,
@@ -55,6 +62,7 @@ export type {
     ResolvedPerson,
     ResumePhase,
     SegmentationCreateBody,
+    StartOptions,
     SegmentationFilter,
     SystemOwnerPolicy,
     TargetOwner,

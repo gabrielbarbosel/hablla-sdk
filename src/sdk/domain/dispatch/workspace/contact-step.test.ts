@@ -50,7 +50,7 @@ describe('nextContactStep', () => {
 
     it('runs the send-time lookup only before the first write', () => {
         expect(callsStep({ contact: readyExisting }, MATERIALIZING).purpose).toBe('personLookup');
-        expect(callsStep({ contact: { ...readyExisting, lookupPurpose: 'send' } }, MATERIALIZING).purpose).toEqual({ write: { kind: 'setFirstName' } });
+        expect(callsStep({ contact: { ...readyExisting, lookupPurpose: 'send' } }, MATERIALIZING).purpose).toEqual({ write: { kind: 'setPersonFields' } });
         expect(callsStep({ contact: { ...readyExisting, writesDone: 1 } }, MATERIALIZING).purpose).toEqual({ write: { kind: 'joinAudience' } });
     });
 });

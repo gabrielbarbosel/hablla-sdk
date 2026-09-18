@@ -1,25 +1,34 @@
 import { describe, it, expect } from 'vitest';
 import { excludeContacts, excludesByFilter, prepareAudience } from './audience';
 import { brazilianPhoneVariants } from '../../../utils';
-import { ADVISOR, CONNECTION_ID, RESERVE_OWNER, ROSTER, SYSTEM_USER, aContact, aRequest, aRow } from './__fixtures__/builders';
+import { ADVISOR, CONNECTION_ID, FIRST_NAME_FIELD_ID, RESERVE_OWNER, ROSTER, SYSTEM_USER, aContact, aRequest, aRow } from './__fixtures__/builders';
 
 describe('prepareAudience', () => {
-    it('builds a pendingLookup contact with the normalized phone, first name and advisor target', () => {
-        const { contacts } = prepareAudience(aRequest({ rows: [aRow('000001', { name: '  gABRIEL   da  Silva ' })] }), ROSTER);
+    it('builds a pendingLookup contact with the normalized phone, the formatted variable value and the advisor target', () => {
+        const row = aRow('000001', { name: '  gABRIEL   da  Silva ', customFields: { [FIRST_NAME_FIELD_ID]: 'gABRIEL   da  Silva' } });
+        const { contacts } = prepareAudience(aRequest({ rows: [row] }), ROSTER);
 
         expect(contacts).toEqual([{
             index: 0,
             name: 'gABRIEL da Silva',
             phone: { digits: '5551999000001', alternate: '555199000001' },
-            firstName: 'Gabriel',
             advisorResolution: 'matched',
             target: { userId: ADVISOR.id, source: 'advisor' },
-            customFields: {},
+            customFields: { [FIRST_NAME_FIELD_ID]: 'Gabriel' },
             outcome: 'pendingLookup',
             writesDone: 0,
             attempts: 0,
             createSends: 0,
         }]);
+    });
+
+    it('writes the column value untouched when the variable asks for no reformatting', () => {
+        const request = aRequest({
+            templateVariables: [{ kind: 'personField', fieldId: FIRST_NAME_FIELD_ID, formats: [] }],
+            rows: [aRow('000001', { customFields: { [FIRST_NAME_FIELD_ID]: 'ana paula souza' } })],
+        });
+
+        expect(prepareAudience(request, ROSTER).contacts[0]!.customFields).toEqual({ [FIRST_NAME_FIELD_ID]: 'ana paula souza' });
     });
 
     it('decides by precedence: invalid phone, repeated phone, missing name, unresolved advisor', () => {
@@ -109,6 +118,14 @@ describe('prepareAudience', () => {
 
         expect(prepareAudience(aRequest({ templateId: CONNECTION_ID }), ROSTER).fingerprint).not.toBe(base);
         expect(prepareAudience(aRequest({ connectionId: '6a04dd9c263b426122d2f2f2' }), ROSTER).fingerprint).not.toBe(base);
+    });
+
+    it('fingerprints a different typed value or reformatting differently', () => {
+        const base = prepareAudience(aRequest({ templateVariables: [{ kind: 'literal', value: 'Setembro', formats: [] }] }), ROSTER).fingerprint;
+
+        expect(prepareAudience(aRequest({ templateVariables: [{ kind: 'literal', value: 'Outubro', formats: [] }] }), ROSTER).fingerprint).not.toBe(base);
+        expect(prepareAudience(aRequest({ templateVariables: [{ kind: 'literal', value: 'Setembro', formats: ['upperCase'] }] }), ROSTER).fingerprint).not.toBe(base);
+        expect(prepareAudience(aRequest({ templateVariables: [] }), ROSTER).fingerprint).not.toBe(base);
     });
 
     it('leaves excluded contacts out of the fingerprint', () => {

@@ -7,6 +7,7 @@ import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { AuthStrategy } from '../../../core/strategy';
 import type { PreparedAudience } from './audience';
 import type { StopCause } from './call-failures';
+import type { CallBudget } from './types';
 import type {
     ChunkedPhase,
     ContactOutcome,
@@ -20,12 +21,12 @@ import type {
     JobFailureReason,
     WorkspaceDispatchRequest,
 } from './types';
-import { excludesByFilter } from './audience';
+import { excludeContacts, excludesByFilter, unreadablePhones } from './audience';
 import { rejectedTokenStrategy } from './call-failures';
 import { toDispatchConfig } from './campaign';
 import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { workOutcomeOf } from './contact-step';
-import { InvalidJobTransitionError } from './errors';
+import { DispatchValidationError, InvalidJobTransitionError } from './errors';
 import { jobIdOf } from './job-id';
 import { requireAudienceSize, requireExclusionCursor, requireExclusionPurpose } from './requirements';
 import { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
@@ -35,6 +36,12 @@ const TERMINAL_PHASES: readonly DispatchJobPhase[] = ['completed', 'superseded',
 
 /** Why a call returned early, as `nextStepOf` understands it. */
 export type EarlyStop = { cause: StopCause } | { waitUntil: number };
+
+/** What `plan` estimated for a job and what it already spent getting there. */
+export interface JobCallLedger {
+    estimate: CallBudget;
+    spent: number;
+}
 
 /** What `plan` must do given the jobs that share the fingerprint. */
 export type DuplicateVerdict =
@@ -75,7 +82,7 @@ export function tallyOutcomes(counts: Readonly<Record<ContactOutcome, number>>, 
  * A new job at revision 0: `resolvingExclusions` when the request excludes by filter,
  * `resolving` when it does not, or `awaitingConfirmation` when no contact needs a lookup.
  */
-export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number): DispatchJob {
+export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number, calls: JobCallLedger): DispatchJob {
     const { rows: _rows, exclusion, ...settings } = request;
     const firstPending = prepared.contacts.find((contact) => contact.outcome === 'pendingLookup');
     const job: DispatchJob = {
@@ -93,6 +100,8 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
         counts: countOutcomes(prepared.contacts),
         revalidationShifts: {},
         consecutiveInterruptedRounds: 0,
+        callEstimate: calls.estimate,
+        callsSpent: calls.spent,
         warnings: [],
     };
 
@@ -222,6 +231,17 @@ export function trackInterruptedRounds(job: DispatchJob, results: readonly CallR
     };
 }
 
+/**
+ * The job with more calls on its ledger; the only place the count grows. Calls are charged
+ * before their result is read, so a refusal costs what it spent — but a charge only reaches
+ * the ledger when the job that carries it is stored, so the calls of a confirmation that
+ * threw, or of a round whose compare-and-set was lost, are spent at Hablla and missing
+ * here. The count is a floor, never an exact meter.
+ */
+export function spendCalls(job: DispatchJob, count: number): DispatchJob {
+    return count === 0 ? job : { ...job, callsSpent: job.callsSpent + count };
+}
+
 /** True for a phase a `continue` works on; every other phase is left untouched. */
 export function isResumablePhase(phase: DispatchJobPhase): phase is ResumePhase {
     return RESUMABLE_PHASES.some((resumable) => resumable === phase);
@@ -293,6 +313,41 @@ export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEm
     };
 
     return excludesByFilter(job.exclusion) ? withExclusionRun(confirmed, 'send', now) : confirmed;
+}
+
+/**
+ * `awaitingConfirmation` with the exclusion renewed at confirmation time: the outcomes of
+ * the contacts the renewed list took out, and the size of the list, kept apart from the
+ * one `plan` applied so the audit says which list took whom out.
+ *
+ * @throws DispatchValidationError when a value of the renewed list is not a phone. This is
+ *   the last gate before the writes: a list pasted from the wrong column would take nobody
+ *   out and confirm the dispatch anyway, with the audit claiming it had been applied.
+ */
+export function withRenewedExclusion(job: DispatchJob, contacts: readonly DispatchContact[], phones: readonly string[], now: number): { job: DispatchJob; excluded: DispatchContact[] } {
+    assertPhase(job, ['awaitingConfirmation'], 'renew its exclusion');
+
+    const unreadable = unreadablePhones(phones);
+
+    if (unreadable.length > 0) {
+        throw new DispatchValidationError(unreadable.map((phone) => `exclusion.phones holds ${JSON.stringify(phone)}, which is not a Brazilian phone`));
+    }
+
+    const after = excludeContacts(contacts, phones);
+    const excluded = after.filter((contact, position) => contact !== contacts[position]);
+
+    return {
+        job: {
+            ...job,
+            exclusion: { ...job.exclusion, renewedPhoneCount: phones.length },
+            counts: tallyOutcomes(job.counts, contacts, after),
+            revalidationShifts: excluded.length === 0
+                ? job.revalidationShifts
+                : { ...job.revalidationShifts, excluded: (job.revalidationShifts.excluded ?? 0) + excluded.length },
+            updatedAt: now,
+        },
+        excluded,
+    };
 }
 
 /** `resolvingExclusions` → its next page, with the page's attempts reset. */
