@@ -180,6 +180,23 @@ describe('WorkspaceDispatch happy path', () => {
         expect(hablla.persons.get(habllaId('b'))!.users).toEqual([SYSTEM_USER.id, ADVISOR.id]);
     });
 
+    it('updates only the fields the row sent in a person that already exists', async () => {
+        const done = await dispatchToEnd(mixedAudience());
+
+        expect(done.job.phase).toBe('completed');
+        expect(hablla.persons.get(habllaId('b'))!.custom_fields).toEqual([{ custom_field: FIRST_NAME_FIELD_ID, value: 'Bruno' }]);
+    });
+
+    it('writes nothing into an existing person under the none field policy, and still creates the new ones with their fields', async () => {
+        const request = { ...mixedAudience(), existingPersonFieldPolicy: 'none' as const };
+        const done = await dispatchToEnd(request);
+
+        expect(done.job.phase).toBe('completed');
+        expect(hablla.requestsTo('PUT', /\/persons\/[^/]+$/)).toHaveLength(0);
+        expect(hablla.persons.get(habllaId('b'))!.custom_fields).toEqual([]);
+        expect(personWithPhone(phoneOf('1'))[0]!.custom_fields).toEqual([{ custom_field: FIRST_NAME_FIELD_ID, value: 'Ana' }]);
+    });
+
     it('keeps the human owner by default and takes it over only under the replace human policy', async () => {
         const kept = await dispatchToEnd(mixedAudience());
 
