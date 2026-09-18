@@ -13,12 +13,20 @@
 - `DispatchProgress.callBudget`: estimativa, gasto e restante das chamadas do job, mais a cota que a estimativa conferiu.
 - `start(jobId, { exclusion })`: exclusão relida na confirmação, aplicada antes de qualquer escrita.
 - `Hablla.formatVariableValue` e `utils.capitalizeWords`, para a prévia do app reformatar com a mesma função do disparo.
+- `ArchivedJobError`: leitura de contatos de um job arquivado falha como erro de domínio nomeado, em vez de `Error` cru.
 
 ### Alterado
 
 - O valor de uma variável vai literalmente como veio da coluna ou do campo digitado; o domínio não calcula mais primeiro nome nem capitaliza por conta própria.
 - `decideOwnerChange` recebe as settings de dono em vez de dois argumentos soltos, e `OwnerChange` ganha a variante `replaceHumanOwners`.
 - A campanha monta `variables.body` com uma entrada por variável e `'<i>_is_expression': false` por índice.
+- `DispatchJob` passa a exigir `callEstimate` e `callsSpent`: **job gravado pela v0.4.0 não é legível pela v0.5.0** — a aba `dispatch_jobs` precisa ser esvaziada, e um header sem esses campos lança `IncompatibleJobStoreError` nomeando o job em vez de `TypeError`.
+- `existingPersonFieldPolicy: 'none'` com variável de campo de pessoa é **recusada** na validação: a campanha leria o campo que essa política nunca grava e a mensagem sairia com a variável vazia.
+- Célula em branco da coluna mapeada conta como não preenchida, junto com a coluna ausente.
+- A impressão digital da audiência inclui as variáveis do corpo, para dois disparos que só diferem no valor digitado não serem a mesma coisa para o guard de duplicata.
+- `start(jobId, { exclusion })` recusa valor que não seja telefone brasileiro, em vez de ignorá-lo e confirmar o disparo.
+- `listJobs`/`jobIds` não devolvem mais job arquivado (não sobrou contato para paginar).
+- `DispatchCallBudget.spent` é documentado como piso: a chamada é cobrada antes de o resultado ser lido, mas o que uma confirmação que falhou ou uma rodada perdida gastou não chega ao extrato.
 
 ### Removido
 
