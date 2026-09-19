@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.6.0 (2026-09-19)
+
+**Classification:** `breaking` — endpoints +5 / -5 / ~0 incompatible / 0 extended.
+
+### Removed endpoints
+
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-twoway (reports)`
+
+### Added endpoints
+
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume (reports)`
+
+### Files
+
+- changed `gen_reports.ts`
+
 ## v0.5.0 (2026-09-17)
 
 **Classification:** `breaking` — a requisição do disparo por workspace ganha as variáveis do template e as duas políticas novas, e perde o campo de primeiro nome; `DispatchProgress` passa a carregar o orçamento de chamadas.
