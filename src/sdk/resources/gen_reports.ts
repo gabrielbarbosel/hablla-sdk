@@ -66,6 +66,33 @@ export class Reports extends Resource {
     }
 
     /**
+     * getMetaMessagesPartnersDetails.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getMetaMessagesPartnersDetails(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details', { query: opts.query });
+    }
+
+    /**
+     * getMetaMessagesDetails.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getMetaMessagesDetails(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details', { query: opts.query });
+    }
+
+    /**
+     * getResume.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getResume(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume', { query: opts.query });
+    }
+
+    /**
      * getCscxMetrics.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics
      * @remarks Documented query: filters (extra keys allowed).
@@ -162,6 +189,24 @@ export class Reports extends Resource {
      */
     getUsersUsingServices(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/admin/users-using-services', { query: opts.query });
+    }
+
+    /**
+     * getCharges.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCharges(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges', { query: opts.query });
+    }
+
+    /**
+     * getChargesPartners.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getChargesPartners(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners', { query: opts.query });
     }
 
     /**
@@ -435,42 +480,6 @@ export class Reports extends Resource {
     }
 
     /**
-     * getCharges.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCharges(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges', { query: opts.query });
-    }
-
-    /**
-     * getChargesPartners.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChargesPartners(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners', { query: opts.query });
-    }
-
-    /**
-     * getChargesV2.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChargesV2(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2', { query: opts.query });
-    }
-
-    /**
-     * getChargesV3.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChargesV3(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3', { query: opts.query });
-    }
-
-    /**
      * getHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/history
      * @remarks Documented query: filters (extra keys allowed).
@@ -702,15 +711,6 @@ export class Reports extends Resource {
      */
     getRepSessionsMonthlyHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-history', { query: opts.query });
-    }
-
-    /**
-     * getMonthlyTwoway.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-twoway
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getMonthlyTwoway(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-twoway', { query: opts.query });
     }
 
     /**

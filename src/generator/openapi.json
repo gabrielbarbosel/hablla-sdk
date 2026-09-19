@@ -14,7 +14,7 @@
       "multipartOperations": 7
     },
     "x-generator": "hablla-sdk generator / extract stage",
-    "x-extracted-at": "2026-09-16T21:02:02.719Z",
+    "x-extracted-at": "2026-09-19T08:09:06.312Z",
     "x-merge-stats": {
       "studioOperations": 652,
       "swaggerOnlyAdded": 80,
@@ -43251,81 +43251,6 @@
         }
       }
     },
-    "/v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/monthly-twoway": {
-      "get": {
-        "operationId": "getSessionsTwoWayAndUserInitiatedCounters",
-        "tags": [
-          "reports"
-        ],
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "filters",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "x-source": "bundle"
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "getSessionsTwoWayAndUserInitiatedCounters",
-        "x-sdk-method": "getSessionsTwoWayAndUserInitiatedCounters",
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/workspaces/{workspace_id}/reports/alloy-reports/admin/users-using-crm": {
       "get": {
         "operationId": "getUsersIndicatorsCrm",
@@ -44668,9 +44593,9 @@
         }
       }
     },
-    "/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges": {
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges": {
       "get": {
-        "operationId": "getPlanCharges",
+        "operationId": "getPlanChargesBillingApi",
         "tags": [
           "reports"
         ],
@@ -44694,8 +44619,8 @@
           }
         ],
         "x-source": "bundle",
-        "x-bundle-fn": "getPlanCharges",
-        "x-sdk-method": "getPlanCharges",
+        "x-bundle-fn": "getPlanChargesBillingApi",
+        "x-sdk-method": "getPlanChargesBilling",
         "responses": {
           "200": {
             "description": "OK"
@@ -44743,9 +44668,9 @@
         }
       }
     },
-    "/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2": {
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners": {
       "get": {
-        "operationId": "getPlanChargesV2",
+        "operationId": "getChargesPartnersBillingApi",
         "tags": [
           "reports"
         ],
@@ -44769,8 +44694,8 @@
           }
         ],
         "x-source": "bundle",
-        "x-bundle-fn": "getPlanChargesV2",
-        "x-sdk-method": "getPlanChargesV2",
+        "x-bundle-fn": "getChargesPartnersBillingApi",
+        "x-sdk-method": "getChargesPartnersBilling",
         "responses": {
           "200": {
             "description": "OK"
@@ -44818,9 +44743,9 @@
         }
       }
     },
-    "/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3": {
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details": {
       "get": {
-        "operationId": "getPlanChargesV3",
+        "operationId": "getMetaMessagesDetailsApi",
         "tags": [
           "reports"
         ],
@@ -44844,8 +44769,158 @@
           }
         ],
         "x-source": "bundle",
-        "x-bundle-fn": "getPlanChargesV3",
-        "x-sdk-method": "getPlanChargesV3",
+        "x-bundle-fn": "getMetaMessagesDetailsApi",
+        "x-sdk-method": "getMetaMessagesDetails",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details": {
+      "get": {
+        "operationId": "getMetaMessagesPartnersDetailsApi",
+        "tags": [
+          "reports"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "getMetaMessagesPartnersDetailsApi",
+        "x-sdk-method": "getMetaMessagesPartnersDetails",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request (validation failed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing or invalid token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient permissions)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume": {
+      "get": {
+        "operationId": "getMetaMessagesResumeApi",
+        "tags": [
+          "reports"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "x-source": "bundle"
+          }
+        ],
+        "x-source": "bundle",
+        "x-bundle-fn": "getMetaMessagesResumeApi",
+        "x-sdk-method": "getMetaMessagesResume",
         "responses": {
           "200": {
             "description": "OK"
@@ -44921,81 +44996,6 @@
         "x-source": "bundle",
         "x-bundle-fn": "getWorkspacePartnersApi",
         "x-sdk-method": "getWorkspacePartners",
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad request (validation failed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (missing or invalid token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (insufficient permissions)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners": {
-      "get": {
-        "operationId": "getPartnersChargesApi",
-        "tags": [
-          "reports"
-        ],
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "filters",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "x-source": "bundle"
-          }
-        ],
-        "x-source": "bundle",
-        "x-bundle-fn": "getPartnersChargesApi",
-        "x-sdk-method": "getPartnersCharges",
         "responses": {
           "200": {
             "description": "OK"
