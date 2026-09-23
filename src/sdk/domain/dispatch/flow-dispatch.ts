@@ -2,6 +2,7 @@ import type { HabllaClient } from '../../client';
 import type { FlowDispatchContact, FlowDispatchConfig, FlowDispatchResult } from './types';
 import type { MultipartBody } from '../../core/types';
 import { buildXlsx } from './xlsx';
+import { toDispatchConfig } from './workspace/campaign';
 import { distributeOwners, expandByWeight, toDigits, phoneVariants, hashString } from '../../utils';
 
 /**
@@ -29,7 +30,8 @@ const DEFAULT_DDI = '55';
  * 3. Audience assembly — the fixed + variable + extra + config columns, via
  *    {@link buildXlsx} (kills the SpreadsheetApp.create + export + Drive round-trip).
  * 4. The `campaigns/sheet` POST with the 500-circular workaround preserved: an explicit
- *    Bearer strategy, `type: 'flow'` + `flow`, and NO `dispatch_config`.
+ *    Bearer strategy, `type: 'flow'` + `flow`, and the pacing as `dispatch_config` when the
+ *    caller declared one.
  *
  * The `campaigns/sheet` endpoint only works on Bearer (a workspace-token POST hits a
  * `500 "Converting circular structure to JSON"` and is never retried on Bearer because it
@@ -94,7 +96,12 @@ export class FlowDispatch {
 
         const body: MultipartBody = {
             kind: 'multipart',
-            fields: { name: config.name ?? 'Disparo', type: 'flow', flow: config.flowId },
+            fields: {
+                name: config.name ?? 'Disparo',
+                type: 'flow',
+                flow: config.flowId,
+                ...(config.pacing ? { dispatch_config: JSON.stringify(toDispatchConfig(config.pacing)) } : {}),
+            },
             files: { file: { data: file, filename: 'disparo.xlsx', contentType: XLSX_MIME } },
         };
 

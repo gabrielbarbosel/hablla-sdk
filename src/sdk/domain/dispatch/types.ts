@@ -1,5 +1,6 @@
 import type { ServiceStatusCode } from '../../resources/gen_enums';
 import type { OwnerStrategy } from '../../utils';
+import type { DispatchPacing } from './workspace/types';
 
 /**
  * Contract for one dispatch run. Built by the caller (the Apps Script bridge) and
@@ -411,6 +412,14 @@ export interface FlowDispatchConfig {
     ownerDistribution?: { strategy: OwnerStrategy; owners: string[]; weights?: Record<string, number> };
     suppressPhones?: string[];
     defaultDdi?: string;
+    /**
+     * How fast the platform fans the audience out, in the operator's unit (seconds between
+     * batches). Absent means a single batch: the engine opens one execution per row at
+     * once, which is what makes the send route answer `errorCode 103` past its per-burst
+     * ceiling. Converted to Hablla's minutes by the single conversion point,
+     * `toDispatchConfig`.
+     */
+    pacing?: DispatchPacing;
     /** seam de rng p/ 'aleatorio' (isolate-safe); default = hash do telefone */
     rng?: (index: number) => number;
 }

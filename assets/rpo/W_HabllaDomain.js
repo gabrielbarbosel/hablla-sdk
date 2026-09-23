@@ -735,6 +735,17 @@ class W_HabllaDomain {
     }
   };
 
+  // src/sdk/domain/dispatch/workspace/constants.ts
+  var MAX_CALL_ATTEMPTS = 3;
+  var AUDIENCE_POLL_INTERVAL_MS = 5e3;
+  var AUDIENCE_READY_TIMEOUT_MS = 18e4;
+
+  // src/sdk/domain/dispatch/workspace/campaign.ts
+  var SECONDS_PER_MINUTE = 60;
+  function toDispatchConfig(pacing) {
+    return { batch_size: pacing.batchSize, batch_interval: pacing.intervalSeconds / SECONDS_PER_MINUTE };
+  }
+
   // src/sdk/domain/dispatch/flow-dispatch.ts
   var CONFIG_COLUMNS = ["connection", "template", "on_atendimento", "on_sem_cadastro", "xp_field_id", "tag", "sector_id", "advisors_json", "var_need", "finish_reason_id"];
   var FIXED_COLUMNS = ["phone", "name", "userId", "owner_id"];
@@ -763,9 +774,7 @@ class W_HabllaDomain {
       if (survivors.length === 0) {
         return { campaignId: void 0, imported: 0, received, suppressed, ownerMap: {} };
       }
-      const rng = config.rng ?? ((index) => hashString(toDigits2(survivors[index]?.phone)));
-      const ownerPool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
-      const owners = distributeOwners(survivors.length, ownerPool, config.ownerDistribution?.strategy ?? "fixo", rng);
+      const owners = this.resolveOwners(survivors, config);
       const ownerMap = {};
       for (const owner of owners) {
         if (owner) ownerMap[owner] = (ownerMap[owner] ?? 0) + 1;
@@ -795,11 +804,29 @@ class W_HabllaDomain {
       const file = buildXlsx(header, rows);
       const body = {
         kind: "multipart",
-        fields: { name: config.name ?? "Disparo", type: "flow", flow: config.flowId },
+        fields: {
+          name: config.name ?? "Disparo",
+          type: "flow",
+          flow: config.flowId,
+          ...config.pacing ? { dispatch_config: JSON.stringify(toDispatchConfig(config.pacing)) } : {}
+        },
         files: { file: { data: file, filename: "disparo.xlsx", contentType: XLSX_MIME } }
       };
       const campaign = await this.client.http.post("/v2/workspaces/{workspace_id}/campaigns/sheet", { body, strategy: "bearer" });
       return { campaignId: campaign?.id, imported: survivors.length, received, suppressed, ownerMap };
+    }
+    /**
+     * The `owner_id` of every surviving row, in row order: the contact's own `ownerId`
+     * when the caller already resolved it, and the distribution's pick otherwise.
+     *
+     * The distribution still runs over the SURVIVORS, so a caller that mixes both keeps
+     * the deterministic spread it asked for on the rows that have no owner of their own.
+     */
+    resolveOwners(survivors, config) {
+      const rng = config.rng ?? ((index) => hashString(toDigits2(survivors[index]?.phone)));
+      const pool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
+      const distributed = distributeOwners(survivors.length, pool, config.ownerDistribution?.strategy ?? "fixo", rng);
+      return survivors.map((contact, index) => contact.ownerId ?? distributed[index] ?? "");
     }
     /**
      * Drops contacts whose phone matches a suppressed one, comparing on both 9th-digit
@@ -939,11 +966,6 @@ class W_HabllaDomain {
   // src/sdk/domain/dispatch/workspace/types.ts
   var RESUMABLE_PHASES = ["resolvingExclusions", "resolving", "materializing", "awaitingAudience", "sending"];
   var DISPATCH_JOB_PHASES = [...RESUMABLE_PHASES, "awaitingConfirmation", "completed", "failed", "superseded", "abandoned"];
-
-  // src/sdk/domain/dispatch/workspace/constants.ts
-  var MAX_CALL_ATTEMPTS = 3;
-  var AUDIENCE_POLL_INTERVAL_MS = 5e3;
-  var AUDIENCE_READY_TIMEOUT_MS = 18e4;
 
   // src/sdk/domain/dispatch/workspace/call-budget.ts
   var LOOKUP_CALLS = 4;

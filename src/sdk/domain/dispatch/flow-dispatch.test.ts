@@ -63,13 +63,19 @@ describe('FlowDispatch.dispatchByFlow', () => {
         expect(calls.post[0]!.opts.strategy).toBe('bearer');
     });
 
-    it('sends type:flow + flow fields and NO dispatch_config', async () => {
+    it('sends type:flow + flow fields, and no dispatch_config when no pacing was declared', async () => {
         const { client, calls } = fakeClient();
         await new FlowDispatch(client).dispatchByFlow(contacts, baseConfig);
         const body = calls.post[0]!.opts.body;
         expect(body.kind).toBe('multipart');
         expect(body.fields).toEqual({ name: 'Disparo', type: 'flow', flow: 'flow-1' });
         expect(body.fields).not.toHaveProperty('dispatch_config');
+    });
+
+    it('declared pacing travels as dispatch_config, in minutes and as a JSON field', async () => {
+        const { client, calls } = fakeClient();
+        await new FlowDispatch(client).dispatchByFlow(contacts, { ...baseConfig, pacing: { batchSize: 75, intervalSeconds: 30 } });
+        expect(calls.post[0]!.opts.body.fields.dispatch_config).toBe('{"batch_size":75,"batch_interval":0.5}');
     });
 
     it('the contact owner already resolved by the caller wins over the distribution', async () => {
