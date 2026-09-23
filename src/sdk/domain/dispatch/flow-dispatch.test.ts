@@ -63,13 +63,45 @@ describe('FlowDispatch.dispatchByFlow', () => {
         expect(calls.post[0]!.opts.strategy).toBe('bearer');
     });
 
-    it('sends type:flow + flow fields and NO dispatch_config', async () => {
+    it('sends type:flow + flow fields, and no dispatch_config when no pacing was declared', async () => {
         const { client, calls } = fakeClient();
         await new FlowDispatch(client).dispatchByFlow(contacts, baseConfig);
         const body = calls.post[0]!.opts.body;
         expect(body.kind).toBe('multipart');
         expect(body.fields).toEqual({ name: 'Disparo', type: 'flow', flow: 'flow-1' });
         expect(body.fields).not.toHaveProperty('dispatch_config');
+    });
+
+    it('declared pacing travels as dispatch_config, in minutes and as a JSON field', async () => {
+        const { client, calls } = fakeClient();
+        await new FlowDispatch(client).dispatchByFlow(contacts, { ...baseConfig, pacing: { batchSize: 75, intervalSeconds: 30 } });
+        expect(calls.post[0]!.opts.body.fields.dispatch_config).toBe('{"batch_size":75,"batch_interval":0.5}');
+    });
+
+    it('the contact owner already resolved by the caller wins over the distribution', async () => {
+        const { client } = fakeClient();
+        const result = await new FlowDispatch(client).dispatchByFlow(
+            [
+                { phone: '5551990000001', name: 'Ana', ownerId: 'u-own-a' },
+                { phone: '5551990000002', name: 'Bruno', ownerId: 'u-own-b' },
+            ],
+            { ...baseConfig, ownerDistribution: { strategy: 'fixo', owners: ['u-pool'] } },
+        );
+        expect(lastMatrix().rows.map((row) => row[3])).toEqual(['u-own-a', 'u-own-b']);
+        expect(result.ownerMap).toEqual({ 'u-own-a': 1, 'u-own-b': 1 });
+    });
+
+    it('a row without its own owner still takes the distribution, on the surviving index', async () => {
+        const { client } = fakeClient();
+        await new FlowDispatch(client).dispatchByFlow(
+            [
+                { phone: '5551990000001', name: 'Ana' },
+                { phone: '5551990000002', name: 'Bruno', ownerId: 'u-own-b' },
+                { phone: '5551990000003', name: 'Carla' },
+            ],
+            { ...baseConfig, ownerDistribution: { strategy: 'rodizio', owners: ['u-a', 'u-b'] } },
+        );
+        expect(lastMatrix().rows.map((row) => row[3])).toEqual(['u-a', 'u-own-b', 'u-a']);
     });
 
     it('carries the xlsx bytes as the file part named disparo.xlsx', async () => {

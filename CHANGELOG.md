@@ -1,5 +1,14 @@
 # Changelog
 
+## Não publicado
+
+**Classification:** `additive` — dois campos opcionais no disparo por fluxo; quem não os declara continua enviando a mesma requisição de antes.
+
+### Adicionado
+
+- `FlowDispatchConfig.pacing`: o ritmo da rodada (lote e intervalo em segundos) viaja como `dispatch_config` na campanha `type: flow`, convertido para os minutos da Hablla pelo mesmo `toDispatchConfig` do caminho nativo. Sem ele, o comportamento é o de hoje — lote único, uma execução por linha de uma vez, que é onde a rota de envio devolve `errorCode 103` passado o teto por rajada.
+- `FlowDispatchContact.ownerId`: o dono já resolvido pelo chamador vira o `owner_id` daquela linha e a distribuição não decide por ela. Quem resolve o dono por regra própria, por linha, deixa de precisar codificar essa resolução como um conjunto de distribuição e de depender do índice da linha sobreviver à supressão. A distribuição continua valendo para as linhas sem dono próprio.
+
 ## v0.5.0 (2026-09-17)
 
 **Classification:** `breaking` — a requisição do disparo por workspace ganha as variáveis do template e as duas políticas novas, e perde o campo de primeiro nome; `DispatchProgress` passa a carregar o orçamento de chamadas.

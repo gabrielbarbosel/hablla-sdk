@@ -1,5 +1,6 @@
 import type { ServiceStatusCode } from '../../resources/gen_enums';
 import type { OwnerStrategy } from '../../utils';
+import type { DispatchPacing } from './workspace/types';
 
 /**
  * Contract for one dispatch run. Built by the caller (the Apps Script bridge) and
@@ -366,6 +367,14 @@ export interface FlowDispatchContact {
     name: string;
     /** código do assessor por linha (coluna fixa `userId`) que o motor do fluxo usa p/ resolver o dono */
     advisorCode?: string;
+    /**
+     * Hablla user id that owns this contact, already resolved by the caller. When present
+     * it IS the row's `owner_id` and {@link FlowDispatchConfig.ownerDistribution} never
+     * decides for this contact: a caller that resolved the owner per row (by a rule of its
+     * own) would otherwise have to encode that resolution as a distribution pool and rely
+     * on the index of the row surviving suppression.
+     */
+    ownerId?: string;
     /** valores das variáveis do template em ordem {{1}}..{{n}}, alinhados a config.variableColumns por índice */
     variables?: string[];
     /** colunas extras (email, cf_<id>) por header */
@@ -403,6 +412,14 @@ export interface FlowDispatchConfig {
     ownerDistribution?: { strategy: OwnerStrategy; owners: string[]; weights?: Record<string, number> };
     suppressPhones?: string[];
     defaultDdi?: string;
+    /**
+     * How fast the platform fans the audience out, in the operator's unit (seconds between
+     * batches). Absent means a single batch: the engine opens one execution per row at
+     * once, which is what makes the send route answer `errorCode 103` past its per-burst
+     * ceiling. Converted to Hablla's minutes by the single conversion point,
+     * `toDispatchConfig`.
+     */
+    pacing?: DispatchPacing;
     /** seam de rng p/ 'aleatorio' (isolate-safe); default = hash do telefone */
     rng?: (index: number) => number;
 }

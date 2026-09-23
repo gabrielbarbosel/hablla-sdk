@@ -2,6 +2,7 @@ import type { HabllaClient } from '../../client';
 import type { FlowDispatchContact, FlowDispatchConfig, FlowDispatchResult } from './types';
 import type { MultipartBody } from '../../core/types';
 import { buildXlsx } from './xlsx';
+import { toDispatchConfig } from './workspace/campaign';
 import { distributeOwners, expandByWeight, toDigits, phoneVariants, hashString } from '../../utils';
 
 /**
@@ -29,7 +30,8 @@ const DEFAULT_DDI = '55';
  * 3. Audience assembly — the fixed + variable + extra + config columns, via
  *    {@link buildXlsx} (kills the SpreadsheetApp.create + export + Drive round-trip).
  * 4. The `campaigns/sheet` POST with the 500-circular workaround preserved: an explicit
- *    Bearer strategy, `type: 'flow'` + `flow`, and NO `dispatch_config`.
+ *    Bearer strategy, `type: 'flow'` + `flow`, and the pacing as `dispatch_config` when the
+ *    caller declared one.
  *
  * The `campaigns/sheet` endpoint only works on Bearer (a workspace-token POST hits a
  * `500 "Converting circular structure to JSON"` and is never retried on Bearer because it
@@ -60,9 +62,7 @@ export class FlowDispatch {
             return { campaignId: undefined, imported: 0, received, suppressed, ownerMap: {} };
         }
 
-        const rng = config.rng ?? ((index: number) => hashString(toDigits(survivors[index]?.phone)));
-        const ownerPool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
-        const owners = distributeOwners(survivors.length, ownerPool, config.ownerDistribution?.strategy ?? 'fixo', rng);
+        const owners = this.resolveOwners(survivors, config);
         const ownerMap: Record<string, number> = {};
         for (const owner of owners) {
             if (owner) ownerMap[owner] = (ownerMap[owner] ?? 0) + 1;
@@ -96,13 +96,33 @@ export class FlowDispatch {
 
         const body: MultipartBody = {
             kind: 'multipart',
-            fields: { name: config.name ?? 'Disparo', type: 'flow', flow: config.flowId },
+            fields: {
+                name: config.name ?? 'Disparo',
+                type: 'flow',
+                flow: config.flowId,
+                ...(config.pacing ? { dispatch_config: JSON.stringify(toDispatchConfig(config.pacing)) } : {}),
+            },
             files: { file: { data: file, filename: 'disparo.xlsx', contentType: XLSX_MIME } },
         };
 
         const campaign = await this.client.http.post('/v2/workspaces/{workspace_id}/campaigns/sheet', { body, strategy: 'bearer' });
 
         return { campaignId: (campaign as { id?: string })?.id, imported: survivors.length, received, suppressed, ownerMap };
+    }
+
+    /**
+     * The `owner_id` of every surviving row, in row order: the contact's own `ownerId`
+     * when the caller already resolved it, and the distribution's pick otherwise.
+     *
+     * The distribution still runs over the SURVIVORS, so a caller that mixes both keeps
+     * the deterministic spread it asked for on the rows that have no owner of their own.
+     */
+    private resolveOwners(survivors: readonly FlowDispatchContact[], config: FlowDispatchConfig): string[] {
+        const rng = config.rng ?? ((index: number) => hashString(toDigits(survivors[index]?.phone)));
+        const pool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
+        const distributed = distributeOwners(survivors.length, pool, config.ownerDistribution?.strategy ?? 'fixo', rng);
+
+        return survivors.map((contact, index) => contact.ownerId ?? distributed[index] ?? '');
     }
 
     /**

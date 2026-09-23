@@ -8089,367 +8089,6 @@
     }
   };
 
-  // src/sdk/domain/dispatch/flow-dispatch.ts
-  var CONFIG_COLUMNS = ["connection", "template", "on_atendimento", "on_sem_cadastro", "xp_field_id", "tag", "sector_id", "advisors_json", "var_need", "finish_reason_id"];
-  var FIXED_COLUMNS = ["phone", "name", "userId", "owner_id"];
-  var XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  var DEFAULT_DDI2 = "55";
-  var FlowDispatch = class {
-    constructor(client) {
-      __publicField(this, "client", client);
-    }
-    /**
-     * Suppresses, distributes owners, builds the audience xlsx and fires the
-     * flow campaign. Mirrors {@link MassDispatch.dispatchPersonalized}: the caller hands
-     * over raw contacts plus a resolved {@link FlowDispatchConfig} and this owns the rest.
-     * Returns `{ imported: 0, campaignId: undefined }` (without throwing) when everyone was
-     * suppressed, leaving the "all suppressed" PT-BR message to the bridge.
-     */
-    dispatchByFlow(contacts, config) {
-      return __async(this, null, function* () {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
-        if (!config.connectionId) throw new Error("FlowDispatch: connectionId is required");
-        if (!config.templateId) throw new Error("FlowDispatch: templateId is required");
-        if (!config.sectorId) throw new Error("FlowDispatch: sectorId is required");
-        if (!config.flowId) throw new Error("FlowDispatch: flowId is required");
-        const received = contacts.length;
-        const survivors = this.filterSuppressed(contacts, (_a = config.suppressPhones) != null ? _a : [], (_b = config.defaultDdi) != null ? _b : DEFAULT_DDI2);
-        const suppressed = received - survivors.length;
-        if (survivors.length === 0) {
-          return { campaignId: void 0, imported: 0, received, suppressed, ownerMap: {} };
-        }
-        const rng = (_c = config.rng) != null ? _c : ((index) => {
-          var _a2;
-          return hashString(toDigits((_a2 = survivors[index]) == null ? void 0 : _a2.phone));
-        });
-        const ownerPool = expandByWeight((_e = (_d = config.ownerDistribution) == null ? void 0 : _d.owners) != null ? _e : [], (_f = config.ownerDistribution) == null ? void 0 : _f.weights);
-        const owners = distributeOwners(survivors.length, ownerPool, (_h = (_g = config.ownerDistribution) == null ? void 0 : _g.strategy) != null ? _h : "fixo", rng);
-        const ownerMap = {};
-        for (const owner of owners) {
-          if (owner) ownerMap[owner] = ((_i = ownerMap[owner]) != null ? _i : 0) + 1;
-        }
-        const header = [...FIXED_COLUMNS, ...config.variableColumns, ...config.extraColumns, ...CONFIG_COLUMNS];
-        const configValues = [
-          config.connectionId,
-          config.templateId,
-          config.onAttendance,
-          config.onMissingContact,
-          (_j = config.xpFieldId) != null ? _j : "",
-          (_k = config.tag) != null ? _k : "",
-          config.sectorId,
-          (_l = config.advisorsJson) != null ? _l : "{}",
-          String(config.templateVarCount),
-          (_m = config.finishReasonId) != null ? _m : ""
-        ];
-        const rows = survivors.map((contact, index) => {
-          var _a2, _b2;
-          return [
-            String(contact.phone),
-            String(contact.name),
-            String((_a2 = contact.advisorCode) != null ? _a2 : ""),
-            (_b2 = owners[index]) != null ? _b2 : "",
-            ...config.variableColumns.map((_, vi) => {
-              var _a3, _b3;
-              return String((_b3 = (_a3 = contact.variables) == null ? void 0 : _a3[vi]) != null ? _b3 : "");
-            }),
-            ...config.extraColumns.map((headerKey) => {
-              var _a3, _b3;
-              return String((_b3 = (_a3 = contact.extras) == null ? void 0 : _a3[headerKey]) != null ? _b3 : "");
-            }),
-            ...configValues
-          ];
-        });
-        const file = buildXlsx(header, rows);
-        const body = {
-          kind: "multipart",
-          fields: { name: (_n = config.name) != null ? _n : "Disparo", type: "flow", flow: config.flowId },
-          files: { file: { data: file, filename: "disparo.xlsx", contentType: XLSX_MIME } }
-        };
-        const campaign = yield this.client.http.post("/v2/workspaces/{workspace_id}/campaigns/sheet", { body, strategy: "bearer" });
-        return { campaignId: campaign == null ? void 0 : campaign.id, imported: survivors.length, received, suppressed, ownerMap };
-      });
-    }
-    /**
-     * Drops contacts whose phone matches a suppressed one, comparing on both 9th-digit
-     * shapes so a stored number and a given number that differ only by the extra 9 still
-     * count as the same line.
-     * @remarks Copied verbatim from {@link MassDispatch.filterSuppressed}. Intentional
-     *   duplication — the live mass path is not refactored here; extract to `utils` later.
-     */
-    filterSuppressed(contacts, suppressPhones, defaultDdi) {
-      if (!suppressPhones.length) return contacts;
-      const blocked = /* @__PURE__ */ new Set();
-      for (const phone of suppressPhones) {
-        for (const key of this.suppressionKeys(phone, defaultDdi)) blocked.add(key);
-      }
-      return contacts.filter((contact) => !this.suppressionKeys(contact.phone, defaultDdi).some((key) => blocked.has(key)));
-    }
-    /**
-     * Both 9th-digit shapes of a phone in full (DDI-prefixed) digits, for suppression matching.
-     * @remarks Copied verbatim from {@link MassDispatch.suppressionKeys} — see {@link filterSuppressed}.
-     */
-    suppressionKeys(phone, defaultDdi) {
-      const digits = toDigits(phone);
-      if (!digits) return [];
-      const full = digits.startsWith(defaultDdi) ? digits : defaultDdi + digits;
-      const variants = phoneVariants(full);
-      return [variants.digits, variants.alternate].filter(Boolean);
-    }
-  };
-
-  // src/sdk/domain/inspect/inspect.ts
-  var EntityInspector = class {
-    /**
-     * The type→path map (single source of truth). Carries the exact populate expansions
-     * used by the inspector today. Returns '' for `user` (no GET by id — resolved from the
-     * workspace members list) and for unknown types.
-     */
-    endpoint(type, id) {
-      const map = {
-        person: "/v1/workspaces/{ws}/persons/" + id + "?populate=true",
-        connection: "/v1/workspaces/{ws}/connections/" + id + "?populate=credential,sector",
-        flow: "/v1/workspaces/{ws}/flows/" + id,
-        sector: "/v1/workspaces/{ws}/sectors/" + id + "?populate=true",
-        campaign: "/v1/workspaces/{ws}/campaigns/" + id + "?populate=true",
-        tag: "/v1/workspaces/{ws}/tags/" + id,
-        template: "/v1/workspaces/{ws}/templates/" + id,
-        credential: "/v1/workspaces/{ws}/credentials/" + id,
-        reason: "/v1/workspaces/{ws}/reasons/" + id
-      };
-      return map[type] || "";
-    }
-    /**
-     * Recursive sanitizer for an API object destined for the inspector: strips noise/empties,
-     * caps depth and array size, and MASKS secrets (never leaks token/password/secret).
-     * Pure JS (Object.keys/Array.isArray) — no Buffer/TextEncoder.
-     */
-    clean(value, depth = 0) {
-      if (value == null || value === "") return null;
-      if (Array.isArray(value)) {
-        if (depth >= 3) return "[" + value.length + " itens]";
-        const arr = value.slice(0, 40).map((v) => this.clean(v, depth + 1)).filter((v) => v != null && v !== "");
-        return arr.length ? arr : null;
-      }
-      if (typeof value === "function") return null;
-      if (typeof value === "object") {
-        if (depth >= 3) return "{…}";
-        const source = value;
-        const out = {};
-        Object.keys(source).forEach((k) => {
-          if (/^[_$]/.test(k) || k === "__v" || /workspace/i.test(k)) return;
-          if (/pass(word)?|secret|token|refresh_token|api_?key|access_?token/i.test(k)) {
-            if (source[k]) out[k] = "••••••";
-            return;
-          }
-          const cleaned = this.clean(source[k], depth + 1);
-          const emptyObj = cleaned != null && typeof cleaned === "object" && !Array.isArray(cleaned) && !Object.keys(cleaned).length;
-          if (cleaned != null && cleaned !== "" && !emptyObj) out[k] = cleaned;
-        });
-        return out;
-      }
-      return value;
-    }
-    /** Display-name rule: name > title > phone > id. */
-    displayName(raw, id) {
-      return (raw == null ? void 0 : raw.name) || (raw == null ? void 0 : raw.title) || (raw == null ? void 0 : raw.phone) || id;
-    }
-    /**
-     * Builds the resolved result for one entity. Serves both the single and the batch
-     * paths, and the user path (feeding the flattened {@link MemberView} as `raw`).
-     * Truthy `raw` → cleaned object; null `raw` → `error: true`.
-     */
-    project(type, id, raw) {
-      if (raw) {
-        return {
-          type,
-          id,
-          name: this.displayName(raw, id),
-          obj: this.clean(raw, 0) || {}
-        };
-      }
-      return { type, id, name: id, obj: {}, error: true };
-    }
-    /**
-     * Flattens a workspace member into the inspector-friendly {@link MemberView}. The
-     * nested `user` object may be absent (defaults to `{}`).
-     */
-    flattenMember(member) {
-      const user = member.user || {};
-      return {
-        name: user.name || "",
-        email: user.email || "",
-        papel: member.role_type || "",
-        disponivel: member.is_available,
-        online: member.is_online,
-        emails_de_atendimento: member.service_emails,
-        criado_em: user.created_at
-      };
-    }
-    /**
-     * Finds the workspace member matching `id`, by nested `user.id`, by raw `user` (when it
-     * is the id itself) or by the member's own `id`. Returns undefined when not a member.
-     */
-    findMember(members, id) {
-      return (members || []).find((wu) => {
-        const user = wu.user || {};
-        return (user.id || user) === id || wu.id === id;
-      });
-    }
-    /**
-     * Path of the workspace members list page (last bit of API knowledge). OPTIONAL: the
-     * consumer may adopt it in its `pathFor`/`listAll_`.
-     */
-    membersPath(page = 1) {
-      return "/v1/workspaces/{ws}/users?populate=true&limit=50&page=" + page;
-    }
-  };
-
-  // src/sdk/domain/dispatch/workspace/types.ts
-  var CONTACT_OUTCOMES = [
-    "invalidPhone",
-    "repeatedPhone",
-    "excluded",
-    "missingName",
-    "unresolvedAdvisor",
-    "pendingLookup",
-    "lookupFailed",
-    "inAttendance",
-    "duplicatePersons",
-    "blocked",
-    "noWhatsapp",
-    "repeatedPerson",
-    "ready",
-    "writeFailed",
-    "inAudience"
-  ];
-  var RESUMABLE_PHASES = ["resolvingExclusions", "resolving", "materializing", "awaitingAudience", "sending"];
-  var DISPATCH_JOB_PHASES = [...RESUMABLE_PHASES, "awaitingConfirmation", "completed", "failed", "superseded", "abandoned"];
-
-  // src/sdk/domain/dispatch/workspace/template-variables.ts
-  var VARIABLE_FORMATS = ["firstName", "capitalize", "upperCase"];
-  function formatVariableValue(value, formats) {
-    return formats.reduce((formatted, format) => applyFormat(formatted, format), value);
-  }
-  function boundFieldIds(variables) {
-    return [...new Set(variables.flatMap((variable) => variable.kind === "personField" ? [variable.fieldId] : []))];
-  }
-  function formatBoundFields(customFields, variables) {
-    const formatted = __spreadValues({}, customFields);
-    for (const variable of variables) {
-      if (variable.kind === "personField" && Object.prototype.hasOwnProperty.call(formatted, variable.fieldId)) {
-        formatted[variable.fieldId] = formatVariableValue(formatted[variable.fieldId], variable.formats);
-      }
-    }
-    return formatted;
-  }
-  function campaignBodyVariables(variables) {
-    return variables.map((variable) => variable.kind === "personField" ? `{{person.custom_fields.${variable.fieldId}}}` : formatVariableValue(variable.value, variable.formats));
-  }
-  function bodyExpressionFlags(variables) {
-    return Object.fromEntries(variables.map((_variable, index) => [`${index}_is_expression`, false]));
-  }
-  function applyFormat(value, format) {
-    switch (format) {
-      case "firstName":
-        return firstName(value);
-      case "capitalize":
-        return capitalizeWords(value);
-      case "upperCase":
-        return value.toLocaleUpperCase("pt-BR");
-    }
-  }
-
-  // src/sdk/domain/dispatch/workspace/audience.ts
-  var EXCLUDABLE_OUTCOMES = ["pendingLookup", "ready"];
-  function excludesByFilter(exclusion) {
-    return exclusion.segmentationFilters.length > 0;
-  }
-  function prepareAudience(request, roster) {
-    const seenPhones = /* @__PURE__ */ new Set();
-    const prepared = request.rows.map((row, index) => {
-      const contact = contactOfRow(row, index, request, roster, seenPhones);
-      if (contact.phone) {
-        seenPhones.add(phoneIdentity(contact.phone));
-      }
-      return contact;
-    });
-    const contacts = excludeContacts(prepared, request.exclusion.phones);
-    return { contacts, fingerprint: audienceFingerprint(request, contacts) };
-  }
-  function excludeContacts(contacts, excludedPhones) {
-    const excludedIdentities = /* @__PURE__ */ new Set();
-    for (const excludedPhone of excludedPhones) {
-      const variants = brazilianPhoneVariants(excludedPhone);
-      if (variants) {
-        excludedIdentities.add(phoneIdentity(variants));
-      }
-    }
-    return contacts.map((contact) => EXCLUDABLE_OUTCOMES.includes(contact.outcome) && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone)) ? __spreadProps(__spreadValues({}, contact), { outcome: "excluded" }) : contact);
-  }
-  function unreadablePhones(phones) {
-    return phones.filter((phone) => brazilianPhoneVariants(phone) === void 0);
-  }
-  function audienceFingerprint(request, contacts) {
-    const identities = contacts.filter((contact) => contact.outcome === "pendingLookup" && contact.phone).map((contact) => phoneIdentity(contact.phone)).sort();
-    return `${hash64Hex([request.connectionId, request.templateId, variablesToken(request.templateVariables), ...identities].join("|"))}-${identities.length}`;
-  }
-  function variablesToken(variables) {
-    return variables.map((variable) => [variable.kind, variable.kind === "personField" ? variable.fieldId : variable.value, ...variable.formats].join("~")).join(",");
-  }
-  function contactOfRow(row, index, request, roster, seenPhones) {
-    const name = collapseWhitespace(row.name);
-    const phone = brazilianPhoneVariants(row.phone);
-    const advisor = assignAdvisor(row.advisorKey, request, roster);
-    return {
-      index,
-      name,
-      phone,
-      advisorResolution: advisor.resolution,
-      target: advisor.target,
-      customFields: formatBoundFields(row.customFields, request.templateVariables),
-      outcome: firstOutcome(name, phone === void 0 ? void 0 : phoneIdentity(phone), advisor, seenPhones),
-      writesDone: 0,
-      attempts: 0,
-      createSends: 0
-    };
-  }
-  function firstOutcome(name, identity, advisor, seenPhones) {
-    if (identity === void 0) {
-      return "invalidPhone";
-    }
-    if (seenPhones.has(identity)) {
-      return "repeatedPhone";
-    }
-    if (name === "") {
-      return "missingName";
-    }
-    if (!advisor.target) {
-      return "unresolvedAdvisor";
-    }
-    return "pendingLookup";
-  }
-  function assignAdvisor(advisorKey, request, roster) {
-    const key = advisorKey.trim();
-    if (key === "") {
-      return unresolvedAdvisor("missing", request);
-    }
-    const user = request.advisorKeyKind === "email" ? roster.byEmail.get(normalizeEmail(key)) : roster.byId.get(key);
-    if (!user) {
-      return unresolvedAdvisor("notFound", request);
-    }
-    if (request.systemUserIds.includes(user.id)) {
-      return unresolvedAdvisor("systemUser", request);
-    }
-    return { resolution: "matched", target: { userId: user.id, source: "advisor" } };
-  }
-  function unresolvedAdvisor(resolution, request) {
-    const policy = request.unresolvedAdvisorPolicy;
-    if (policy.kind === "assignReserve") {
-      return { resolution, target: { userId: policy.reserveOwnerId, source: "reserve" } };
-    }
-    return { resolution };
-  }
-
   // src/sdk/domain/dispatch/workspace/constants.ts
   var LOOKUP_CHUNK_SIZE = 50;
   var WRITE_CHUNK_SIZE = 50;
@@ -8474,32 +8113,6 @@
   var FIRST_EXCLUSION_PAGE = 1;
   var FAILURE_DETAIL_MAX_LENGTH = 300;
   var CREATE_SEGMENTATION_CALLS = 1;
-
-  // src/sdk/domain/dispatch/workspace/call-budget.ts
-  var LOOKUP_CALLS = 4;
-  var LOOKUPS_PER_CONTACT = 2;
-  var MAX_WRITES_PER_CONTACT = 5;
-  var LARGEST_STEP_CALLS = 2;
-  var ESTIMATED_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
-  var FIXED_BEARER_CALLS = 1 + Math.ceil(AUDIENCE_READY_TIMEOUT_MS / AUDIENCE_POLL_INTERVAL_MS) + 1 + 1;
-  var EXCLUSION_RUNS_PER_DISPATCH = 2;
-  function estimateCallBudget(contacts, catalogPages, exclusionPages) {
-    const contactsToProcess = contacts.filter((contact) => contact.outcome === "pendingLookup").length;
-    const workspace = catalogPages.roster + contactsToProcess * ESTIMATED_CALLS_PER_CONTACT;
-    const bearer = catalogPages.customFields + FIXED_BEARER_CALLS + exclusionBearerCalls(exclusionPages);
-    return { workspace, bearer, total: workspace + bearer };
-  }
-  function callBudgetOf(job, dailyCallQuota) {
-    return {
-      estimate: job.callEstimate,
-      spent: job.callsSpent,
-      remaining: Math.max(0, job.callEstimate.total - job.callsSpent),
-      dailyCallQuota
-    };
-  }
-  function exclusionBearerCalls(exclusionPages) {
-    return exclusionPages === 0 ? 0 : 1 + (1 + exclusionPages) * EXCLUSION_RUNS_PER_DISPATCH;
-  }
 
   // src/sdk/domain/dispatch/workspace/call-failures.ts
   var SUCCESS_STATUS_MIN = 200;
@@ -8860,6 +8473,40 @@
     return values;
   }
 
+  // src/sdk/domain/dispatch/workspace/template-variables.ts
+  var VARIABLE_FORMATS = ["firstName", "capitalize", "upperCase"];
+  function formatVariableValue(value, formats) {
+    return formats.reduce((formatted, format) => applyFormat(formatted, format), value);
+  }
+  function boundFieldIds(variables) {
+    return [...new Set(variables.flatMap((variable) => variable.kind === "personField" ? [variable.fieldId] : []))];
+  }
+  function formatBoundFields(customFields, variables) {
+    const formatted = __spreadValues({}, customFields);
+    for (const variable of variables) {
+      if (variable.kind === "personField" && Object.prototype.hasOwnProperty.call(formatted, variable.fieldId)) {
+        formatted[variable.fieldId] = formatVariableValue(formatted[variable.fieldId], variable.formats);
+      }
+    }
+    return formatted;
+  }
+  function campaignBodyVariables(variables) {
+    return variables.map((variable) => variable.kind === "personField" ? `{{person.custom_fields.${variable.fieldId}}}` : formatVariableValue(variable.value, variable.formats));
+  }
+  function bodyExpressionFlags(variables) {
+    return Object.fromEntries(variables.map((_variable, index) => [`${index}_is_expression`, false]));
+  }
+  function applyFormat(value, format) {
+    switch (format) {
+      case "firstName":
+        return firstName(value);
+      case "capitalize":
+        return capitalizeWords(value);
+      case "upperCase":
+        return value.toLocaleUpperCase("pt-BR");
+    }
+  }
+
   // src/sdk/domain/dispatch/workspace/campaign.ts
   var SECONDS_PER_MINUTE = 60;
   function toDispatchConfig(pacing) {
@@ -8908,6 +8555,378 @@
     }
     const campaign = toPayloadPage(payloadOf(result), "campaign listing").results.map(toCampaignSummary).find((candidate) => candidate.name === name);
     return campaign ? { id: campaign.id, quantity: campaign.quantity } : void 0;
+  }
+
+  // src/sdk/domain/dispatch/flow-dispatch.ts
+  var CONFIG_COLUMNS = ["connection", "template", "on_atendimento", "on_sem_cadastro", "xp_field_id", "tag", "sector_id", "advisors_json", "var_need", "finish_reason_id"];
+  var FIXED_COLUMNS = ["phone", "name", "userId", "owner_id"];
+  var XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  var DEFAULT_DDI2 = "55";
+  var FlowDispatch = class {
+    constructor(client) {
+      __publicField(this, "client", client);
+    }
+    /**
+     * Suppresses, distributes owners, builds the audience xlsx and fires the
+     * flow campaign. Mirrors {@link MassDispatch.dispatchPersonalized}: the caller hands
+     * over raw contacts plus a resolved {@link FlowDispatchConfig} and this owns the rest.
+     * Returns `{ imported: 0, campaignId: undefined }` (without throwing) when everyone was
+     * suppressed, leaving the "all suppressed" PT-BR message to the bridge.
+     */
+    dispatchByFlow(contacts, config) {
+      return __async(this, null, function* () {
+        var _a, _b, _c, _d, _e, _f, _g, _h;
+        if (!config.connectionId) throw new Error("FlowDispatch: connectionId is required");
+        if (!config.templateId) throw new Error("FlowDispatch: templateId is required");
+        if (!config.sectorId) throw new Error("FlowDispatch: sectorId is required");
+        if (!config.flowId) throw new Error("FlowDispatch: flowId is required");
+        const received = contacts.length;
+        const survivors = this.filterSuppressed(contacts, (_a = config.suppressPhones) != null ? _a : [], (_b = config.defaultDdi) != null ? _b : DEFAULT_DDI2);
+        const suppressed = received - survivors.length;
+        if (survivors.length === 0) {
+          return { campaignId: void 0, imported: 0, received, suppressed, ownerMap: {} };
+        }
+        const owners = this.resolveOwners(survivors, config);
+        const ownerMap = {};
+        for (const owner of owners) {
+          if (owner) ownerMap[owner] = ((_c = ownerMap[owner]) != null ? _c : 0) + 1;
+        }
+        const header = [...FIXED_COLUMNS, ...config.variableColumns, ...config.extraColumns, ...CONFIG_COLUMNS];
+        const configValues = [
+          config.connectionId,
+          config.templateId,
+          config.onAttendance,
+          config.onMissingContact,
+          (_d = config.xpFieldId) != null ? _d : "",
+          (_e = config.tag) != null ? _e : "",
+          config.sectorId,
+          (_f = config.advisorsJson) != null ? _f : "{}",
+          String(config.templateVarCount),
+          (_g = config.finishReasonId) != null ? _g : ""
+        ];
+        const rows = survivors.map((contact, index) => {
+          var _a2, _b2;
+          return [
+            String(contact.phone),
+            String(contact.name),
+            String((_a2 = contact.advisorCode) != null ? _a2 : ""),
+            (_b2 = owners[index]) != null ? _b2 : "",
+            ...config.variableColumns.map((_, vi) => {
+              var _a3, _b3;
+              return String((_b3 = (_a3 = contact.variables) == null ? void 0 : _a3[vi]) != null ? _b3 : "");
+            }),
+            ...config.extraColumns.map((headerKey) => {
+              var _a3, _b3;
+              return String((_b3 = (_a3 = contact.extras) == null ? void 0 : _a3[headerKey]) != null ? _b3 : "");
+            }),
+            ...configValues
+          ];
+        });
+        const file = buildXlsx(header, rows);
+        const body = {
+          kind: "multipart",
+          fields: __spreadValues({
+            name: (_h = config.name) != null ? _h : "Disparo",
+            type: "flow",
+            flow: config.flowId
+          }, config.pacing ? { dispatch_config: JSON.stringify(toDispatchConfig(config.pacing)) } : {}),
+          files: { file: { data: file, filename: "disparo.xlsx", contentType: XLSX_MIME } }
+        };
+        const campaign = yield this.client.http.post("/v2/workspaces/{workspace_id}/campaigns/sheet", { body, strategy: "bearer" });
+        return { campaignId: campaign == null ? void 0 : campaign.id, imported: survivors.length, received, suppressed, ownerMap };
+      });
+    }
+    /**
+     * The `owner_id` of every surviving row, in row order: the contact's own `ownerId`
+     * when the caller already resolved it, and the distribution's pick otherwise.
+     *
+     * The distribution still runs over the SURVIVORS, so a caller that mixes both keeps
+     * the deterministic spread it asked for on the rows that have no owner of their own.
+     */
+    resolveOwners(survivors, config) {
+      var _a, _b, _c, _d, _e, _f;
+      const rng = (_a = config.rng) != null ? _a : ((index) => {
+        var _a2;
+        return hashString(toDigits((_a2 = survivors[index]) == null ? void 0 : _a2.phone));
+      });
+      const pool = expandByWeight((_c = (_b = config.ownerDistribution) == null ? void 0 : _b.owners) != null ? _c : [], (_d = config.ownerDistribution) == null ? void 0 : _d.weights);
+      const distributed = distributeOwners(survivors.length, pool, (_f = (_e = config.ownerDistribution) == null ? void 0 : _e.strategy) != null ? _f : "fixo", rng);
+      return survivors.map((contact, index) => {
+        var _a2, _b2;
+        return (_b2 = (_a2 = contact.ownerId) != null ? _a2 : distributed[index]) != null ? _b2 : "";
+      });
+    }
+    /**
+     * Drops contacts whose phone matches a suppressed one, comparing on both 9th-digit
+     * shapes so a stored number and a given number that differ only by the extra 9 still
+     * count as the same line.
+     * @remarks Copied verbatim from {@link MassDispatch.filterSuppressed}. Intentional
+     *   duplication — the live mass path is not refactored here; extract to `utils` later.
+     */
+    filterSuppressed(contacts, suppressPhones, defaultDdi) {
+      if (!suppressPhones.length) return contacts;
+      const blocked = /* @__PURE__ */ new Set();
+      for (const phone of suppressPhones) {
+        for (const key of this.suppressionKeys(phone, defaultDdi)) blocked.add(key);
+      }
+      return contacts.filter((contact) => !this.suppressionKeys(contact.phone, defaultDdi).some((key) => blocked.has(key)));
+    }
+    /**
+     * Both 9th-digit shapes of a phone in full (DDI-prefixed) digits, for suppression matching.
+     * @remarks Copied verbatim from {@link MassDispatch.suppressionKeys} — see {@link filterSuppressed}.
+     */
+    suppressionKeys(phone, defaultDdi) {
+      const digits = toDigits(phone);
+      if (!digits) return [];
+      const full = digits.startsWith(defaultDdi) ? digits : defaultDdi + digits;
+      const variants = phoneVariants(full);
+      return [variants.digits, variants.alternate].filter(Boolean);
+    }
+  };
+
+  // src/sdk/domain/inspect/inspect.ts
+  var EntityInspector = class {
+    /**
+     * The type→path map (single source of truth). Carries the exact populate expansions
+     * used by the inspector today. Returns '' for `user` (no GET by id — resolved from the
+     * workspace members list) and for unknown types.
+     */
+    endpoint(type, id) {
+      const map = {
+        person: "/v1/workspaces/{ws}/persons/" + id + "?populate=true",
+        connection: "/v1/workspaces/{ws}/connections/" + id + "?populate=credential,sector",
+        flow: "/v1/workspaces/{ws}/flows/" + id,
+        sector: "/v1/workspaces/{ws}/sectors/" + id + "?populate=true",
+        campaign: "/v1/workspaces/{ws}/campaigns/" + id + "?populate=true",
+        tag: "/v1/workspaces/{ws}/tags/" + id,
+        template: "/v1/workspaces/{ws}/templates/" + id,
+        credential: "/v1/workspaces/{ws}/credentials/" + id,
+        reason: "/v1/workspaces/{ws}/reasons/" + id
+      };
+      return map[type] || "";
+    }
+    /**
+     * Recursive sanitizer for an API object destined for the inspector: strips noise/empties,
+     * caps depth and array size, and MASKS secrets (never leaks token/password/secret).
+     * Pure JS (Object.keys/Array.isArray) — no Buffer/TextEncoder.
+     */
+    clean(value, depth = 0) {
+      if (value == null || value === "") return null;
+      if (Array.isArray(value)) {
+        if (depth >= 3) return "[" + value.length + " itens]";
+        const arr = value.slice(0, 40).map((v) => this.clean(v, depth + 1)).filter((v) => v != null && v !== "");
+        return arr.length ? arr : null;
+      }
+      if (typeof value === "function") return null;
+      if (typeof value === "object") {
+        if (depth >= 3) return "{…}";
+        const source = value;
+        const out = {};
+        Object.keys(source).forEach((k) => {
+          if (/^[_$]/.test(k) || k === "__v" || /workspace/i.test(k)) return;
+          if (/pass(word)?|secret|token|refresh_token|api_?key|access_?token/i.test(k)) {
+            if (source[k]) out[k] = "••••••";
+            return;
+          }
+          const cleaned = this.clean(source[k], depth + 1);
+          const emptyObj = cleaned != null && typeof cleaned === "object" && !Array.isArray(cleaned) && !Object.keys(cleaned).length;
+          if (cleaned != null && cleaned !== "" && !emptyObj) out[k] = cleaned;
+        });
+        return out;
+      }
+      return value;
+    }
+    /** Display-name rule: name > title > phone > id. */
+    displayName(raw, id) {
+      return (raw == null ? void 0 : raw.name) || (raw == null ? void 0 : raw.title) || (raw == null ? void 0 : raw.phone) || id;
+    }
+    /**
+     * Builds the resolved result for one entity. Serves both the single and the batch
+     * paths, and the user path (feeding the flattened {@link MemberView} as `raw`).
+     * Truthy `raw` → cleaned object; null `raw` → `error: true`.
+     */
+    project(type, id, raw) {
+      if (raw) {
+        return {
+          type,
+          id,
+          name: this.displayName(raw, id),
+          obj: this.clean(raw, 0) || {}
+        };
+      }
+      return { type, id, name: id, obj: {}, error: true };
+    }
+    /**
+     * Flattens a workspace member into the inspector-friendly {@link MemberView}. The
+     * nested `user` object may be absent (defaults to `{}`).
+     */
+    flattenMember(member) {
+      const user = member.user || {};
+      return {
+        name: user.name || "",
+        email: user.email || "",
+        papel: member.role_type || "",
+        disponivel: member.is_available,
+        online: member.is_online,
+        emails_de_atendimento: member.service_emails,
+        criado_em: user.created_at
+      };
+    }
+    /**
+     * Finds the workspace member matching `id`, by nested `user.id`, by raw `user` (when it
+     * is the id itself) or by the member's own `id`. Returns undefined when not a member.
+     */
+    findMember(members, id) {
+      return (members || []).find((wu) => {
+        const user = wu.user || {};
+        return (user.id || user) === id || wu.id === id;
+      });
+    }
+    /**
+     * Path of the workspace members list page (last bit of API knowledge). OPTIONAL: the
+     * consumer may adopt it in its `pathFor`/`listAll_`.
+     */
+    membersPath(page = 1) {
+      return "/v1/workspaces/{ws}/users?populate=true&limit=50&page=" + page;
+    }
+  };
+
+  // src/sdk/domain/dispatch/workspace/types.ts
+  var CONTACT_OUTCOMES = [
+    "invalidPhone",
+    "repeatedPhone",
+    "excluded",
+    "missingName",
+    "unresolvedAdvisor",
+    "pendingLookup",
+    "lookupFailed",
+    "inAttendance",
+    "duplicatePersons",
+    "blocked",
+    "noWhatsapp",
+    "repeatedPerson",
+    "ready",
+    "writeFailed",
+    "inAudience"
+  ];
+  var RESUMABLE_PHASES = ["resolvingExclusions", "resolving", "materializing", "awaitingAudience", "sending"];
+  var DISPATCH_JOB_PHASES = [...RESUMABLE_PHASES, "awaitingConfirmation", "completed", "failed", "superseded", "abandoned"];
+
+  // src/sdk/domain/dispatch/workspace/audience.ts
+  var EXCLUDABLE_OUTCOMES = ["pendingLookup", "ready"];
+  function excludesByFilter(exclusion) {
+    return exclusion.segmentationFilters.length > 0;
+  }
+  function prepareAudience(request, roster) {
+    const seenPhones = /* @__PURE__ */ new Set();
+    const prepared = request.rows.map((row, index) => {
+      const contact = contactOfRow(row, index, request, roster, seenPhones);
+      if (contact.phone) {
+        seenPhones.add(phoneIdentity(contact.phone));
+      }
+      return contact;
+    });
+    const contacts = excludeContacts(prepared, request.exclusion.phones);
+    return { contacts, fingerprint: audienceFingerprint(request, contacts) };
+  }
+  function excludeContacts(contacts, excludedPhones) {
+    const excludedIdentities = /* @__PURE__ */ new Set();
+    for (const excludedPhone of excludedPhones) {
+      const variants = brazilianPhoneVariants(excludedPhone);
+      if (variants) {
+        excludedIdentities.add(phoneIdentity(variants));
+      }
+    }
+    return contacts.map((contact) => EXCLUDABLE_OUTCOMES.includes(contact.outcome) && contact.phone && excludedIdentities.has(phoneIdentity(contact.phone)) ? __spreadProps(__spreadValues({}, contact), { outcome: "excluded" }) : contact);
+  }
+  function unreadablePhones(phones) {
+    return phones.filter((phone) => brazilianPhoneVariants(phone) === void 0);
+  }
+  function audienceFingerprint(request, contacts) {
+    const identities = contacts.filter((contact) => contact.outcome === "pendingLookup" && contact.phone).map((contact) => phoneIdentity(contact.phone)).sort();
+    return `${hash64Hex([request.connectionId, request.templateId, variablesToken(request.templateVariables), ...identities].join("|"))}-${identities.length}`;
+  }
+  function variablesToken(variables) {
+    return variables.map((variable) => [variable.kind, variable.kind === "personField" ? variable.fieldId : variable.value, ...variable.formats].join("~")).join(",");
+  }
+  function contactOfRow(row, index, request, roster, seenPhones) {
+    const name = collapseWhitespace(row.name);
+    const phone = brazilianPhoneVariants(row.phone);
+    const advisor = assignAdvisor(row.advisorKey, request, roster);
+    return {
+      index,
+      name,
+      phone,
+      advisorResolution: advisor.resolution,
+      target: advisor.target,
+      customFields: formatBoundFields(row.customFields, request.templateVariables),
+      outcome: firstOutcome(name, phone === void 0 ? void 0 : phoneIdentity(phone), advisor, seenPhones),
+      writesDone: 0,
+      attempts: 0,
+      createSends: 0
+    };
+  }
+  function firstOutcome(name, identity, advisor, seenPhones) {
+    if (identity === void 0) {
+      return "invalidPhone";
+    }
+    if (seenPhones.has(identity)) {
+      return "repeatedPhone";
+    }
+    if (name === "") {
+      return "missingName";
+    }
+    if (!advisor.target) {
+      return "unresolvedAdvisor";
+    }
+    return "pendingLookup";
+  }
+  function assignAdvisor(advisorKey, request, roster) {
+    const key = advisorKey.trim();
+    if (key === "") {
+      return unresolvedAdvisor("missing", request);
+    }
+    const user = request.advisorKeyKind === "email" ? roster.byEmail.get(normalizeEmail(key)) : roster.byId.get(key);
+    if (!user) {
+      return unresolvedAdvisor("notFound", request);
+    }
+    if (request.systemUserIds.includes(user.id)) {
+      return unresolvedAdvisor("systemUser", request);
+    }
+    return { resolution: "matched", target: { userId: user.id, source: "advisor" } };
+  }
+  function unresolvedAdvisor(resolution, request) {
+    const policy = request.unresolvedAdvisorPolicy;
+    if (policy.kind === "assignReserve") {
+      return { resolution, target: { userId: policy.reserveOwnerId, source: "reserve" } };
+    }
+    return { resolution };
+  }
+
+  // src/sdk/domain/dispatch/workspace/call-budget.ts
+  var LOOKUP_CALLS = 4;
+  var LOOKUPS_PER_CONTACT = 2;
+  var MAX_WRITES_PER_CONTACT = 5;
+  var LARGEST_STEP_CALLS = 2;
+  var ESTIMATED_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
+  var FIXED_BEARER_CALLS = 1 + Math.ceil(AUDIENCE_READY_TIMEOUT_MS / AUDIENCE_POLL_INTERVAL_MS) + 1 + 1;
+  var EXCLUSION_RUNS_PER_DISPATCH = 2;
+  function estimateCallBudget(contacts, catalogPages, exclusionPages) {
+    const contactsToProcess = contacts.filter((contact) => contact.outcome === "pendingLookup").length;
+    const workspace = catalogPages.roster + contactsToProcess * ESTIMATED_CALLS_PER_CONTACT;
+    const bearer = catalogPages.customFields + FIXED_BEARER_CALLS + exclusionBearerCalls(exclusionPages);
+    return { workspace, bearer, total: workspace + bearer };
+  }
+  function callBudgetOf(job, dailyCallQuota) {
+    return {
+      estimate: job.callEstimate,
+      spent: job.callsSpent,
+      remaining: Math.max(0, job.callEstimate.total - job.callsSpent),
+      dailyCallQuota
+    };
+  }
+  function exclusionBearerCalls(exclusionPages) {
+    return exclusionPages === 0 ? 0 : 1 + (1 + exclusionPages) * EXCLUSION_RUNS_PER_DISPATCH;
   }
 
   // src/sdk/domain/dispatch/workspace/routes.ts
