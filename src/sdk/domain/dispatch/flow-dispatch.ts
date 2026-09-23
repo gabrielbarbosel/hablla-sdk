@@ -60,9 +60,7 @@ export class FlowDispatch {
             return { campaignId: undefined, imported: 0, received, suppressed, ownerMap: {} };
         }
 
-        const rng = config.rng ?? ((index: number) => hashString(toDigits(survivors[index]?.phone)));
-        const ownerPool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
-        const owners = distributeOwners(survivors.length, ownerPool, config.ownerDistribution?.strategy ?? 'fixo', rng);
+        const owners = this.resolveOwners(survivors, config);
         const ownerMap: Record<string, number> = {};
         for (const owner of owners) {
             if (owner) ownerMap[owner] = (ownerMap[owner] ?? 0) + 1;
@@ -103,6 +101,21 @@ export class FlowDispatch {
         const campaign = await this.client.http.post('/v2/workspaces/{workspace_id}/campaigns/sheet', { body, strategy: 'bearer' });
 
         return { campaignId: (campaign as { id?: string })?.id, imported: survivors.length, received, suppressed, ownerMap };
+    }
+
+    /**
+     * The `owner_id` of every surviving row, in row order: the contact's own `ownerId`
+     * when the caller already resolved it, and the distribution's pick otherwise.
+     *
+     * The distribution still runs over the SURVIVORS, so a caller that mixes both keeps
+     * the deterministic spread it asked for on the rows that have no owner of their own.
+     */
+    private resolveOwners(survivors: readonly FlowDispatchContact[], config: FlowDispatchConfig): string[] {
+        const rng = config.rng ?? ((index: number) => hashString(toDigits(survivors[index]?.phone)));
+        const pool = expandByWeight(config.ownerDistribution?.owners ?? [], config.ownerDistribution?.weights);
+        const distributed = distributeOwners(survivors.length, pool, config.ownerDistribution?.strategy ?? 'fixo', rng);
+
+        return survivors.map((contact, index) => contact.ownerId ?? distributed[index] ?? '');
     }
 
     /**
