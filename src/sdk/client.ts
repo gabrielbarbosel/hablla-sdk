@@ -73,6 +73,7 @@ import { ProductsPrices } from './resources/gen_productsPrices';
 import { QueueItems } from './resources/gen_queueItems';
 import { Queues } from './resources/gen_queues';
 import { Quotation } from './resources/gen_quotation';
+import { QuotationSettings } from './resources/gen_quotationSettings';
 import { Reasons } from './resources/gen_reasons';
 import { RemoveUser } from './resources/gen_removeUser';
 import { Reports } from './resources/gen_reports';
@@ -186,6 +187,7 @@ export class HabllaClient {
     readonly queueItems: QueueItems;
     readonly queues: Queues;
     readonly quotation: Quotation;
+    readonly quotationSettings: QuotationSettings;
     readonly reasons: Reasons;
     readonly removeUser: RemoveUser;
     readonly reports: Reports;
@@ -294,6 +296,7 @@ export class HabllaClient {
         this.queueItems = new QueueItems(this.http);
         this.queues = new Queues(this.http);
         this.quotation = new Quotation(this.http);
+        this.quotationSettings = new QuotationSettings(this.http);
         this.reasons = new Reasons(this.http);
         this.removeUser = new RemoveUser(this.http);
         this.reports = new Reports(this.http);
