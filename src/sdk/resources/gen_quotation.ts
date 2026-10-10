@@ -3,6 +3,15 @@ import { Resource } from './base';
 /** `quotation` resource (generated from openapi.json). */
 export class Quotation extends Resource {
     /**
+     * updateQuotation.
+     * @method PATCH /v1/workspaces/{workspace_id}/quotation/{quotation_id}
+     * @remarks Any query params may be sent (none documented).
+     */
+    updateQuotation(quotationId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.patch('/v1/workspaces/{workspace_id}/quotation/{quotation_id}', { path: { quotation_id: quotationId }, body, query: opts.query });
+    }
+
+    /**
      * publish.
      * @method POST /v1/workspaces/{workspace_id}/quotation/publish
      * @remarks Any query params may be sent (none documented).

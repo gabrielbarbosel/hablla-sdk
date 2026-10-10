@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.7.0 (2026-10-10)
+
+**Classification:** `breaking` — endpoints +11 / -5 / ~0 incompatible / 0 extended.
+
+### Removed endpoints
+
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/prices (reports)`
+
+### Added endpoints
+
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/prices (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/lists-total-value (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization/{services_per_organization_id} (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person/{services_per_person_id} (reports)`
+- `PATCH /v1/workspaces/{workspace_id}/quotation-settings (quotationSettings)`
+- `PATCH /v1/workspaces/{workspace_id}/quotation/{quotation_id} (quotation)`
+
+### Files
+
+- added `gen_quotationSettings.ts`
+- changed `gen_quotation.ts`
+- changed `gen_reports.ts`
+
 ## Não publicado
 
 **Classification:** `additive` — dois campos opcionais no disparo por fluxo; quem não os declara continua enviando a mesma requisição de antes.
