@@ -66,6 +66,33 @@ export class Reports extends Resource {
     }
 
     /**
+     * getMetaMessagesPartnersDetails.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getMetaMessagesPartnersDetails(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details', { query: opts.query });
+    }
+
+    /**
+     * getMetaMessagesDetails.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getMetaMessagesDetails(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details', { query: opts.query });
+    }
+
+    /**
+     * getResume.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getResume(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume', { query: opts.query });
+    }
+
+    /**
      * getCscxMetrics.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/metrics/cscx-metrics
      * @remarks Documented query: filters (extra keys allowed).
@@ -129,6 +156,24 @@ export class Reports extends Resource {
     }
 
     /**
+     * getReportsServiceOrganizationId.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization/{services_per_organization_id}
+     * @remarks Documented query: query (extra keys allowed).
+     */
+    getReportsServiceOrganizationId(servicesPerOrganizationId: string, opts: { query?: { query?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization/{services_per_organization_id}', { path: { services_per_organization_id: servicesPerOrganizationId }, query: opts.query });
+    }
+
+    /**
+     * getReportsServicePersonId.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person/{services_per_person_id}
+     * @remarks Documented query: query (extra keys allowed).
+     */
+    getReportsServicePersonId(servicesPerPersonId: string, opts: { query?: { query?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person/{services_per_person_id}', { path: { services_per_person_id: servicesPerPersonId }, query: opts.query });
+    }
+
+    /**
      * Get all desahboard users counters by me.
      * @method GET /v1/workspaces/{workspace_id}/reports/services/dashboard/users-counters/me
      * @remarks Documented query: page, limit, user, sector, connection, is_available, is_available_to_call (extra keys allowed).
@@ -162,6 +207,33 @@ export class Reports extends Resource {
      */
     getUsersUsingServices(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/admin/users-using-services', { query: opts.query });
+    }
+
+    /**
+     * getCharges.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getCharges(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges', { query: opts.query });
+    }
+
+    /**
+     * getChargesPartners.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getChargesPartners(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners', { query: opts.query });
+    }
+
+    /**
+     * getPrices.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/prices
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getPrices(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/billing/prices', { query: opts.query });
     }
 
     /**
@@ -327,6 +399,15 @@ export class Reports extends Resource {
     }
 
     /**
+     * getListsTotalValue.
+     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/lists-total-value
+     * @remarks Documented query: filters (extra keys allowed).
+     */
+    getListsTotalValue(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/cards/lists-total-value', { query: opts.query });
+    }
+
+    /**
      * getRepCardsMonthlyHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/monthly-history
      * @remarks Documented query: filters (extra keys allowed).
@@ -435,57 +516,12 @@ export class Reports extends Resource {
     }
 
     /**
-     * getCharges.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getCharges(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges', { query: opts.query });
-    }
-
-    /**
-     * getChargesPartners.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChargesPartners(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners', { query: opts.query });
-    }
-
-    /**
-     * getChargesV2.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChargesV2(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2', { query: opts.query });
-    }
-
-    /**
-     * getChargesV3.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getChargesV3(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3', { query: opts.query });
-    }
-
-    /**
      * getHistory.
      * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/history
      * @remarks Documented query: filters (extra keys allowed).
      */
     getHistory(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
         return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/history', { query: opts.query });
-    }
-
-    /**
-     * getPrices.
-     * @method GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/prices
-     * @remarks Documented query: filters (extra keys allowed).
-     */
-    getPrices(opts: { query?: { filters?: string } & Record<string, unknown> } = {}): Promise<unknown> {
-        return this.http.get('/v1/workspaces/{workspace_id}/reports/alloy-reports/plans/prices', { query: opts.query });
     }
 
     /**
