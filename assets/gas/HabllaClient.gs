@@ -8102,6 +8102,7 @@
   var INTERRUPTED_ROUNDS_BEFORE_ATTEMPT = 5;
   var AUDIENCE_POLL_INTERVAL_MS = 5e3;
   var AUDIENCE_READY_TIMEOUT_MS = 18e4;
+  var VARIABLE_SETTLE_MS = 12e4;
   var CHUNK_TIME_RESERVE_MS = 6e4;
   var OPEN_ATTENDANCE_STATUSES = ["pending", "in_queue", "in_attendance", "in_bot"];
   var PERSON_LOOKUP_LIMIT = 50;
@@ -9647,8 +9648,16 @@
       phase: "awaitingAudience",
       audienceSize: job.counts.inAudience,
       audienceDeadlineAt: now + AUDIENCE_READY_TIMEOUT_MS,
+      campaignNotBefore: readsPersonFields(job) ? now + VARIABLE_SETTLE_MS : void 0,
       updatedAt: now
     });
+  }
+  function readsPersonFields(job) {
+    return job.settings.templateVariables.some((variable) => variable.kind === "personField");
+  }
+  function campaignDueAt(job, now) {
+    var _a, _b;
+    return Math.max(now, (_a = job.campaignNotBefore) != null ? _a : now, (_b = job.campaignReconcileNotBefore) != null ? _b : now);
   }
   function toSending(job, audienceCount, now) {
     assertPhase(job, ["awaitingAudience"], "send");
@@ -9717,7 +9726,6 @@
     return __spreadProps(__spreadValues({}, job), { phase: "abandoned", abandonedBy: operatorEmail, abandonedAt: now, updatedAt: now });
   }
   function nextStepOf(job, stop, now) {
-    var _a;
     if (stop && "cause" in stop) {
       return { kind: "continueAfter", delayMs: stop.cause === "throttled" ? THROTTLE_COOLDOWN_MS : TRANSPORT_COOLDOWN_MS };
     }
@@ -9735,7 +9743,7 @@
       case "awaitingAudience":
         return { kind: "continueAfter", delayMs: AUDIENCE_POLL_INTERVAL_MS };
       case "sending":
-        return { kind: "continueAfter", delayMs: Math.max(0, ((_a = job.campaignReconcileNotBefore) != null ? _a : now) - now) };
+        return { kind: "continueAfter", delayMs: campaignDueAt(job, now) - now };
       case "resolvingExclusions":
       case "resolving":
       case "materializing":
@@ -10735,6 +10743,9 @@
           const call2 = findCampaignsByName(dispatchName(session.job));
           const [result2] = yield this.executeRound(session, [call2]);
           return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, call2, result2, this.ports.clock.now()));
+        }
+        if (campaignDueAt(session.job, now) > now) {
+          return { kind: "stop", stop: { waitUntil: campaignDueAt(session.job, now) } };
         }
         session.job = yield this.ports.store.update(withCampaignInFlight(session.job, now), []);
         const call = createCampaign(buildCampaignBody(session.job));

@@ -51,6 +51,16 @@ export const AUDIENCE_POLL_INTERVAL_MS = 5_000;
 /** The count answers 500 for ~20-30 s after the segmentation is created; slack for large audiences. */
 export const AUDIENCE_READY_TIMEOUT_MS = 180_000;
 
+/**
+ * How long the campaign waits after the last contact write when the template reads person
+ * fields. Hablla renders the message from a copy of the person that lags the write, so a
+ * campaign created right after the values were written sends the raw `{{…}}`. Measured
+ * live (probes 11, 21, 22): written ~1 s before, raw token; 60 s before, resolved, and an
+ * old value replaced 60 s before sends the new one. Every read the API offers shows the
+ * value after 0.15 s, so there is no signal to poll; this is twice the wait proven.
+ */
+export const VARIABLE_SETTLE_MS = 120_000;
+
 /** No block, and no round inside a block, starts without this much time left before `deadlineAt`. */
 export const CHUNK_TIME_RESERVE_MS = 60_000;
 

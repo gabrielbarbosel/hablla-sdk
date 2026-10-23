@@ -10,6 +10,7 @@ import {
     RECONCILIATION_DELAY_MS,
     THROTTLE_COOLDOWN_MS,
     TRANSPORT_COOLDOWN_MS,
+    VARIABLE_SETTLE_MS,
 } from './constants';
 import { estimateCallBudget } from './call-budget';
 import { exclusionPageCount } from './exclusion';
@@ -93,6 +94,19 @@ async function dispatchToEnd(request: WorkspaceDispatchRequest): Promise<Dispatc
 /** A 13-digit phone `5551999<suffix>`. */
 function phoneOf(suffix: string): string {
     return `5551999${suffix.padStart(6, '0')}`;
+}
+
+/** Records, on the fake clock, when each contact joined the audience and when each campaign was created. */
+function recordJoinAndCampaignTimes(): { joinedAt: number[]; campaignAt: number[] } {
+    const times = { joinedAt: [] as number[], campaignAt: [] as number[] };
+    const campaignCreation = /\/v2\/workspaces\/[^/]+\/campaigns$/;
+
+    hablla.onRequest = (request) => {
+        if (request.method === 'POST' && request.path.endsWith('/segmentations-items')) times.joinedAt.push(clock.now());
+        if (request.method === 'POST' && campaignCreation.test(request.path)) times.campaignAt.push(clock.now());
+    };
+
+    return times;
 }
 
 /** Contacts of a job by outcome, as `index:outcome`. */
@@ -593,6 +607,25 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         expect(hablla.persons.get(habllaId('b'))!.users).toEqual([ADVISOR.id]);
         expect(hablla.persons.get(habllaId('c'))!.users).toEqual([OTHER_ADVISOR.id]);
         expect(store.contactsOf(done.job.id)[2]!.ownerChange).toEqual({ kind: 'keep' });
+    });
+
+    it('creates the campaign only after the person fields its variables read have settled', async () => {
+        const { joinedAt, campaignAt } = recordJoinAndCampaignTimes();
+
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
+
+        expect(done.job.phase).toBe('completed');
+        expect(campaignAt[0]! - joinedAt[0]!).toBeGreaterThanOrEqual(VARIABLE_SETTLE_MS);
+    });
+
+    it('creates the campaign without the settle when no variable reads a person field', async () => {
+        const { joinedAt, campaignAt } = recordJoinAndCampaignTimes();
+        const literal = aRequest({ rows: [aRow('1', { customFields: {} })], templateVariables: [{ kind: 'literal', value: 'ana', formats: [] }], existingPersonFieldPolicy: 'none' });
+
+        const done = await dispatchToEnd(literal);
+
+        expect(done.job.phase).toBe('completed');
+        expect(campaignAt[0]! - joinedAt[0]!).toBeLessThan(VARIABLE_SETTLE_MS);
     });
 
     it('reuses a recent preview instead of looking the contacts up again', async () => {
