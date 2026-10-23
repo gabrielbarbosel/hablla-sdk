@@ -296,6 +296,8 @@ export interface DispatchJob {
      */
     campaignSendState?: 'inFlight' | 'sent';
     campaignReconcileNotBefore?: number;
+    /** Earliest creation of the campaign, so Hablla sees the person fields its variables read (see `VARIABLE_SETTLE_MS`). */
+    campaignNotBefore?: number;
     /** Attempts spent reading the campaign back. */
     campaignReconcileAttempts?: number;
     campaignId?: string;

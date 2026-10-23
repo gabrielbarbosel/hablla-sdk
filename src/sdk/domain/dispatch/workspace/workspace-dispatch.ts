@@ -34,6 +34,7 @@ import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step'
 import { CallBudgetExceededError, DispatchThrottledError, DispatchTransportError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
 import {
     advanceCursor,
+    campaignDueAt,
     createJob,
     duplicateVerdict,
     hasPhaseWork,
@@ -708,6 +709,10 @@ export class WorkspaceDispatch {
             const [result] = await this.executeRound(session, [call]);
 
             return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, call, result!, this.ports.clock.now()));
+        }
+
+        if (campaignDueAt(session.job, now) > now) {
+            return { kind: 'stop', stop: { waitUntil: campaignDueAt(session.job, now) } };
         }
 
         session.job = await this.ports.store.update(withCampaignInFlight(session.job, now), []);

@@ -24,7 +24,7 @@ import type {
 import { excludeContacts, excludesByFilter, unreadablePhones } from './audience';
 import { rejectedTokenStrategy } from './call-failures';
 import { toDispatchConfig } from './campaign';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, VARIABLE_SETTLE_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { workOutcomeOf } from './contact-step';
 import { DispatchValidationError, InvalidJobTransitionError } from './errors';
 import { jobIdOf } from './job-id';
@@ -391,7 +391,10 @@ function withoutExclusionRun(job: DispatchJob, now: number): DispatchJob {
     };
 }
 
-/** `materializing` → `awaitingAudience`, expecting every contact in the audience. */
+/**
+ * `materializing` → `awaitingAudience`, expecting every contact in the audience. The writes
+ * are over, so this is where the settle of the person fields the template reads starts.
+ */
 export function toAwaitingAudience(job: DispatchJob, now: number): DispatchJob {
     assertPhase(job, ['materializing'], 'await the audience');
 
@@ -400,8 +403,19 @@ export function toAwaitingAudience(job: DispatchJob, now: number): DispatchJob {
         phase: 'awaitingAudience',
         audienceSize: job.counts.inAudience,
         audienceDeadlineAt: now + AUDIENCE_READY_TIMEOUT_MS,
+        campaignNotBefore: readsPersonFields(job) ? now + VARIABLE_SETTLE_MS : undefined,
         updatedAt: now,
     };
+}
+
+/** True when a body variable of the template is read from a person field the dispatch wrote. */
+function readsPersonFields(job: DispatchJob): boolean {
+    return job.settings.templateVariables.some((variable) => variable.kind === 'personField');
+}
+
+/** When the campaign of a job in `sending` may be created or read back. */
+export function campaignDueAt(job: DispatchJob, now: number): number {
+    return Math.max(now, job.campaignNotBefore ?? now, job.campaignReconcileNotBefore ?? now);
 }
 
 /** `awaitingAudience` → `sending`, once the audience count matches. */
@@ -555,7 +569,7 @@ export function nextStepOf(job: DispatchJob, stop: EarlyStop | undefined, now: n
         case 'awaitingAudience':
             return { kind: 'continueAfter', delayMs: AUDIENCE_POLL_INTERVAL_MS };
         case 'sending':
-            return { kind: 'continueAfter', delayMs: Math.max(0, (job.campaignReconcileNotBefore ?? now) - now) };
+            return { kind: 'continueAfter', delayMs: campaignDueAt(job, now) - now };
         case 'resolvingExclusions':
         case 'resolving':
         case 'materializing':
