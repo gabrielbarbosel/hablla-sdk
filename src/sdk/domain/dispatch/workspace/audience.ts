@@ -35,8 +35,10 @@ export function excludesByFilter(exclusion: Pick<ExclusionCriteria, 'segmentatio
 
 /**
  * Builds one contact per row, in index order; the first matching outcome wins:
- * `invalidPhone`, `repeatedPhone` (the first row with a phone keeps it), `missingName`,
- * `unresolvedAdvisor` (only under the `skip` policy), otherwise `pendingLookup`. The
+ * `invalidPhone`, `repeatedPhone` (the first row with a phone keeps it),
+ * `unresolvedAdvisor` (only under the `skip` policy), otherwise `pendingLookup`. A row
+ * without a name still goes to the lookup: the name is only needed to create a person, so
+ * `missingName` is decided there, when the phone matches nobody. The
  * explicit excluded phones are then applied with {@link excludeContacts}, and the
  * fingerprint is computed over the contacts left in `pendingLookup`.
  */
@@ -124,7 +126,7 @@ function contactOfRow(row: WorkspaceDispatchRow, index: number, request: Workspa
         advisorResolution: advisor.resolution,
         target: advisor.target,
         customFields: formatBoundFields(row.customFields, request.templateVariables),
-        outcome: firstOutcome(name, phone === undefined ? undefined : phoneIdentity(phone), advisor, seenPhones),
+        outcome: firstOutcome(phone === undefined ? undefined : phoneIdentity(phone), advisor, seenPhones),
         writesDone: 0,
         attempts: 0,
         createSends: 0,
@@ -132,17 +134,13 @@ function contactOfRow(row: WorkspaceDispatchRow, index: number, request: Workspa
 }
 
 /** The first outcome that applies to a freshly read row. */
-function firstOutcome(name: string, identity: string | undefined, advisor: AdvisorAssignment, seenPhones: ReadonlySet<string>): ContactOutcome {
+function firstOutcome(identity: string | undefined, advisor: AdvisorAssignment, seenPhones: ReadonlySet<string>): ContactOutcome {
     if (identity === undefined) {
         return 'invalidPhone';
     }
 
     if (seenPhones.has(identity)) {
         return 'repeatedPhone';
-    }
-
-    if (name === '') {
-        return 'missingName';
     }
 
     if (!advisor.target) {

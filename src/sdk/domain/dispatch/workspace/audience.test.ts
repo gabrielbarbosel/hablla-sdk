@@ -31,7 +31,7 @@ describe('prepareAudience', () => {
         expect(prepareAudience(request, ROSTER).contacts[0]!.customFields).toEqual({ [FIRST_NAME_FIELD_ID]: 'ana paula souza' });
     });
 
-    it('decides by precedence: invalid phone, repeated phone, missing name, unresolved advisor', () => {
+    it('decides by precedence: invalid phone, repeated phone, unresolved advisor, and leaves a missing name to the lookup', () => {
         const request = aRequest({
             unresolvedAdvisorPolicy: { kind: 'skip' },
             rows: [
@@ -46,9 +46,9 @@ describe('prepareAudience', () => {
 
         expect(prepareAudience(request, ROSTER).contacts.map((contact) => contact.outcome)).toEqual([
             'invalidPhone',
-            'missingName',
+            'pendingLookup',
             'repeatedPhone',
-            'missingName',
+            'unresolvedAdvisor',
             'unresolvedAdvisor',
             'pendingLookup',
         ]);

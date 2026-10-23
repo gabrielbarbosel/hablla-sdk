@@ -31,6 +31,16 @@ describe('resolvePersonLookup', () => {
         });
     });
 
+    it('reports missingName when nobody holds the phone and the row brought no name', () => {
+        expect(personStage([], [], aContact({ name: '' }))).toMatchObject({ kind: 'decided', contact: { outcome: 'missingName', person: undefined } });
+    });
+
+    it('goes on to the existing person when the row brought no name', () => {
+        const item = personItem({ id: 'p1', phone: '555199000001', users: [SYSTEM_USER.id] });
+
+        expect(personStage([item], [], aContact({ name: '' }))).toEqual({ kind: 'checkAttendance', person: toPersonSnapshot(item) });
+    });
+
     it('asks for the attendance stage when one person holds the phone', () => {
         const item = personItem({ id: 'p1', phone: '555199000001', users: [SYSTEM_USER.id] });
 

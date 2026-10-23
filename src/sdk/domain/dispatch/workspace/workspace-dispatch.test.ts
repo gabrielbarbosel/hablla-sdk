@@ -6,6 +6,7 @@ import {
     CALL_RETRY_DELAY_MS,
     CHUNK_TIME_RESERVE_MS,
     EXCLUSION_PAGE_LIMIT,
+    PREVIEW_LOOKUP_REUSE_MS,
     RECONCILIATION_DELAY_MS,
     THROTTLE_COOLDOWN_MS,
     TRANSPORT_COOLDOWN_MS,
@@ -573,7 +574,7 @@ describe('WorkspaceDispatch resumption', () => {
 });
 
 describe('WorkspaceDispatch revalidation and audience', () => {
-    it('re-resolves each contact right before its writes', async () => {
+    it('re-resolves each contact right before its writes when the preview is old', async () => {
         hablla.addPerson({ id: habllaId('c'), phone: phoneOf('3'), users: [SYSTEM_USER.id] });
         hablla.addPerson({ id: habllaId('a'), phone: phoneOf('1'), users: [ADVISOR.id] });
 
@@ -582,6 +583,7 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         hablla.services.push({ id: 'opened', status: 'pending', key: `${CONNECTION_ID}_${phoneOf('1')}` });
         hablla.addPerson({ id: habllaId('b'), phone: phoneOf('2'), users: [] });
         hablla.persons.get(habllaId('c'))!.users = [OTHER_ADVISOR.id];
+        clock.current += PREVIEW_LOOKUP_REUSE_MS;
 
         const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
 
@@ -591,6 +593,16 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         expect(hablla.persons.get(habllaId('b'))!.users).toEqual([ADVISOR.id]);
         expect(hablla.persons.get(habllaId('c'))!.users).toEqual([OTHER_ADVISOR.id]);
         expect(store.contactsOf(done.job.id)[2]!.ownerChange).toEqual({ kind: 'keep' });
+    });
+
+    it('reuses a recent preview instead of looking the contacts up again', async () => {
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] })));
+        const lookupsAtPlan = hablla.requestsTo('GET', //persons$/).length;
+
+        const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
+
+        expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:inAudience']);
+        expect(hablla.requestsTo('GET', //persons$/)).toHaveLength(lookupsAtPlan);
     });
 
     it('reaches a person listed on two rows through one contact only', async () => {
