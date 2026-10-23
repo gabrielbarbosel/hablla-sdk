@@ -596,13 +596,15 @@ describe('WorkspaceDispatch revalidation and audience', () => {
     });
 
     it('reuses a recent preview instead of looking the contacts up again', async () => {
+        const PERSON_SEARCH = /\/v2\/workspaces\/[^/]+\/persons$/;
         const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] })));
-        const lookupsAtPlan = hablla.requestsTo('GET', //persons$/).length;
+        const lookupsAtPlan = hablla.requestsTo('GET', PERSON_SEARCH).length;
 
         const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
 
+        expect(lookupsAtPlan).toBeGreaterThan(0);
         expect(outcomesOf(done.job.id)).toEqual(['0:inAudience', '1:inAudience']);
-        expect(hablla.requestsTo('GET', //persons$/)).toHaveLength(lookupsAtPlan);
+        expect(hablla.requestsTo('GET', PERSON_SEARCH)).toHaveLength(lookupsAtPlan);
     });
 
     it('reaches a person listed on two rows through one contact only', async () => {
