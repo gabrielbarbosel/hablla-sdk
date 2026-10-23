@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { applyContactStep, nextContactStep, writeAheadOf, type BlockContact, type ContactStep, type StepContext } from './contact-step';
 import { toPersonSnapshot } from './payloads';
 import { SYSTEM_USER, aContact, aRequest, attendanceItem, completed, page, personItem, settingsOf } from './__fixtures__/builders';
+import { PREVIEW_LOOKUP_REUSE_MS } from './constants';
 import type { DispatchContact, DispatchJob } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -52,6 +53,14 @@ describe('nextContactStep', () => {
         expect(callsStep({ contact: readyExisting }, MATERIALIZING).purpose).toBe('personLookup');
         expect(callsStep({ contact: { ...readyExisting, lookupPurpose: 'send' } }, MATERIALIZING).purpose).toEqual({ write: { kind: 'setPersonFields' } });
         expect(callsStep({ contact: { ...readyExisting, writesDone: 1 } }, MATERIALIZING).purpose).toEqual({ write: { kind: 'joinAudience' } });
+    });
+
+    it('reuses a recent preview lookup instead of looking the contact up again', () => {
+        const recent = { ...readyExisting, resolvedAt: NOW - PREVIEW_LOOKUP_REUSE_MS + 1 };
+        const old = { ...readyExisting, resolvedAt: NOW - PREVIEW_LOOKUP_REUSE_MS };
+
+        expect(callsStep({ contact: recent }, MATERIALIZING).purpose).toEqual({ write: { kind: 'setPersonFields' } });
+        expect(callsStep({ contact: old }, MATERIALIZING).purpose).toBe('personLookup');
     });
 });
 

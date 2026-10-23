@@ -41,7 +41,8 @@ export function attendanceLookupCalls(person: PersonSnapshot, contact: DispatchC
  * `duplicatePersons`, a blocked one is `blocked`, one whose matching phones are all
  * declared as not being on WhatsApp is `noWhatsapp` (the campaign resolves its audience
  * with the WhatsApp filter, so such a person would never match the count), a single usable
- * one needs the attendance stage, and none makes the contact `ready` for creation. A phone
+ * one needs the attendance stage, and none makes the contact `ready` for creation — or
+ * `missingName` when the row brought no name to create the person with. A phone
  * that leaves `is_whatsapp` undeclared is not a declared no, so it goes on and the
  * campaign's own filter decides.
  */
@@ -72,7 +73,9 @@ export function resolvePersonLookup(contact: DispatchContact, results: readonly 
     const [person] = persons.values();
 
     if (!person) {
-        return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome: 'ready', person: undefined, ownerChange: undefined } };
+        const outcome = contact.name === '' ? 'missingName' : 'ready';
+
+        return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome, person: undefined, ownerChange: undefined } };
     }
 
     if (person.isBlocked) {

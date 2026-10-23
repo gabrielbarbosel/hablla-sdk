@@ -10,6 +10,7 @@ import type { ContactResolution, StopCause } from './call-failures';
 import type { ContactWrite } from './contact-writes';
 import type { PersonSnapshot } from './owner-policy';
 import type { ChunkedPhase, ContactOutcome, DispatchContact, DispatchJob, DispatchSettings, LookupPurpose } from './types';
+import { PREVIEW_LOOKUP_REUSE_MS } from './constants';
 import { rejectedTokenStrategy } from './call-failures';
 import { applyWriteResult, isWriteAhead, planContactWrites, withWriteAhead, writeCallFor } from './contact-writes';
 import { attendanceLookupCalls, personLookupCalls, resolveAttendanceLookup, resolvePersonLookup } from './lookup';
@@ -63,7 +64,8 @@ export function workOutcomeOf(phase: ChunkedPhase): ContactOutcome {
  * The next step of a contact, in order: nothing when it has no work in the phase; wait
  * while its retry delay runs; in `resolving`, the preview lookup; in `materializing`,
  * the reconciliation of a pending write, then the send-time lookup (only before the
- * first write, so it never sees the dispatch's own writes), then the next planned write.
+ * first write, so it never sees the dispatch's own writes, and only when the preview
+ * lookup is older than {@link PREVIEW_LOOKUP_REUSE_MS}), then the next planned write.
  */
 export function nextContactStep(block: BlockContact, job: DispatchJob, now: number): ContactStep {
     const { contact } = block;
@@ -85,7 +87,7 @@ export function nextContactStep(block: BlockContact, job: DispatchJob, now: numb
         return { kind: 'calls', purpose: 'reconcile', calls: reconciliationCalls(contact, job) };
     }
 
-    if (contact.writesDone === 0 && contact.lookupPurpose !== 'send') {
+    if (contact.writesDone === 0 && needsSendLookup(contact, now)) {
         return lookupStep(block, job);
     }
 
@@ -196,6 +198,15 @@ function claimResolvedPerson(contact: DispatchContact, context: StepContext): St
 }
 
 /** The lookup purpose of a phase. */
+/** True when the contact has no send-time lookup and its preview lookup is too old to stand in for one. */
+function needsSendLookup(contact: DispatchContact, now: number): boolean {
+    if (contact.lookupPurpose === 'send') {
+        return false;
+    }
+
+    return contact.resolvedAt === undefined || now - contact.resolvedAt >= PREVIEW_LOOKUP_REUSE_MS;
+}
+
 function lookupPurposeOf(phase: ChunkedPhase): LookupPurpose {
     return phase === 'resolving' ? 'preview' : 'send';
 }
