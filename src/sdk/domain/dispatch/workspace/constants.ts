@@ -71,11 +71,12 @@ export const OPEN_ATTENDANCE_STATUSES: readonly string[] = ['pending', 'in_queue
 export const PERSON_LOOKUP_LIMIT = 50;
 
 /**
- * How long a preview lookup stands in for the send-time one. A dispatch confirmed right
- * after its preview would otherwise pay the same lookups twice for an answer that cannot
- * have moved much; past this age the send looks the contact up again.
+ * How long a preview reading stands in for the send-time one — the contact lookup and the
+ * exclusion by filter alike. A dispatch confirmed right after its preview would otherwise
+ * pay the same reads twice for an answer that cannot have moved much; past this age the
+ * send reads again.
  */
-export const PREVIEW_LOOKUP_REUSE_MS = 10 * 60_000;
+export const PREVIEW_REUSE_MS = 10 * 60_000;
 
 /** Page size of an attendance lookup; items are classified by their own status, not by the filter. */
 export const ATTENDANCE_LOOKUP_LIMIT = 50;

@@ -24,7 +24,7 @@ import type {
 import { excludeContacts, excludesByFilter, unreadablePhones } from './audience';
 import { rejectedTokenStrategy } from './call-failures';
 import { toDispatchConfig } from './campaign';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, VARIABLE_SETTLE_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, PREVIEW_REUSE_MS, VARIABLE_SETTLE_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
 import { workOutcomeOf } from './contact-step';
 import { DispatchValidationError, InvalidJobTransitionError } from './errors';
 import { jobIdOf } from './job-id';
@@ -293,8 +293,9 @@ export function toAwaitingConfirmation(job: DispatchJob, now: number): DispatchJ
 /**
  * `awaitingConfirmation` → the confirmed run, with the segmentation, the pacing in Hablla
  * units and who started it. A request that excludes by filter resolves the exclusion once
- * more before anything is written, so the confirmed job goes through `resolvingExclusions`
- * first; without filters it goes straight to `materializing`.
+ * more before anything is written — unless the preview resolved it less than
+ * {@link PREVIEW_REUSE_MS} ago —, so the confirmed job goes through `resolvingExclusions`
+ * first; otherwise it goes straight to `materializing`.
  */
 export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEmail: string, now: number): DispatchJob {
     assertPhase(job, ['awaitingConfirmation'], 'start materializing');
@@ -312,7 +313,12 @@ export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEm
         updatedAt: now,
     };
 
-    return excludesByFilter(job.exclusion) ? withExclusionRun(confirmed, 'send', now) : confirmed;
+    return excludesByFilter(job.exclusion) && exclusionIsStale(job, now) ? withExclusionRun(confirmed, 'send', now) : confirmed;
+}
+
+/** True when the preview exclusion is too old (or missing) to stand in for the send-time one. */
+function exclusionIsStale(job: DispatchJob, now: number): boolean {
+    return job.exclusionResolvedAt === undefined || now - job.exclusionResolvedAt >= PREVIEW_REUSE_MS;
 }
 
 /**
@@ -369,7 +375,8 @@ export function toAfterExclusions(job: DispatchJob, now: number): DispatchJob {
     const resolved = withoutExclusionRun(job, now);
 
     if (requireExclusionPurpose(job) === 'preview') {
-        return resolved.counts.pendingLookup > 0 ? { ...resolved, phase: 'resolving' } : toAwaitingConfirmation(resolved, now);
+        const previewed = { ...resolved, exclusionResolvedAt: now };
+        return previewed.counts.pendingLookup > 0 ? { ...previewed, phase: 'resolving' } : toAwaitingConfirmation(previewed, now);
     }
 
     return resolved.counts.ready > 0 ? { ...resolved, phase: 'materializing' } : toCompleted(resolved, now);

@@ -10,7 +10,7 @@ import type { ContactResolution, StopCause } from './call-failures';
 import type { ContactWrite } from './contact-writes';
 import type { PersonSnapshot } from './owner-policy';
 import type { ChunkedPhase, ContactOutcome, DispatchContact, DispatchJob, DispatchSettings, LookupPurpose } from './types';
-import { PREVIEW_LOOKUP_REUSE_MS } from './constants';
+import { PREVIEW_REUSE_MS } from './constants';
 import { rejectedTokenStrategy } from './call-failures';
 import { applyWriteResult, isWriteAhead, planContactWrites, withWriteAhead, writeCallFor } from './contact-writes';
 import { attendanceLookupCalls, personLookupCalls, resolveAttendanceLookup, resolvePersonLookup } from './lookup';
@@ -65,7 +65,7 @@ export function workOutcomeOf(phase: ChunkedPhase): ContactOutcome {
  * while its retry delay runs; in `resolving`, the preview lookup; in `materializing`,
  * the reconciliation of a pending write, then the send-time lookup (only before the
  * first write, so it never sees the dispatch's own writes, and only when the preview
- * lookup is older than {@link PREVIEW_LOOKUP_REUSE_MS}), then the next planned write.
+ * lookup is older than {@link PREVIEW_REUSE_MS}), then the next planned write.
  */
 export function nextContactStep(block: BlockContact, job: DispatchJob, now: number): ContactStep {
     const { contact } = block;
@@ -204,7 +204,7 @@ function needsSendLookup(contact: DispatchContact, now: number): boolean {
         return false;
     }
 
-    return contact.resolvedAt === undefined || now - contact.resolvedAt >= PREVIEW_LOOKUP_REUSE_MS;
+    return contact.resolvedAt === undefined || now - contact.resolvedAt >= PREVIEW_REUSE_MS;
 }
 
 function lookupPurposeOf(phase: ChunkedPhase): LookupPurpose {

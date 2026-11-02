@@ -6,7 +6,7 @@ import {
     CALL_RETRY_DELAY_MS,
     CHUNK_TIME_RESERVE_MS,
     EXCLUSION_PAGE_LIMIT,
-    PREVIEW_LOOKUP_REUSE_MS,
+    PREVIEW_REUSE_MS,
     RECONCILIATION_DELAY_MS,
     THROTTLE_COOLDOWN_MS,
     TRANSPORT_COOLDOWN_MS,
@@ -286,7 +286,18 @@ describe('WorkspaceDispatch exclusion by filter', () => {
         expect(excludedPerson.users).toEqual([ADVISOR.id]);
     });
 
-    it('excludes whoever entered the filter after the preview, still before any write', async () => {
+    it('reuses a recent preview exclusion: the confirmation reads no filter page again', async () => {
+        const universe = anExclusionUniverse(0, []);
+        const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
+        const pagesAtPreview = hablla.requestsTo('POST', /message-stats\/list$/).length;
+
+        const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
+
+        expect(done.job).toMatchObject({ phase: 'completed', audienceSize: 2 });
+        expect(hablla.requestsTo('POST', /message-stats\/list$/)).toHaveLength(pagesAtPreview);
+    });
+
+    it('excludes whoever entered the filter after an old preview, still before any write', async () => {
         const universe = anExclusionUniverse(0, []);
         const person = hablla.addPerson({ phone: phoneOf('2'), users: [ADVISOR.id] });
         const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
@@ -294,6 +305,7 @@ describe('WorkspaceDispatch exclusion by filter', () => {
         expect(planned.job.counts).toMatchObject({ excluded: 0, ready: 2 });
 
         hablla.segmentations.get(universe)!.items.push({ id: hablla.newId(), person: person.id });
+        clock.current += PREVIEW_REUSE_MS;
 
         const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
 
@@ -597,7 +609,7 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         hablla.services.push({ id: 'opened', status: 'pending', key: `${CONNECTION_ID}_${phoneOf('1')}` });
         hablla.addPerson({ id: habllaId('b'), phone: phoneOf('2'), users: [] });
         hablla.persons.get(habllaId('c'))!.users = [OTHER_ADVISOR.id];
-        clock.current += PREVIEW_LOOKUP_REUSE_MS;
+        clock.current += PREVIEW_REUSE_MS;
 
         const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
 
