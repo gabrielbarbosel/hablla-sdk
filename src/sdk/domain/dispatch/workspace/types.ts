@@ -277,6 +277,8 @@ export interface DispatchJob {
     exclusionUniverseSize?: number;
     /** Persons the run's pages listed so far, checked against `exclusionUniverseSize` when the last page arrives. */
     exclusionListed?: number;
+    /** When the preview exclusion run finished; the confirmation reuses it while it is younger than `PREVIEW_REUSE_MS`. */
+    exclusionResolvedAt?: number;
     /** Rounds interrupted in a row (see `trackInterruptedRounds`); reset by the first round that is not. */
     consecutiveInterruptedRounds: number;
     /** The estimate `plan` checked against the daily quota, kept so every answer can report it. */

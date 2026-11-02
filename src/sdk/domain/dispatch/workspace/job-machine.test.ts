@@ -22,7 +22,7 @@ import {
     trackInterruptedRounds,
 } from './job-machine';
 import { prepareAudience } from './audience';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS, PREVIEW_REUSE_MS } from './constants';
 import { InvalidJobTransitionError } from './errors';
 import { isJobId, jobIdOf } from './job-id';
 import { NO_CALLS_SPENT, ROSTER, aContact, aRequest, aRow, completed } from './__fixtures__/builders';
@@ -244,8 +244,19 @@ describe('transitions', () => {
             expect(() => toAfterExclusions(aJob({ phase: 'resolvingExclusions' }), NOW)).toThrow(/no exclusion run in progress/);
         });
 
+        it('stamps when the preview run resolved the exclusion', () => {
+            expect(toAfterExclusions(excluding('preview'), NOW).exclusionResolvedAt).toBe(NOW);
+            expect(toAfterExclusions(excluding('send', { counts: countOutcomes([aContact({ outcome: 'ready' })]) }), NOW).exclusionResolvedAt).toBeUndefined();
+        });
+
+        it('reuses a recent preview exclusion and goes straight to materializing', () => {
+            const recent = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS }, exclusionResolvedAt: NOW - PREVIEW_REUSE_MS + 1 });
+
+            expect(toConfirmed(recent, 'seg-1', 'operator@example.com', NOW).phase).toBe('materializing');
+        });
+
         it('confirms into a second exclusion run before materializing, and straight into it without filters', () => {
-            const withFilters = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS } });
+            const withFilters = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS }, exclusionResolvedAt: NOW - PREVIEW_REUSE_MS });
             const confirmed = toConfirmed(withFilters, 'seg-1', 'operator@example.com', NOW);
 
             expect(confirmed).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'send', exclusionCursor: FIRST_EXCLUSION_PAGE, exclusionAttempts: 0, segmentationId: 'seg-1', startedAt: NOW });
