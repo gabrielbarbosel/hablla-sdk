@@ -9,13 +9,14 @@ import type { AuthStrategy } from '../../../core/strategy';
 import type { ContactResolution, StopCause } from './call-failures';
 import type { ContactWrite } from './contact-writes';
 import type { PersonSnapshot } from './owner-policy';
+import type { DispatchTuning } from './tuning';
 import type { ChunkedPhase, ContactOutcome, DispatchContact, DispatchJob, DispatchSettings, LookupPurpose } from './types';
-import { PREVIEW_REUSE_MS } from './constants';
 import { rejectedTokenStrategy } from './call-failures';
 import { applyWriteResult, isWriteAhead, planContactWrites, withWriteAhead, writeCallFor } from './contact-writes';
 import { attendanceLookupCalls, personLookupCalls, resolveAttendanceLookup, resolvePersonLookup } from './lookup';
 import { claimPerson, holdsPersonClaim } from './person-claims';
 import { applyReconciliation, reconciliationCalls } from './reconciliation';
+import { tuningOf } from './tuning';
 
 /** A contact inside a block; `attendanceCheck` holds the person between the two lookup stages, in memory only. */
 export interface BlockContact {
@@ -35,6 +36,7 @@ export type ContactStep =
 /** What applying a step needs besides the contact. */
 export interface StepContext {
     settings: DispatchSettings;
+    tuning: DispatchTuning;
     claims: ReadonlyMap<string, number>;
     now: number;
     phase: ChunkedPhase;
@@ -65,11 +67,12 @@ export function workOutcomeOf(phase: ChunkedPhase): ContactOutcome {
  * while its retry delay runs; in `resolving`, the preview lookup; in `materializing`,
  * the reconciliation of a pending write, then the send-time lookup (only before the
  * first write, so it never sees the dispatch's own writes, and only when the preview
- * lookup is older than {@link PREVIEW_REUSE_MS}), then the next planned write.
+ * lookup is older than the tuning's `previewReuseMs`), then the next planned write.
  */
 export function nextContactStep(block: BlockContact, job: DispatchJob, now: number): ContactStep {
     const { contact } = block;
     const phase = chunkedPhaseOf(job);
+    const tuning = tuningOf(job);
 
     if (contact.outcome !== workOutcomeOf(phase)) {
         return { kind: 'settled' };
@@ -80,15 +83,15 @@ export function nextContactStep(block: BlockContact, job: DispatchJob, now: numb
     }
 
     if (phase === 'resolving') {
-        return lookupStep(block, job);
+        return lookupStep(block, job, tuning);
     }
 
     if (contact.pendingWrite) {
         return { kind: 'calls', purpose: 'reconcile', calls: reconciliationCalls(contact, job) };
     }
 
-    if (contact.writesDone === 0 && needsSendLookup(contact, now)) {
-        return lookupStep(block, job);
+    if (contact.writesDone === 0 && needsSendLookup(contact, now, tuning)) {
+        return lookupStep(block, job, tuning);
     }
 
     const write = planContactWrites(contact, job.settings)[contact.writesDone]!;
@@ -123,7 +126,7 @@ function applyStepResults(block: BlockContact, step: Extract<ContactStep, { kind
     const purpose = lookupPurposeOf(context.phase);
 
     if (step.purpose === 'personLookup') {
-        const resolution = resolvePersonLookup(contact, results, purpose, context.now);
+        const resolution = resolvePersonLookup(contact, results, purpose, context.now, context.tuning);
 
         if (resolution.kind === 'checkAttendance') {
             return { kind: 'applied', block: { contact, attendanceCheck: resolution.person }, claims: context.claims };
@@ -135,23 +138,23 @@ function applyStepResults(block: BlockContact, step: Extract<ContactStep, { kind
     if (step.purpose === 'attendanceLookup') {
         const person = requireAttendanceCheck(block);
 
-        return applyLookupResolution(contact, resolveAttendanceLookup(contact, person, results, context.settings, purpose, context.now), context);
+        return applyLookupResolution(contact, resolveAttendanceLookup(contact, person, results, context.settings, purpose, context.now, context.tuning), context);
     }
 
     if (step.purpose === 'reconcile') {
-        return applyResolution(contact, applyReconciliation(contact, results, context.now), context);
+        return applyResolution(contact, applyReconciliation(contact, results, context.now, context.tuning), context);
     }
 
-    return applyResolution(contact, applyWriteResult(contact, step.purpose.write, results, context.now), context);
+    return applyResolution(contact, applyWriteResult(contact, step.purpose.write, results, context.now, context.tuning), context);
 }
 
 /** The lookup step of a contact: the attendance stage when its person is known, the person stage otherwise. */
-function lookupStep(block: BlockContact, job: DispatchJob): ContactStep {
+function lookupStep(block: BlockContact, job: DispatchJob, tuning: DispatchTuning): ContactStep {
     if (block.attendanceCheck) {
-        return { kind: 'calls', purpose: 'attendanceLookup', calls: attendanceLookupCalls(block.attendanceCheck, block.contact, job.settings.connectionId) };
+        return { kind: 'calls', purpose: 'attendanceLookup', calls: attendanceLookupCalls(block.attendanceCheck, block.contact, job.settings.connectionId, tuning) };
     }
 
-    return { kind: 'calls', purpose: 'personLookup', calls: personLookupCalls(block.contact) };
+    return { kind: 'calls', purpose: 'personLookup', calls: personLookupCalls(block.contact, tuning) };
 }
 
 /** Applies a lookup resolution and records the shift when the send-time lookup moved the contact out of `ready`. */
@@ -197,16 +200,16 @@ function claimResolvedPerson(contact: DispatchContact, context: StepContext): St
     return { kind: 'applied', block: { contact }, claims: claim.claims };
 }
 
-/** The lookup purpose of a phase. */
 /** True when the contact has no send-time lookup and its preview lookup is too old to stand in for one. */
-function needsSendLookup(contact: DispatchContact, now: number): boolean {
+function needsSendLookup(contact: DispatchContact, now: number, tuning: DispatchTuning): boolean {
     if (contact.lookupPurpose === 'send') {
         return false;
     }
 
-    return contact.resolvedAt === undefined || now - contact.resolvedAt >= PREVIEW_REUSE_MS;
+    return contact.resolvedAt === undefined || now - contact.resolvedAt >= tuning.previewReuseMs;
 }
 
+/** The lookup purpose of a phase. */
 function lookupPurposeOf(phase: ChunkedPhase): LookupPurpose {
     return phase === 'resolving' ? 'preview' : 'send';
 }

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { isCampaignReconcileDue, resolveAudienceCount, resolveCampaignCreation, resolveCampaignReconciliation, withCampaignInFlight } from './send-phases';
-import { CALL_RETRY_DELAY_MS, CAMPAIGN_FANOUT_DELAY_MS, RECONCILIATION_DELAY_MS } from './constants';
 import { UnexpectedPayloadError } from './errors';
 import { buildAudienceQuery, buildCampaignBody, dispatchName } from './campaign';
 import { countAudience, createCampaign, findCampaignsByName } from './routes';
+import { DEFAULT_DISPATCH_TUNING } from './tuning';
 import { aRequest, completed, page, settingsOf } from './__fixtures__/builders';
 import campaignById from './__fixtures__/campaign-by-id.json';
 import type { DispatchJob } from './types';
@@ -21,7 +21,7 @@ const AWAITING: DispatchJob = { ...BASE, phase: 'awaitingAudience', audienceSize
 const SENDING: DispatchJob = withCampaignInFlight({ ...BASE, phase: 'sending', audienceSize: 1 }, NOW);
 const COUNT_CALL = countAudience(buildAudienceQuery(AWAITING).query);
 const CREATE_CALL = createCampaign(buildCampaignBody(SENDING));
-const RECONCILE_CALL = findCampaignsByName(dispatchName(SENDING));
+const RECONCILE_CALL = findCampaignsByName(dispatchName(SENDING), DEFAULT_DISPATCH_TUNING.campaignLookupPageLimit);
 
 describe('resolveAudienceCount', () => {
     it('moves to sending when the count matches', () => {
@@ -81,7 +81,7 @@ describe('resolveCampaignCreation', () => {
                 phase: 'sending',
                 campaignId: '6aab0ad2c6653859e764285b',
                 campaignSendState: 'sent',
-                campaignReconcileNotBefore: NOW + CAMPAIGN_FANOUT_DELAY_MS,
+                campaignReconcileNotBefore: NOW + DEFAULT_DISPATCH_TUNING.campaignFanoutDelayMs,
                 campaignReconcileAttempts: 0,
                 warnings: [],
             },
@@ -94,7 +94,7 @@ describe('resolveCampaignCreation', () => {
     });
 
     it('keeps the marker and schedules a reconciliation on an unknown outcome', () => {
-        expect(resolveCampaignCreation(SENDING, CREATE_CALL, completed(502), NOW)).toMatchObject({ kind: 'wait', job: { campaignSendState: 'inFlight', campaignReconcileNotBefore: NOW + RECONCILIATION_DELAY_MS } });
+        expect(resolveCampaignCreation(SENDING, CREATE_CALL, completed(502), NOW)).toMatchObject({ kind: 'wait', job: { campaignSendState: 'inFlight', campaignReconcileNotBefore: NOW + DEFAULT_DISPATCH_TUNING.reconciliationDelayMs } });
         expect(resolveCampaignCreation(SENDING, CREATE_CALL, { kind: 'interrupted', message: 'down' }, NOW)).toMatchObject({ kind: 'stop', cause: 'interrupted', job: { campaignSendState: 'inFlight' } });
     });
 
@@ -129,7 +129,7 @@ describe('resolveCampaignReconciliation', () => {
     it('never fails a campaign already created: retries the read and then completes it unverified', () => {
         expect(resolveCampaignReconciliation(SENT, RECONCILE_CALL, completed(200, page([])), NOW)).toMatchObject({
             kind: 'wait',
-            job: { phase: 'sending', campaignReconcileAttempts: 1, campaignReconcileNotBefore: NOW + CALL_RETRY_DELAY_MS },
+            job: { phase: 'sending', campaignReconcileAttempts: 1, campaignReconcileNotBefore: NOW + DEFAULT_DISPATCH_TUNING.callRetryDelayMs },
         });
         expect(resolveCampaignReconciliation({ ...SENT, campaignReconcileAttempts: 2 }, RECONCILE_CALL, completed(500), NOW)).toMatchObject({
             kind: 'advanced',
@@ -147,7 +147,7 @@ describe('resolveCampaignReconciliation', () => {
     it('retries later and finally fails as unknown, keeping the marker', () => {
         const first = resolveCampaignReconciliation(SENDING, RECONCILE_CALL, completed(500), NOW);
 
-        expect(first).toMatchObject({ kind: 'wait', job: { campaignReconcileAttempts: 1, campaignReconcileNotBefore: NOW + CALL_RETRY_DELAY_MS } });
+        expect(first).toMatchObject({ kind: 'wait', job: { campaignReconcileAttempts: 1, campaignReconcileNotBefore: NOW + DEFAULT_DISPATCH_TUNING.callRetryDelayMs } });
 
         const last = resolveCampaignReconciliation({ ...SENDING, campaignReconcileAttempts: 2 }, RECONCILE_CALL, completed(500), NOW);
 

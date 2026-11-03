@@ -7,6 +7,8 @@ export interface PaginateOptions {
     concurrency?: number;
     /** Retries per page on 429/5xx/network, with exponential backoff. */
     retries?: number;
+    /** First backoff of a page retry, doubled on every further retry. */
+    retryBaseDelayMs?: number;
     /** Extra rounds: failed pages go to the end of the queue and are retried. */
     slaRounds?: number;
     /** First page (to resume via cursor). */
@@ -49,6 +51,7 @@ export async function paginate<T>(
     const limit = opts.limit ?? 100;
     const concurrency = opts.concurrency ?? 4;
     const retries = opts.retries ?? 2;
+    const retryBaseDelayMs = opts.retryBaseDelayMs ?? 300;
     const slaRounds = opts.slaRounds ?? 3;
     const startPage = opts.startPage ?? 1;
     const maxPages = opts.maxPages ?? Infinity;
@@ -74,7 +77,7 @@ export async function paginate<T>(
                 lastErr = err;
                 const status = statusOf(err);
                 if (status != null && status < 500 && status !== 429) throw err;
-                await sleep(300 * 2 ** attempt);
+                await sleep(retryBaseDelayMs * 2 ** attempt);
             }
         }
         throw lastErr;

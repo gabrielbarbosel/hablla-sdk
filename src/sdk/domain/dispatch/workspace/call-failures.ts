@@ -5,8 +5,8 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { AuthStrategy } from '../../../core/strategy';
+import type { DispatchTuning } from './tuning';
 import type { ContactFailure, ContactOutcome, DispatchContact } from './types';
-import { CALL_RETRY_DELAY_MS, FAILURE_DETAIL_MAX_LENGTH, MAX_CALL_ATTEMPTS } from './constants';
 
 /** Why a block of calls must stop: the gateway throttled, or the network failed a whole wave. */
 export type StopCause = 'throttled' | 'interrupted';
@@ -55,8 +55,8 @@ export function isSuccess(result: CallResult): boolean {
     return result.kind === 'completed' && result.status >= SUCCESS_STATUS_MIN && result.status <= SUCCESS_STATUS_MAX;
 }
 
-/** Classifies a step's results; `undefined` when every result is a 2xx. */
-export function classifyCallFailures(results: readonly CallResult[]): CallFailure | undefined {
+/** Classifies a step's results, with failure details cut to the tuning's length; `undefined` when every result is a 2xx. */
+export function classifyCallFailures(results: readonly CallResult[], tuning: DispatchTuning): CallFailure | undefined {
     if (results.some((result) => result.kind === 'throttled')) {
         return { kind: 'stopBlock', cause: 'throttled' };
     }
@@ -72,7 +72,7 @@ export function classifyCallFailures(results: readonly CallResult[]): CallFailur
     const unknownOutcome = results.find(hasUnknownOutcome);
 
     if (unknownOutcome) {
-        return { kind: 'outcomeUnknown', failure: failureOf(unknownOutcome) };
+        return { kind: 'outcomeUnknown', failure: failureOf(unknownOutcome, tuning.failureDetailMaxLength) };
     }
 
     if (results.some((result) => result.kind === 'unsent')) {
@@ -82,7 +82,7 @@ export function classifyCallFailures(results: readonly CallResult[]): CallFailur
     const refused = results.find(isRefusal);
 
     if (refused) {
-        return { kind: 'rejected', failure: failureOf(refused) };
+        return { kind: 'rejected', failure: failureOf(refused, tuning.failureDetailMaxLength) };
     }
 
     return undefined;
@@ -123,18 +123,18 @@ function isTokenRejection(result: CallResult): boolean {
 }
 
 /**
- * Spends one attempt on a retryable failure: the contact waits `CALL_RETRY_DELAY_MS`
+ * Spends one attempt on a retryable failure: the contact waits `callRetryDelayMs`
  * (never retried in the same round), or takes `exhaustedOutcome` once
- * `MAX_CALL_ATTEMPTS` is reached.
+ * `maxCallAttempts` is reached.
  */
-export function spendAttempt(contact: DispatchContact, failure: ContactFailure, exhaustedOutcome: ContactOutcome, now: number): ContactResolution {
+export function spendAttempt(contact: DispatchContact, failure: ContactFailure, exhaustedOutcome: ContactOutcome, now: number, tuning: DispatchTuning): ContactResolution {
     const attempts = contact.attempts + 1;
 
-    if (attempts >= MAX_CALL_ATTEMPTS) {
+    if (attempts >= tuning.maxCallAttempts) {
         return { kind: 'decided', contact: { ...contact, attempts, outcome: exhaustedOutcome, failure, retryNotBefore: undefined } };
     }
 
-    return { kind: 'retryLater', contact: { ...contact, attempts, failure, retryNotBefore: now + CALL_RETRY_DELAY_MS } };
+    return { kind: 'retryLater', contact: { ...contact, attempts, failure, retryNotBefore: now + tuning.callRetryDelayMs } };
 }
 
 /** A contact that ends in a terminal failure outcome. */
@@ -143,15 +143,15 @@ export function failContact(contact: DispatchContact, outcome: ContactOutcome, f
 }
 
 /** Failure record of a result that answered a failure or was lost on the wire. */
-function failureOf(result: UnknownOutcome): ContactFailure {
+function failureOf(result: UnknownOutcome, detailMaxLength: number): ContactFailure {
     return result.kind === 'completed'
-        ? { status: result.status, detail: truncateDetail(JSON.stringify(result.data) ?? '') }
-        : { status: 'transport', detail: truncateDetail(result.message) };
+        ? { status: result.status, detail: truncateDetail(JSON.stringify(result.data) ?? '', detailMaxLength) }
+        : { status: 'transport', detail: truncateDetail(result.message, detailMaxLength) };
 }
 
-/** Caps a failure detail at `FAILURE_DETAIL_MAX_LENGTH`. */
-export function truncateDetail(detail: string): string {
-    return detail.slice(0, FAILURE_DETAIL_MAX_LENGTH);
+/** Caps a failure detail at `maxLength` characters (the tuning's `failureDetailMaxLength`). */
+export function truncateDetail(detail: string, maxLength: number): string {
+    return detail.slice(0, maxLength);
 }
 
 /** Payload of a completed result; `undefined` for results without a response. */

@@ -21,6 +21,8 @@ export {
     UnexpectedPayloadError,
 } from './errors';
 export { CONTACT_OUTCOMES, DISPATCH_JOB_PHASES, RESUMABLE_PHASES } from './types';
+export { DEFAULT_DISPATCH_TUNING, DISPATCH_TUNING_SPEC, resolveDispatchTuning } from './tuning';
+export type { DispatchTuning, DispatchTuningKey, TuningBound, TuningUnit } from './tuning';
 export { VARIABLE_FORMATS, formatVariableValue } from './template-variables';
 export type { TemplateVariable, VariableFormat } from './template-variables';
 export type {
@@ -67,7 +69,6 @@ export type {
     SystemOwnerPolicy,
     TargetOwner,
     UnresolvedAdvisorPolicy,
-    WorkspaceDispatchLimits,
     WorkspaceDispatchRequest,
     WorkspaceDispatchRow,
 } from './types';

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { applyWriteResult, planContactWrites, withWriteAhead, writeCallFor, type ContactWrite } from './contact-writes';
-import { CALL_RETRY_DELAY_MS, RECONCILIATION_DELAY_MS } from './constants';
 import { createJob } from './job-machine';
 import { prepareAudience } from './audience';
+import { DEFAULT_DISPATCH_TUNING } from './tuning';
 import { ADVISOR, FIRST_NAME_FIELD_ID, NO_CALLS_SPENT, OTHER_ADVISOR, ROSTER, SECTOR_ID, SYSTEM_USER, ZENVIA_IDS_FIELD_ID, aContact, aRequest, completed } from './__fixtures__/builders';
 import type { DispatchContact, DispatchJob, DispatchSettings, WorkspaceDispatchRequest } from './types';
 
@@ -12,7 +12,7 @@ const SEGMENTATION_ID = '6aab098d88aca07a08c6566f';
 /** A materializing job with a segmentation. */
 function aJob(overrides: Partial<WorkspaceDispatchRequest> = {}): DispatchJob {
     const request = aRequest(overrides);
-    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT), phase: 'materializing', segmentationId: SEGMENTATION_ID };
+    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT, DEFAULT_DISPATCH_TUNING), phase: 'materializing', segmentationId: SEGMENTATION_ID };
 }
 
 /** The settings of a job built from the default request. */
@@ -123,59 +123,59 @@ describe('applyWriteResult', () => {
     const pendingCreate = withWriteAhead(aContact({ outcome: 'ready' }), { kind: 'createPerson' });
 
     it('records the created person and advances', () => {
-        expect(applyWriteResult(pendingCreate, CREATE, [completed(201, { id: 'p-new' })], NOW)).toEqual({
+        expect(applyWriteResult(pendingCreate, CREATE, [completed(201, { id: 'p-new' })], NOW, DEFAULT_DISPATCH_TUNING)).toEqual({
             kind: 'decided',
             contact: { ...pendingCreate, pendingWrite: undefined, person: { id: 'p-new', existed: false }, writesDone: 1, attempts: 0, failure: undefined, retryNotBefore: undefined },
         });
     });
 
     it('fails a create whose response has no id', () => {
-        const resolution = applyWriteResult(pendingCreate, CREATE, [completed(201, {})], NOW);
+        const resolution = applyWriteResult(pendingCreate, CREATE, [completed(201, {})], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'writeFailed', pendingWrite: undefined, failure: { status: 201 } });
     });
 
     it('makes a joined contact inAudience with its item', () => {
         const joining = withWriteAhead(existing({ kind: 'keep' }), { kind: 'joinAudience' });
-        const resolution = applyWriteResult({ ...joining, writesDone: 1 }, JOIN, [completed(201, { id: 'item-1' })], NOW);
+        const resolution = applyWriteResult({ ...joining, writesDone: 1 }, JOIN, [completed(201, { id: 'item-1' })], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'inAudience', audienceItemId: 'item-1', writesDone: 2, pendingWrite: undefined });
     });
 
     it('advances an idempotent write on a 2xx', () => {
-        const resolution = applyWriteResult(existing({ kind: 'keep' }), PUT, [completed(200)], NOW);
+        const resolution = applyWriteResult(existing({ kind: 'keep' }), PUT, [completed(200)], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact.writesDone).toBe(1);
     });
 
     it('fails on a 4xx and clears the write-ahead', () => {
-        const resolution = applyWriteResult(pendingCreate, CREATE, [completed(422, { message: 'invalid phone' })], NOW);
+        const resolution = applyWriteResult(pendingCreate, CREATE, [completed(422, { message: 'invalid phone' })], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'writeFailed', pendingWrite: undefined, createSends: 1, failure: { status: 422 } });
     });
 
     it('retries an idempotent write later on a 5xx', () => {
-        expect(applyWriteResult(existing({ kind: 'keep' }), PUT, [completed(500)], NOW)).toMatchObject({ kind: 'retryLater', contact: { attempts: 1, retryNotBefore: NOW + CALL_RETRY_DELAY_MS } });
+        expect(applyWriteResult(existing({ kind: 'keep' }), PUT, [completed(500)], NOW, DEFAULT_DISPATCH_TUNING)).toMatchObject({ kind: 'retryLater', contact: { attempts: 1, retryNotBefore: NOW + DEFAULT_DISPATCH_TUNING.callRetryDelayMs } });
     });
 
     it('keeps the write-ahead of a create with an unknown outcome and waits to reconcile', () => {
-        expect(applyWriteResult(pendingCreate, CREATE, [completed(502)], NOW)).toMatchObject({
+        expect(applyWriteResult(pendingCreate, CREATE, [completed(502)], NOW, DEFAULT_DISPATCH_TUNING)).toMatchObject({
             kind: 'retryLater',
-            contact: { pendingWrite: 'createPerson', attempts: 1, retryNotBefore: NOW + RECONCILIATION_DELAY_MS },
+            contact: { pendingWrite: 'createPerson', attempts: 1, retryNotBefore: NOW + DEFAULT_DISPATCH_TUNING.reconciliationDelayMs },
         });
-        expect(applyWriteResult(pendingCreate, CREATE, [{ kind: 'transportFailed', message: 'reset' }], NOW)).toMatchObject({ kind: 'retryLater', contact: { pendingWrite: 'createPerson' } });
+        expect(applyWriteResult(pendingCreate, CREATE, [{ kind: 'transportFailed', message: 'reset' }], NOW, DEFAULT_DISPATCH_TUNING)).toMatchObject({ kind: 'retryLater', contact: { pendingWrite: 'createPerson' } });
     });
 
     it('stops on an interrupted wave, keeping the create marker without spending an attempt', () => {
-        expect(applyWriteResult(pendingCreate, CREATE, [{ kind: 'interrupted', message: 'down' }], NOW)).toEqual({
+        expect(applyWriteResult(pendingCreate, CREATE, [{ kind: 'interrupted', message: 'down' }], NOW, DEFAULT_DISPATCH_TUNING)).toEqual({
             kind: 'stopBlock',
             cause: 'interrupted',
-            contact: { ...pendingCreate, retryNotBefore: NOW + RECONCILIATION_DELAY_MS },
+            contact: { ...pendingCreate, retryNotBefore: NOW + DEFAULT_DISPATCH_TUNING.reconciliationDelayMs },
         });
     });
 
     it('stops on a throttle, undoing the create marker and its send', () => {
-        expect(applyWriteResult(pendingCreate, CREATE, [{ kind: 'throttled' }], NOW)).toEqual({
+        expect(applyWriteResult(pendingCreate, CREATE, [{ kind: 'throttled' }], NOW, DEFAULT_DISPATCH_TUNING)).toEqual({
             kind: 'stopBlock',
             cause: 'throttled',
             contact: { ...pendingCreate, pendingWrite: undefined, createSends: 0 },
@@ -183,11 +183,11 @@ describe('applyWriteResult', () => {
     });
 
     it('stops an idempotent write on a throttle without changing the contact', () => {
-        expect(applyWriteResult(existing({ kind: 'keep' }), PUT, [{ kind: 'unsent' }], NOW)).toEqual({ kind: 'stopBlock', cause: 'throttled' });
+        expect(applyWriteResult(existing({ kind: 'keep' }), PUT, [{ kind: 'unsent' }], NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'stopBlock', cause: 'throttled' });
     });
 
     it('reports a refused token, undoing the write-ahead that was not applied', () => {
-        expect(applyWriteResult(pendingCreate, CREATE, [completed(401)], NOW)).toEqual({
+        expect(applyWriteResult(pendingCreate, CREATE, [completed(401)], NOW, DEFAULT_DISPATCH_TUNING)).toEqual({
             kind: 'tokenRejected',
             contact: { ...pendingCreate, pendingWrite: undefined, createSends: 0 },
         });

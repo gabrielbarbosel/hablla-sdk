@@ -5,15 +5,16 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { ContactResolution } from './call-failures';
+import type { DispatchTuning } from './tuning';
 import type { DispatchContact, DispatchJob } from './types';
 import { matchesPhone } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt } from './call-failures';
-import { MAX_CALL_ATTEMPTS, MAX_CREATE_SENDS } from './constants';
 import { clearWriteAhead } from './contact-writes';
 import { requirePerson, requirePhone, requireSegmentationId } from './requirements';
 import { phoneShapes } from './lookup';
 import { toPayloadPage, toPersonIdentity, toSegmentationItem } from './payloads';
 import { findPersonsByPhoneFresh, findSegmentationItemsOfPerson } from './routes';
+import { tuningOf } from './tuning';
 
 /**
  * The reads that reveal a pending write's outcome: the v1 person listing by each phone
@@ -21,37 +22,39 @@ import { findPersonsByPhoneFresh, findSegmentationItemsOfPerson } from './routes
  * a join.
  */
 export function reconciliationCalls(contact: DispatchContact, job: DispatchJob): HttpCall[] {
+    const tuning = tuningOf(job);
+
     if (contact.pendingWrite === 'createPerson') {
-        return phoneShapes(contact).map((shape) => findPersonsByPhoneFresh(shape));
+        return phoneShapes(contact).map((shape) => findPersonsByPhoneFresh(shape, tuning.personLookupPageLimit));
     }
 
-    return [findSegmentationItemsOfPerson(requireSegmentationId(job), requirePerson(contact).id)];
+    return [findSegmentationItemsOfPerson(requireSegmentationId(job), requirePerson(contact).id, tuning.segmentationItemLookupPageLimit)];
 }
 
 /**
  * Applies the reconciliation reads. A create found once is confirmed (a person found is
  * taken as the created one); found twice is `duplicatePersons`; not found is sent again
- * while `MAX_CREATE_SENDS` allows, otherwise `writeFailed`. A join found is confirmed and
- * the contact is `inAudience`; not found is sent again while `MAX_CALL_ATTEMPTS` allows.
+ * while `maxCreateSends` allows, otherwise `writeFailed`. A join found is confirmed and
+ * the contact is `inAudience`; not found is sent again while `maxCallAttempts` allows.
  */
-export function applyReconciliation(contact: DispatchContact, results: readonly CallResult[], now: number): ContactResolution {
-    const failure = classifyCallFailures(results);
+export function applyReconciliation(contact: DispatchContact, results: readonly CallResult[], now: number, tuning: DispatchTuning): ContactResolution {
+    const failure = classifyCallFailures(results, tuning);
 
     switch (failure?.kind) {
         case undefined:
-            return contact.pendingWrite === 'createPerson' ? reconcileCreate(contact, results) : reconcileJoin(contact, results);
+            return contact.pendingWrite === 'createPerson' ? reconcileCreate(contact, results, tuning) : reconcileJoin(contact, results, tuning);
         case 'stopBlock':
         case 'tokenRejected':
             return failure;
         case 'outcomeUnknown':
-            return spendAttempt(contact, failure.failure, 'writeFailed', now);
+            return spendAttempt(contact, failure.failure, 'writeFailed', now, tuning);
         case 'rejected':
             return { kind: 'decided', contact: failContact(contact, 'writeFailed', failure.failure) };
     }
 }
 
 /** Resolves a pending create from the persons holding the contact's phone. */
-function reconcileCreate(contact: DispatchContact, results: readonly CallResult[]): ContactResolution {
+function reconcileCreate(contact: DispatchContact, results: readonly CallResult[], tuning: DispatchTuning): ContactResolution {
     const phone = requirePhone(contact);
     const personIds = new Set<string>();
 
@@ -75,7 +78,7 @@ function reconcileCreate(contact: DispatchContact, results: readonly CallResult[
         return { kind: 'decided', contact: confirmPendingWrite({ ...contact, person: { id: personId, existed: false } }) };
     }
 
-    if (contact.createSends < MAX_CREATE_SENDS) {
+    if (contact.createSends < tuning.maxCreateSends) {
         return { kind: 'decided', contact: { ...clearWriteAhead(contact), retryNotBefore: undefined } };
     }
 
@@ -86,7 +89,7 @@ function reconcileCreate(contact: DispatchContact, results: readonly CallResult[
 }
 
 /** Resolves a pending join from the segmentation items of the contact's person. */
-function reconcileJoin(contact: DispatchContact, results: readonly CallResult[]): ContactResolution {
+function reconcileJoin(contact: DispatchContact, results: readonly CallResult[], tuning: DispatchTuning): ContactResolution {
     const personId = requirePerson(contact).id;
     const item = results
         .flatMap((result) => toPayloadPage(payloadOf(result), 'segmentation items').results.map(toSegmentationItem))
@@ -96,7 +99,7 @@ function reconcileJoin(contact: DispatchContact, results: readonly CallResult[])
         return { kind: 'decided', contact: { ...confirmPendingWrite(contact), audienceItemId: item.id, outcome: 'inAudience' } };
     }
 
-    if (contact.attempts < MAX_CALL_ATTEMPTS) {
+    if (contact.attempts < tuning.maxCallAttempts) {
         return { kind: 'decided', contact: { ...clearWriteAhead(contact), retryNotBefore: undefined } };
     }
 

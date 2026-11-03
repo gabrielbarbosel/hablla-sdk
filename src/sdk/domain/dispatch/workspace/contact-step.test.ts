@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { applyContactStep, nextContactStep, writeAheadOf, type BlockContact, type ContactStep, type StepContext } from './contact-step';
 import { toPersonSnapshot } from './payloads';
+import { DEFAULT_DISPATCH_TUNING } from './tuning';
 import { SYSTEM_USER, aContact, aRequest, attendanceItem, completed, page, personItem, settingsOf } from './__fixtures__/builders';
-import { PREVIEW_REUSE_MS } from './constants';
 import type { DispatchContact, DispatchJob } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -12,7 +12,7 @@ const MATERIALIZING = { id: 'job', phase: 'materializing', settings: SETTINGS, s
 
 /** The step context of a phase. */
 function contextOf(job: DispatchJob, claims: ReadonlyMap<string, number> = new Map()): StepContext {
-    return { settings: SETTINGS, claims, now: NOW, phase: job.phase as StepContext['phase'] };
+    return { settings: SETTINGS, tuning: DEFAULT_DISPATCH_TUNING, claims, now: NOW, phase: job.phase as StepContext['phase'] };
 }
 
 /** The calls step of a block, asserting it is one. */
@@ -56,8 +56,8 @@ describe('nextContactStep', () => {
     });
 
     it('reuses a recent preview lookup instead of looking the contact up again', () => {
-        const recent = { ...readyExisting, resolvedAt: NOW - PREVIEW_REUSE_MS + 1 };
-        const old = { ...readyExisting, resolvedAt: NOW - PREVIEW_REUSE_MS };
+        const recent = { ...readyExisting, resolvedAt: NOW - DEFAULT_DISPATCH_TUNING.previewReuseMs + 1 };
+        const old = { ...readyExisting, resolvedAt: NOW - DEFAULT_DISPATCH_TUNING.previewReuseMs };
 
         expect(callsStep({ contact: recent }, MATERIALIZING).purpose).toEqual({ write: { kind: 'setPersonFields' } });
         expect(callsStep({ contact: old }, MATERIALIZING).purpose).toBe('personLookup');

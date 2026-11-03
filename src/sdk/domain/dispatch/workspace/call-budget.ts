@@ -5,8 +5,10 @@
  * failure can push a dispatch past it.
  */
 
+import type { DispatchTuning } from './tuning';
 import type { CallBudget, DispatchCallBudget, DispatchContact, DispatchJob } from './types';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, MAX_CALL_ATTEMPTS } from './constants';
+import { LARGEST_STEP_CALLS } from './constants';
+import { tuningOf } from './tuning';
 
 /** Pages of the catalogs read by `plan`. */
 export interface CatalogPages {
@@ -23,47 +25,48 @@ const LOOKUPS_PER_CONTACT = 2;
 /** Writes of the longest plan: the row's person fields, unfollow, add owner, remove owners, join. */
 const MAX_WRITES_PER_CONTACT = 5;
 
-/** Calls of the largest single step (a lookup stage or a reconciliation over both phone shapes). */
-const LARGEST_STEP_CALLS = 2;
+/** Runs of the exclusion phase: the preview and the confirmed one, which reads the pages again. */
+export const EXCLUSION_RUNS_PER_DISPATCH = 2;
 
 /**
  * Workspace calls estimated for one contact: both lookups, the longest write plan and the
  * retries of its largest step. A contact that retries several steps costs more.
  */
-export const ESTIMATED_CALLS_PER_CONTACT = LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + MAX_CALL_ATTEMPTS * LARGEST_STEP_CALLS;
-
-/** Bearer calls of one dispatch besides the custom-field pages: segmentation, counts, campaign and the read that resolves it. */
-const FIXED_BEARER_CALLS = 1 + Math.ceil(AUDIENCE_READY_TIMEOUT_MS / AUDIENCE_POLL_INTERVAL_MS) + 1 + 1;
-
-/** Runs of the exclusion phase: the preview and the confirmed one, which reads the pages again. */
-export const EXCLUSION_RUNS_PER_DISPATCH = 2;
+export function estimatedCallsPerContact(tuning: DispatchTuning): number {
+    return LOOKUP_CALLS * LOOKUPS_PER_CONTACT + MAX_WRITES_PER_CONTACT + tuning.maxCallAttempts * LARGEST_STEP_CALLS;
+}
 
 /**
- * Call estimate of a dispatch: {@link ESTIMATED_CALLS_PER_CONTACT} per contact in
- * `pendingLookup`, plus, per dispatch, the catalog pages, the segmentation, every count
- * until the audience timeout, the campaign and the read that resolves it. An exclusion by
- * filter adds the count `plan` reads its universe with and, per run, the count that run
- * checks its coverage against plus its pages. Per dispatch, not a daily ledger: the app
- * shows the number and does not fire two large dispatches in a day.
+ * Call estimate of a dispatch under its tuning: {@link estimatedCallsPerContact} per
+ * contact in `pendingLookup`, plus, per dispatch, the catalog pages, the segmentation, every
+ * count until the audience timeout, the campaign and the read that resolves it. An
+ * exclusion by filter adds the count `plan` reads its universe with and, per run, the count
+ * that run checks its coverage against plus its pages. Per dispatch, not a daily ledger:
+ * the app shows the number and does not fire two large dispatches in a day.
  *
  * @param exclusionPages Pages one exclusion run reads, or 0 when nothing is excluded by filter.
  */
-export function estimateCallBudget(contacts: readonly DispatchContact[], catalogPages: CatalogPages, exclusionPages: number): CallBudget {
+export function estimateCallBudget(contacts: readonly DispatchContact[], catalogPages: CatalogPages, exclusionPages: number, tuning: DispatchTuning): CallBudget {
     const contactsToProcess = contacts.filter((contact) => contact.outcome === 'pendingLookup').length;
-    const workspace = catalogPages.roster + contactsToProcess * ESTIMATED_CALLS_PER_CONTACT;
-    const bearer = catalogPages.customFields + FIXED_BEARER_CALLS + exclusionBearerCalls(exclusionPages);
+    const workspace = catalogPages.roster + contactsToProcess * estimatedCallsPerContact(tuning);
+    const bearer = catalogPages.customFields + fixedBearerCalls(tuning) + exclusionBearerCalls(exclusionPages);
 
     return { workspace, bearer, total: workspace + bearer };
 }
 
-/** The ledger a job reports: its estimate, what it has spent and what is still expected. */
-export function callBudgetOf(job: Pick<DispatchJob, 'callEstimate' | 'callsSpent'>, dailyCallQuota: number): DispatchCallBudget {
+/** The ledger a job reports: its estimate, what it has spent, what is still expected and the quota of its tuning. */
+export function callBudgetOf(job: Pick<DispatchJob, 'callEstimate' | 'callsSpent' | 'tuning'>): DispatchCallBudget {
     return {
         estimate: job.callEstimate,
         spent: job.callsSpent,
         remaining: Math.max(0, job.callEstimate.total - job.callsSpent),
-        dailyCallQuota,
+        dailyCallQuota: tuningOf(job).dailyCallQuota,
     };
+}
+
+/** Bearer calls of one dispatch besides the custom-field pages: segmentation, counts, campaign and the read that resolves it. */
+function fixedBearerCalls(tuning: DispatchTuning): number {
+    return 1 + Math.ceil(tuning.audienceReadyTimeoutMs / tuning.audiencePollIntervalMs) + 1 + 1;
 }
 
 /** Bearer calls of the exclusion: the universe count `plan` reads, plus one count and the pages of every run. */

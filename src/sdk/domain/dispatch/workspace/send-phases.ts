@@ -9,10 +9,10 @@ import type { StopCause } from './call-failures';
 import type { DispatchJob } from './types';
 import { classifyCallFailures, payloadOf, truncateDetail } from './call-failures';
 import { dispatchName, findCampaignByName, readAudienceCount } from './campaign';
-import { CALL_RETRY_DELAY_MS, CAMPAIGN_FANOUT_DELAY_MS, MAX_CALL_ATTEMPTS, RECONCILIATION_DELAY_MS } from './constants';
 import { toCreatedId } from './payloads';
 import { requireAudienceDeadline, requireAudienceSize } from './requirements';
 import { toCampaignCompleted, toCampaignUnverified, toFailed, toSending, tokenRejectedFailure } from './job-machine';
+import { tuningOf } from './tuning';
 
 /** The payload name the audience count is reported under. */
 const AUDIENCE_COUNT = 'audience count';
@@ -42,7 +42,7 @@ export type SendPhaseResolution =
  *   nothing is sent on a surprise.
  */
 export function resolveAudienceCount(job: DispatchJob, call: HttpCall, result: CallResult, now: number): SendPhaseResolution {
-    const failure = classifyCallFailures([result]);
+    const failure = classifyCallFailures([result], tuningOf(job));
 
     if (failure?.kind === 'tokenRejected') {
         return { kind: 'advanced', job: toFailed(job, tokenRejectedFailure([call], [result], AUDIENCE_COUNT, 'awaitingAudience'), now) };
@@ -97,7 +97,8 @@ export function withCampaignInFlight(job: DispatchJob, now: number): DispatchJob
  * stays and a reconciliation by name is scheduled.
  */
 export function resolveCampaignCreation(job: DispatchJob, call: HttpCall, result: CallResult, now: number): SendPhaseResolution {
-    const failure = classifyCallFailures([result]);
+    const tuning = tuningOf(job);
+    const failure = classifyCallFailures([result], tuning);
 
     switch (failure?.kind) {
         case undefined:
@@ -106,13 +107,13 @@ export function resolveCampaignCreation(job: DispatchJob, call: HttpCall, result
             if (failure.cause === 'throttled') {
                 return { kind: 'stop', cause: 'throttled', job: withoutCampaignInFlight(job, now) };
             }
-            return { kind: 'stop', cause: 'interrupted', job: withCampaignReconcileAt(job, now + RECONCILIATION_DELAY_MS, now) };
+            return { kind: 'stop', cause: 'interrupted', job: withCampaignReconcileAt(job, now + tuning.reconciliationDelayMs, now) };
         case 'tokenRejected':
             return { kind: 'advanced', job: toFailed(withoutCampaignInFlight(job, now), tokenRejectedFailure([call], [result], 'campaign creation', 'sending'), now) };
         case 'rejected':
             return { kind: 'advanced', job: toFailed(withoutCampaignInFlight(job, now), { reason: 'campaign_rejected', detail: failure.failure.detail, resumePhase: 'sending' }, now) };
         case 'outcomeUnknown':
-            return { kind: 'wait', job: withCampaignReconcileAt(job, now + RECONCILIATION_DELAY_MS, now) };
+            return { kind: 'wait', job: withCampaignReconcileAt(job, now + tuning.reconciliationDelayMs, now) };
     }
 }
 
@@ -126,7 +127,8 @@ export function resolveCampaignCreation(job: DispatchJob, call: HttpCall, result
  * token fails the job and keeps the marker.
  */
 export function resolveCampaignReconciliation(job: DispatchJob, call: HttpCall, result: CallResult, now: number): SendPhaseResolution {
-    const failure = classifyCallFailures([result]);
+    const tuning = tuningOf(job);
+    const failure = classifyCallFailures([result], tuning);
 
     switch (failure?.kind) {
         case undefined: {
@@ -148,21 +150,22 @@ export function resolveCampaignReconciliation(job: DispatchJob, call: HttpCall, 
             return { kind: 'advanced', job: toFailed(job, tokenRejectedFailure([call], [result], 'campaign read', 'sending'), now) };
         case 'rejected':
         case 'outcomeUnknown':
-            return retryCampaignRead(job, truncateDetail(failure.failure.detail), now);
+            return retryCampaignRead(job, truncateDetail(failure.failure.detail, tuning.failureDetailMaxLength), now);
     }
 }
 
 /**
- * Retries the campaign read after `CALL_RETRY_DELAY_MS`. Once `MAX_CALL_ATTEMPTS` are
+ * Retries the campaign read after `callRetryDelayMs`. Once `maxCallAttempts` are
  * spent, a campaign already created completes as unverified, and one whose POST outcome is
  * still unknown fails with `campaign_outcome_unknown`, keeping the marker so a resume reads
  * again and never re-sends blindly.
  */
 function retryCampaignRead(job: DispatchJob, detail: string, now: number): SendPhaseResolution {
+    const tuning = tuningOf(job);
     const attempts = (job.campaignReconcileAttempts ?? 0) + 1;
 
-    if (attempts < MAX_CALL_ATTEMPTS) {
-        return { kind: 'wait', job: { ...withCampaignReconcileAt(job, now + CALL_RETRY_DELAY_MS, now), campaignReconcileAttempts: attempts } };
+    if (attempts < tuning.maxCallAttempts) {
+        return { kind: 'wait', job: { ...withCampaignReconcileAt(job, now + tuning.callRetryDelayMs, now), campaignReconcileAttempts: attempts } };
     }
 
     const spent: DispatchJob = { ...job, campaignReconcileAttempts: 0 };
@@ -205,7 +208,7 @@ function withCampaignReconcileAt(job: DispatchJob, readAt: number, now: number):
 
 /** The job with the campaign created and the read of its audience quantity scheduled. */
 function withCampaignSent(job: DispatchJob, campaignId: string, now: number): DispatchJob {
-    return { ...withCampaignReconcileAt(job, now + CAMPAIGN_FANOUT_DELAY_MS, now), campaignSendState: 'sent', campaignId, campaignReconcileAttempts: 0 };
+    return { ...withCampaignReconcileAt(job, now + tuningOf(job).campaignFanoutDelayMs, now), campaignSendState: 'sent', campaignId, campaignReconcileAttempts: 0 };
 }
 
 /** The job with the campaign marker cleared. */

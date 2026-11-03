@@ -1,5 +1,6 @@
 import type { PhoneVariants } from '../../../utils';
 import type { TemplateVariable } from './template-variables';
+import type { DispatchTuning } from './tuning';
 
 /** Which Hablla user attribute the advisor column of the audience holds. */
 export type AdvisorKeyKind = 'email' | 'userId';
@@ -190,7 +191,7 @@ export interface DispatchContact {
     writesDone: number;
     /** Attempts spent on the current read or write. */
     attempts: number;
-    /** `createPerson` sends already made for this contact (bounded by `MAX_CREATE_SENDS`). */
+    /** `createPerson` sends already made for this contact (bounded by `maxCreateSends`). */
     createSends: number;
     /** Write-ahead marker: set before sending, cleared once the outcome is known. */
     pendingWrite?: PendingWrite;
@@ -277,7 +278,7 @@ export interface DispatchJob {
     exclusionUniverseSize?: number;
     /** Persons the run's pages listed so far, checked against `exclusionUniverseSize` when the last page arrives. */
     exclusionListed?: number;
-    /** When the preview exclusion run finished; the confirmation reuses it while it is younger than `PREVIEW_REUSE_MS`. */
+    /** When the preview exclusion run finished; the confirmation reuses it while it is younger than `previewReuseMs`. */
     exclusionResolvedAt?: number;
     /** Rounds interrupted in a row (see `trackInterruptedRounds`); reset by the first round that is not. */
     consecutiveInterruptedRounds: number;
@@ -285,6 +286,12 @@ export interface DispatchJob {
     callEstimate: CallBudget;
     /** HTTP calls this job has sent, from the catalog reads of `plan` onwards. */
     callsSpent: number;
+    /**
+     * The tuning resolved when the job was planned; the job runs with it to the end, so a
+     * settings change never alters a dispatch already under way. Absent on jobs planned
+     * before v0.7.0 (see `tuningOf`).
+     */
+    tuning?: DispatchTuning;
     startedBy?: string;
     startedAt?: number;
     segmentationId?: string;
@@ -298,7 +305,7 @@ export interface DispatchJob {
      */
     campaignSendState?: 'inFlight' | 'sent';
     campaignReconcileNotBefore?: number;
-    /** Earliest creation of the campaign, so Hablla sees the person fields its variables read (see `VARIABLE_SETTLE_MS`). */
+    /** Earliest creation of the campaign, so Hablla sees the person fields its variables read (see `variableSettleMs`). */
     campaignNotBefore?: number;
     /** Attempts spent reading the campaign back. */
     campaignReconcileAttempts?: number;
@@ -342,7 +349,7 @@ export interface DispatchCallBudget {
     spent: number;
     /** Estimated calls still ahead; zero once the job spent its whole estimate. */
     remaining: number;
-    /** The quota the estimate was checked against (see {@link WorkspaceDispatchLimits.dailyCallQuota}). */
+    /** The quota the estimate was checked against: the `dailyCallQuota` of the job's tuning. */
     dailyCallQuota: number;
 }
 
@@ -392,20 +399,6 @@ export interface StartOptions extends OperatorOptions {
      * before any write.
      */
     exclusion?: { phones: readonly string[] };
-}
-
-/** Limits from the app's typed config; each one has a default (see `resolveDispatchLimits`). */
-export interface WorkspaceDispatchLimits {
-    /**
-     * Upper bound of HTTP calls one dispatch may need (GAS: the account's daily UrlFetch
-     * quota); defaults to `GOOGLE_WORKSPACE_DAILY_CALL_QUOTA`.
-     */
-    dailyCallQuota?: number;
-    /**
-     * Pages of excluded persons one exclusion run may read; defaults to
-     * `DEFAULT_MAX_EXCLUSION_PAGES`.
-     */
-    maxExclusionPages?: number;
 }
 
 /** One custom-field value, as the person routes take it. */

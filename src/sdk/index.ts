@@ -8,7 +8,7 @@ export type { AuthConfig } from './core/auth';
 export { HabllaHttpClient } from './core/http-client';
 export type { RequestOptions } from './core/http-client';
 export { TransportCallExecutor } from './core/call-executor';
-export type { CallExecutor, CallExecutorOptions, CallAuthorization, CallResult, HttpCall } from './core/call-executor';
+export type { CallExecutor, CallExecutorOptions, CallAuthorization, CallResult, HttpCall, WavePacing, WavePause } from './core/call-executor';
 export { HabllaApiError } from './core/errors';
 export { serializeQuery } from './core/query';
 export { paginate } from './core/pagination';

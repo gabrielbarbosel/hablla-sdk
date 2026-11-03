@@ -30,26 +30,37 @@ export type CallResult =
     | { kind: 'transportFailed'; message: string };
 
 /**
- * Executes independent calls concurrently in waves. Contract: never retries, never
- * sleeps, never changes a call's strategy, never records strategies. After a wave
- * containing a 429, or a wave that failed as a whole, it stops and reports the
- * remaining calls as `unsent`. Results align with `calls`. It rejects only before any
- * call is sent (e.g. an authorization that cannot be resolved); every failure after that
- * is reported as a result.
+ * Executes independent calls concurrently in waves paced by the caller. Contract: never
+ * retries, never changes a call's strategy, never records strategies, and waits only for
+ * the pause between two consecutive waves — never before the first or after the last.
+ * After a wave containing a 429, or a wave that failed as a whole, it stops and reports
+ * the remaining calls as `unsent`. Results align with `calls`. It rejects only before any
+ * call is sent (e.g. an authorization that cannot be resolved, or an invalid pacing);
+ * every failure after that is reported as a result.
  */
 export interface CallExecutor {
-    executeAll(calls: readonly HttpCall[]): Promise<CallResult[]>;
+    executeAll(calls: readonly HttpCall[], pacing: WavePacing): Promise<CallResult[]>;
 }
+
+/** How a batch is split and spaced: the calls of one wave and the pause between two waves. */
+export interface WavePacing {
+    /** Calls per wave; integer >= 1. */
+    concurrency: number;
+    /** Wait between two consecutive waves; integer >= 0, where 0 sends them back to back. */
+    pauseMs: number;
+}
+
+/** The wait between two waves, injected so the wave logic never touches timers. */
+export type WavePause = (ms: number) => Promise<void>;
 
 /** The only part of {@link HabllaAuth} an executor may use: header values, never strategy resolution. */
 export type CallAuthorization = Pick<HabllaAuth, 'authorization'>;
 
-/** Where calls are sent and how many run at once. */
+/** Where calls are sent and how the executor waits between waves. */
 export interface CallExecutorOptions {
     baseUrl: string;
     workspaceId: string;
-    /** Calls per wave; integer >= 1. */
-    concurrency: number;
+    pause: WavePause;
 }
 
 /** Status the gateway answers when the token's rate limit is exhausted. */
@@ -98,15 +109,24 @@ export function wireRequestOf(call: HttpCall, headers: ReadonlyMap<AuthStrategy,
 export type WaveSender = (wave: readonly HttpCall[]) => Promise<CallResult[]>;
 
 /**
- * Runs `calls` in consecutive waves of `concurrency`, stopping after a wave that holds a
- * `throttled` result or that failed as a whole; every call after the stop is `unsent`.
- * Shared by every {@link CallExecutor} so the wave contract has one implementation.
+ * Runs `calls` in consecutive waves of `pacing.concurrency`, pausing `pacing.pauseMs`
+ * between two waves, and stopping after a wave that holds a `throttled` result or that
+ * failed as a whole; every call after the stop is `unsent`. Shared by every
+ * {@link CallExecutor} so the wave contract has one implementation.
+ *
+ * @throws RangeError when the pacing is invalid, before any call is sent.
  */
-export async function executeInWaves(calls: readonly HttpCall[], concurrency: number, sendWave: WaveSender): Promise<CallResult[]> {
+export async function executeInWaves(calls: readonly HttpCall[], pacing: WavePacing, sendWave: WaveSender, pause: WavePause): Promise<CallResult[]> {
+    assertValidPacing(pacing);
+
     const results: CallResult[] = [];
 
-    for (let start = 0; start < calls.length; start += concurrency) {
-        const wave = calls.slice(start, start + concurrency);
+    for (let start = 0; start < calls.length; start += pacing.concurrency) {
+        if (start > 0 && pacing.pauseMs > 0) {
+            await pause(pacing.pauseMs);
+        }
+
+        const wave = calls.slice(start, start + pacing.concurrency);
         const waveResults = await sendWaveOrInterrupt(wave, sendWave);
 
         results.push(...waveResults);
@@ -174,14 +194,23 @@ function urlOfCall(call: HttpCall, options: Pick<CallExecutorOptions, 'baseUrl' 
     });
 }
 
+/** Total pause a batch of `callCount` calls spends between its waves when none stops it. */
+export function wavePausesMs(callCount: number, pacing: WavePacing): number {
+    return Math.max(0, Math.ceil(callCount / pacing.concurrency) - 1) * pacing.pauseMs;
+}
+
 /**
- * Validates executor options at construction.
+ * Validates a batch's pacing.
  *
- * @throws RangeError when `concurrency` is not an integer >= 1.
+ * @throws RangeError when `concurrency` is not an integer >= 1 or `pauseMs` not an integer >= 0.
  */
-export function assertValidExecutorOptions(options: CallExecutorOptions): void {
-    if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
-        throw new RangeError(`CallExecutor: concurrency must be an integer >= 1, got ${options.concurrency}`);
+function assertValidPacing(pacing: WavePacing): void {
+    if (!Number.isInteger(pacing.concurrency) || pacing.concurrency < 1) {
+        throw new RangeError(`CallExecutor: concurrency must be an integer >= 1, got ${pacing.concurrency}`);
+    }
+
+    if (!Number.isInteger(pacing.pauseMs) || pacing.pauseMs < 0) {
+        throw new RangeError(`CallExecutor: pauseMs must be an integer >= 0, got ${pacing.pauseMs}`);
     }
 }
 
@@ -200,18 +229,16 @@ export class TransportCallExecutor implements CallExecutor {
         private readonly transport: HttpTransport,
         private readonly auth: CallAuthorization,
         private readonly options: CallExecutorOptions,
-    ) {
-        assertValidExecutorOptions(options);
-    }
+    ) {}
 
-    async executeAll(calls: readonly HttpCall[]): Promise<CallResult[]> {
+    async executeAll(calls: readonly HttpCall[], pacing: WavePacing): Promise<CallResult[]> {
         if (calls.length === 0) {
             return [];
         }
 
         const headers = await authorizationsFor(calls, this.auth);
 
-        return executeInWaves(calls, this.options.concurrency, (wave) => this.sendWave(wave, headers));
+        return executeInWaves(calls, pacing, (wave) => this.sendWave(wave, headers), this.options.pause);
     }
 
     /** Sends a wave concurrently; throws when every send of the wave rejected. */

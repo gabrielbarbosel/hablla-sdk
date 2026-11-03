@@ -1,17 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { WorkspaceDispatch } from './workspace-dispatch';
 import { TransportCallExecutor } from '../../../core/call-executor';
-import {
-    AUDIENCE_READY_TIMEOUT_MS,
-    CALL_RETRY_DELAY_MS,
-    CHUNK_TIME_RESERVE_MS,
-    EXCLUSION_PAGE_LIMIT,
-    PREVIEW_REUSE_MS,
-    RECONCILIATION_DELAY_MS,
-    THROTTLE_COOLDOWN_MS,
-    TRANSPORT_COOLDOWN_MS,
-    VARIABLE_SETTLE_MS,
-} from './constants';
 import { estimateCallBudget } from './call-budget';
 import { exclusionPageCount } from './exclusion';
 import {
@@ -23,6 +12,7 @@ import {
     InvalidJobTransitionError,
     JobBusyError,
 } from './errors';
+import { DEFAULT_DISPATCH_TUNING, type DispatchTuning } from './tuning';
 import { BEARER_HEADER, FakeClock, FakeHablla, InMemoryDispatchJobStore, WORKSPACE_ID, WORKSPACE_TOKEN, type FakePerson } from './__fixtures__/fake-hablla';
 import { ADVISOR, CONNECTION_ID, FIRST_NAME_FIELD_ID, OTHER_ADVISOR, RESERVE_OWNER, ROSTER_USERS, SYSTEM_USER, aContact, aRequest, aRow, habllaId } from './__fixtures__/builders';
 import type { DispatchProgress, WorkspaceDispatchRequest } from './types';
@@ -38,9 +28,13 @@ let store: InMemoryDispatchJobStore;
 let clock: FakeClock;
 let dispatch: WorkspaceDispatch;
 let bearerAuthorizationFailure: Error | undefined;
+let pauses: number[];
 
-/** Builds the dispatch over the fakes, with limits that never bind unless given. */
-function buildDispatch(dailyCallQuota = 1_000_000, concurrency = 16, maxExclusionPages = 10): WorkspaceDispatch {
+/** Tuning whose limits never bind and whose waves are never paused, unless a test overrides it. */
+const TEST_TUNING: Partial<DispatchTuning> = { dailyCallQuota: 100_000, waveConcurrency: 16, wavePauseMs: 0, maxExclusionPages: 10 };
+
+/** Builds the dispatch over the fakes, with {@link TEST_TUNING} and the given overrides; the wave pauses go to `pauses`. */
+function buildDispatch(tuning: Partial<DispatchTuning> = {}): WorkspaceDispatch {
     const auth = {
         authorization: async (strategy: string) => {
             if (strategy === 'bearer' && bearerAuthorizationFailure) {
@@ -49,9 +43,13 @@ function buildDispatch(dailyCallQuota = 1_000_000, concurrency = 16, maxExclusio
             return strategy === 'bearer' ? BEARER_HEADER : WORKSPACE_TOKEN;
         },
     };
-    const executor = new TransportCallExecutor(hablla, auth, { baseUrl: 'https://api.test', workspaceId: WORKSPACE_ID, concurrency });
+    const pause = async (ms: number): Promise<void> => {
+        pauses.push(ms);
+        await clock.sleep(ms);
+    };
+    const executor = new TransportCallExecutor(hablla, auth, { baseUrl: 'https://api.test', workspaceId: WORKSPACE_ID, pause });
 
-    return new WorkspaceDispatch({ executor, store, clock }, { dailyCallQuota, maxExclusionPages });
+    return new WorkspaceDispatch({ executor, store, clock }, { ...TEST_TUNING, ...tuning });
 }
 
 beforeEach(() => {
@@ -61,6 +59,7 @@ beforeEach(() => {
     store = new InMemoryDispatchJobStore();
     clock = new FakeClock(START);
     bearerAuthorizationFailure = undefined;
+    pauses = [];
     dispatch = buildDispatch();
 });
 
@@ -305,7 +304,7 @@ describe('WorkspaceDispatch exclusion by filter', () => {
         expect(planned.job.counts).toMatchObject({ excluded: 0, ready: 2 });
 
         hablla.segmentations.get(universe)!.items.push({ id: hablla.newId(), person: person.id });
-        clock.current += PREVIEW_REUSE_MS;
+        clock.current += DEFAULT_DISPATCH_TUNING.previewReuseMs;
 
         const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
 
@@ -315,7 +314,7 @@ describe('WorkspaceDispatch exclusion by filter', () => {
     });
 
     it('reads every page of the filter, so nobody on a later page is dispatched to', async () => {
-        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT, [phoneOf('2')]);
+        const universe = anExclusionUniverse(DEFAULT_DISPATCH_TUNING.exclusionPageLimit, [phoneOf('2')]);
         const planned = await drive(await dispatch.plan(excluding(universe, [aRow('1'), aRow('2')])));
 
         expect(hablla.requestsTo('POST', /message-stats\/list$/).map((request) => request.query.get('page'))).toEqual(['1', '2']);
@@ -324,7 +323,7 @@ describe('WorkspaceDispatch exclusion by filter', () => {
     });
 
     it('fails the run loud when the pages end short of the universe it counted', async () => {
-        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT + 499, [phoneOf('2')]);
+        const universe = anExclusionUniverse(DEFAULT_DISPATCH_TUNING.exclusionPageLimit + 499, [phoneOf('2')]);
 
         hablla.shortListingPages.add(1);
 
@@ -336,7 +335,7 @@ describe('WorkspaceDispatch exclusion by filter', () => {
     });
 
     it('reads the whole listing again when an incomplete run is resumed', async () => {
-        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT + 499, [phoneOf('2')]);
+        const universe = anExclusionUniverse(DEFAULT_DISPATCH_TUNING.exclusionPageLimit + 499, [phoneOf('2')]);
 
         hablla.shortListingPages.add(1);
 
@@ -351,7 +350,7 @@ describe('WorkspaceDispatch exclusion by filter', () => {
     });
 
     it('keeps the page cursor between executions and resumes the phase where it stopped', async () => {
-        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT, [phoneOf('2')]);
+        const universe = anExclusionUniverse(DEFAULT_DISPATCH_TUNING.exclusionPageLimit, [phoneOf('2')]);
 
         hablla.faults.push({ matches: (request) => request.path.endsWith('/message-stats/list') && request.query.get('page') === '2', kind: 'status', status: 500, times: 1 });
 
@@ -359,11 +358,11 @@ describe('WorkspaceDispatch exclusion by filter', () => {
         const stopped = await dispatch.continue(planned.job.id, windowNow());
 
         expect(stopped.job).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'preview', exclusionCursor: 2, exclusionAttempts: 1 });
-        expect(stopped.next).toEqual({ kind: 'continueAfter', delayMs: TRANSPORT_COOLDOWN_MS });
+        expect(stopped.next).toEqual({ kind: 'continueAfter', delayMs: DEFAULT_DISPATCH_TUNING.transportCooldownMs });
         expect(await dispatch.resumableJobIds()).toEqual([planned.job.id]);
         expect(outcomesOf(planned.job.id)).toEqual(['0:pendingLookup', '1:pendingLookup']);
 
-        clock.current += TRANSPORT_COOLDOWN_MS;
+        clock.current += DEFAULT_DISPATCH_TUNING.transportCooldownMs;
 
         const resumed = await drive(await dispatch.continue(planned.job.id, windowNow()));
 
@@ -374,11 +373,11 @@ describe('WorkspaceDispatch exclusion by filter', () => {
     it('charges the exclusion to the call budget, on a quota the same plan without it fits', async () => {
         const universe = anExclusionUniverse(0, [phoneOf('2')]);
         const catalogPages = { roster: 1, customFields: 1 };
-        const quota = estimateCallBudget([aContact()], catalogPages, 0).total;
+        const quota = estimateCallBudget([aContact()], catalogPages, 0, DEFAULT_DISPATCH_TUNING).total;
 
-        expect(estimateCallBudget([aContact()], catalogPages, exclusionPageCount(1)).total).toBeGreaterThan(quota);
+        expect(estimateCallBudget([aContact()], catalogPages, exclusionPageCount(1, DEFAULT_DISPATCH_TUNING), DEFAULT_DISPATCH_TUNING).total).toBeGreaterThan(quota);
 
-        dispatch = buildDispatch(quota);
+        dispatch = buildDispatch({ dailyCallQuota: quota });
 
         const withoutExclusion = await dispatch.plan(aRequest({ rows: [aRow('1')] }));
 
@@ -388,9 +387,9 @@ describe('WorkspaceDispatch exclusion by filter', () => {
     });
 
     it('refuses the plan when the filter needs more pages than configured', async () => {
-        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT, []);
+        const universe = anExclusionUniverse(DEFAULT_DISPATCH_TUNING.exclusionPageLimit, []);
 
-        dispatch = buildDispatch(1_000_000, 16, 1);
+        dispatch = buildDispatch({ maxExclusionPages: 1 });
 
         await expect(dispatch.plan(excluding(universe, [aRow('1')]))).rejects.toThrow(/more than the 1 pages/);
         expect(store.jobs.size).toBe(0);
@@ -398,9 +397,9 @@ describe('WorkspaceDispatch exclusion by filter', () => {
     });
 
     it('fails the job loud when the filter outgrows the ceiling after the plan', async () => {
-        const universe = anExclusionUniverse(EXCLUSION_PAGE_LIMIT - 1, []);
+        const universe = anExclusionUniverse(DEFAULT_DISPATCH_TUNING.exclusionPageLimit - 1, []);
 
-        dispatch = buildDispatch(1_000_000, 16, 1);
+        dispatch = buildDispatch({ maxExclusionPages: 1 });
 
         const planned = await dispatch.plan(excluding(universe, [aRow('1')]));
 
@@ -474,7 +473,7 @@ describe('WorkspaceDispatch resumption', () => {
 
             const before = hablla.requests.length;
 
-            progress = await dispatch.continue(progress.job.id, windowNow(CHUNK_TIME_RESERVE_MS + ROUND_DURATION_MS + 10_000));
+            progress = await dispatch.continue(progress.job.id, windowNow(DEFAULT_DISPATCH_TUNING.chunkTimeReserveMs + ROUND_DURATION_MS + 10_000));
             callsPerExecution.push(hablla.requests.length - before);
 
             if (progress.next.kind === 'awaitConfirmation') {
@@ -493,7 +492,7 @@ describe('WorkspaceDispatch resumption', () => {
         const started = await dispatch.start(planned.job.id, OPERATOR);
         const throttled = await dispatch.continue(started.job.id, windowNow());
 
-        expect(throttled.next).toEqual({ kind: 'continueAfter', delayMs: THROTTLE_COOLDOWN_MS });
+        expect(throttled.next).toEqual({ kind: 'continueAfter', delayMs: DEFAULT_DISPATCH_TUNING.throttleCooldownMs });
         expect(store.contactsOf(throttled.job.id)[1]).toMatchObject({ createSends: 0, writesDone: 0 });
         expect(store.contactsOf(throttled.job.id)[1]!.pendingWrite).toBeUndefined();
 
@@ -518,7 +517,7 @@ describe('WorkspaceDispatch resumption', () => {
         expect(store.contactsOf(started.job.id)[0]).toMatchObject({ pendingWrite: 'createPerson', createSends: 1 });
 
         hablla.onRequest = undefined;
-        clock.current += EXECUTION_BUDGET_MS + LEASE_SLACK_MS + RECONCILIATION_DELAY_MS;
+        clock.current += EXECUTION_BUDGET_MS + LEASE_SLACK_MS + DEFAULT_DISPATCH_TUNING.reconciliationDelayMs;
 
         const done = await drive(await dispatch.continue(started.job.id, windowNow()));
 
@@ -541,7 +540,7 @@ describe('WorkspaceDispatch resumption', () => {
         await expect(dispatch.continue(started.job.id, windowNow())).rejects.toThrow('execution killed');
 
         hablla.onRequest = undefined;
-        clock.current += EXECUTION_BUDGET_MS + LEASE_SLACK_MS + RECONCILIATION_DELAY_MS;
+        clock.current += EXECUTION_BUDGET_MS + LEASE_SLACK_MS + DEFAULT_DISPATCH_TUNING.reconciliationDelayMs;
 
         const done = await drive(await dispatch.continue(started.job.id, windowNow()));
 
@@ -566,7 +565,7 @@ describe('WorkspaceDispatch resumption', () => {
         const planned = await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2')] }));
         const interrupted = await dispatch.continue(planned.job.id, windowNow());
 
-        expect(interrupted.next).toEqual({ kind: 'continueAfter', delayMs: TRANSPORT_COOLDOWN_MS });
+        expect(interrupted.next).toEqual({ kind: 'continueAfter', delayMs: DEFAULT_DISPATCH_TUNING.transportCooldownMs });
         expect(store.contactsOf(planned.job.id).map((contact) => contact.attempts)).toEqual([0, 0]);
 
         const resolved = await drive(interrupted);
@@ -575,7 +574,7 @@ describe('WorkspaceDispatch resumption', () => {
     });
 
     it('gives up on a contact whose calls keep breaking the wave, instead of retrying it forever', async () => {
-        dispatch = buildDispatch(1_000_000, 1);
+        dispatch = buildDispatch({ waveConcurrency: 1 });
         hablla.faults.push({ matches: (request) => request.query.get('phone') === phoneOf('1'), kind: 'reject', times: Number.POSITIVE_INFINITY });
 
         const done = await dispatchToEnd(aRequest({ rows: [aRow('1'), aRow('2')] }));
@@ -592,8 +591,8 @@ describe('WorkspaceDispatch resumption', () => {
 
         expect(hablla.requests.filter((request) => request.query.get('phone') === phoneOf('1'))).toHaveLength(1);
         expect(first.job.phase).toBe('resolving');
-        expect(first.next.kind === 'continueAfter' && first.next.delayMs).toBe(CALL_RETRY_DELAY_MS);
-        expect(store.contactsOf(planned.job.id)[0]).toMatchObject({ attempts: 1, retryNotBefore: START + CALL_RETRY_DELAY_MS });
+        expect(first.next.kind === 'continueAfter' && first.next.delayMs).toBe(DEFAULT_DISPATCH_TUNING.callRetryDelayMs);
+        expect(store.contactsOf(planned.job.id)[0]).toMatchObject({ attempts: 1, retryNotBefore: START + DEFAULT_DISPATCH_TUNING.callRetryDelayMs });
 
         expect((await drive(first)).job.counts.ready).toBe(2);
     });
@@ -609,7 +608,7 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         hablla.services.push({ id: 'opened', status: 'pending', key: `${CONNECTION_ID}_${phoneOf('1')}` });
         hablla.addPerson({ id: habllaId('b'), phone: phoneOf('2'), users: [] });
         hablla.persons.get(habllaId('c'))!.users = [OTHER_ADVISOR.id];
-        clock.current += PREVIEW_REUSE_MS;
+        clock.current += DEFAULT_DISPATCH_TUNING.previewReuseMs;
 
         const done = await drive(await dispatch.start(planned.job.id, OPERATOR));
 
@@ -627,7 +626,7 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         const done = await dispatchToEnd(aRequest({ rows: [aRow('1')] }));
 
         expect(done.job.phase).toBe('completed');
-        expect(campaignAt[0]! - joinedAt[0]!).toBeGreaterThanOrEqual(VARIABLE_SETTLE_MS);
+        expect(campaignAt[0]! - joinedAt[0]!).toBeGreaterThanOrEqual(DEFAULT_DISPATCH_TUNING.variableSettleMs);
     });
 
     it('creates the campaign without the settle when no variable reads a person field', async () => {
@@ -637,7 +636,7 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         const done = await dispatchToEnd(literal);
 
         expect(done.job.phase).toBe('completed');
-        expect(campaignAt[0]! - joinedAt[0]!).toBeLessThan(VARIABLE_SETTLE_MS);
+        expect(campaignAt[0]! - joinedAt[0]!).toBeLessThan(DEFAULT_DISPATCH_TUNING.variableSettleMs);
     });
 
     it('reuses a recent preview instead of looking the contacts up again', async () => {
@@ -702,7 +701,7 @@ describe('WorkspaceDispatch revalidation and audience', () => {
         expect(hablla.campaigns).toHaveLength(0);
 
         hablla.notPropagatedCounts = 0;
-        clock.current += AUDIENCE_READY_TIMEOUT_MS;
+        clock.current += DEFAULT_DISPATCH_TUNING.audienceReadyTimeoutMs;
 
         const done = await drive(await dispatch.start(failed.job.id, OPERATOR));
 
@@ -1007,7 +1006,7 @@ describe('WorkspaceDispatch fails fast', () => {
     });
 
     it('refuses a dispatch above the daily call quota without storing a job', async () => {
-        dispatch = buildDispatch(10);
+        dispatch = buildDispatch({ dailyCallQuota: 10 });
 
         await expect(dispatch.plan(aRequest({ rows: [aRow('1')] }))).rejects.toBeInstanceOf(CallBudgetExceededError);
         expect(store.jobs.size).toBe(0);
@@ -1027,7 +1026,7 @@ describe('WorkspaceDispatch fails fast', () => {
     it('refuses a lease that does not outlive the deadline', async () => {
         const planned = await dispatch.plan(aRequest());
 
-        await expect(dispatch.continue(planned.job.id, { deadlineAt: clock.now() + CHUNK_TIME_RESERVE_MS, leaseUntil: clock.now() })).rejects.toBeInstanceOf(RangeError);
+        await expect(dispatch.continue(planned.job.id, { deadlineAt: clock.now() + DEFAULT_DISPATCH_TUNING.chunkTimeReserveMs, leaseUntil: clock.now() })).rejects.toBeInstanceOf(RangeError);
     });
 });
 
@@ -1104,10 +1103,10 @@ describe('WorkspaceDispatch call budget', () => {
     it('reports the estimate the plan was checked against, already charged for the catalog reads', async () => {
         const planned = await dispatch.plan(aRequest({ rows: [aRow('1')] }));
 
-        expect(planned.callBudget.estimate).toEqual(estimateCallBudget(store.contactsOf(planned.job.id), { roster: 1, customFields: 1 }, 0));
+        expect(planned.callBudget.estimate).toEqual(estimateCallBudget(store.contactsOf(planned.job.id), { roster: 1, customFields: 1 }, 0, DEFAULT_DISPATCH_TUNING));
         expect(planned.callBudget.spent).toBe(2);
         expect(planned.callBudget.remaining).toBe(planned.callBudget.estimate.total - 2);
-        expect(planned.callBudget.dailyCallQuota).toBe(1_000_000);
+        expect(planned.callBudget.dailyCallQuota).toBe(100_000);
     });
 
     it('charges every call the job sends, so what is spent only grows and what is left only shrinks', async () => {
@@ -1163,5 +1162,63 @@ describe('WorkspaceDispatch job listing', () => {
     it('refuses an empty list or an unknown phase instead of answering nothing', async () => {
         await expect(dispatch.jobIds([])).rejects.toBeInstanceOf(DispatchValidationError);
         await expect(dispatch.jobIds(['running' as never])).rejects.toThrow(/is not a dispatch job phase/);
+    });
+});
+
+describe('WorkspaceDispatch tuning', () => {
+    it('refuses a tuning out of bounds when it is built', () => {
+        expect(() => buildDispatch({ waveConcurrency: 0 })).toThrow(RangeError);
+    });
+
+    it('stores the tuning on the job at plan and keeps running with it after the settings change', async () => {
+        hablla.faults.push({ matches: (request) => request.method === 'POST' && request.path.endsWith('/persons') && request.body.phones[0].phone === phoneOf('2'), kind: 'throttle', times: 1 });
+        dispatch = buildDispatch({ throttleCooldownMs: 120_000 });
+
+        const planned = await drive(await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2'), aRow('3')] })));
+
+        expect(planned.job.tuning).toEqual(dispatch.tuning);
+
+        dispatch = buildDispatch();
+
+        const started = await dispatch.start(planned.job.id, OPERATOR);
+        const throttled = await dispatch.continue(started.job.id, windowNow());
+
+        expect(throttled.next).toEqual({ kind: 'continueAfter', delayMs: 120_000 });
+        expect((await drive(throttled)).job.phase).toBe('completed');
+    });
+
+    it('pauses between the waves of a batch at the planned pace', async () => {
+        dispatch = buildDispatch({ waveConcurrency: 2, wavePauseMs: 250 });
+
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1'), aRow('2'), aRow('3'), aRow('4'), aRow('5')] }));
+
+        expect(done.job.phase).toBe('completed');
+        expect(pauses.length).toBeGreaterThan(0);
+        expect(new Set(pauses)).toEqual(new Set([250]));
+    });
+
+    it('never pauses after the last wave, so batches that fit in one wave are not paused at all', async () => {
+        dispatch = buildDispatch({ waveConcurrency: 100, wavePauseMs: 250 });
+
+        const done = await dispatchToEnd(aRequest({ rows: [aRow('1'), aRow('2'), aRow('3')] }));
+
+        expect(done.job.phase).toBe('completed');
+        expect(pauses).toEqual([]);
+    });
+
+    it('does not start a round whose wave pauses would cross the deadline', async () => {
+        dispatch = buildDispatch({ waveConcurrency: 1, wavePauseMs: 10_000, lookupChunkSize: 3, writeChunkSize: 3 });
+
+        const planned = await dispatch.plan(aRequest({ rows: [aRow('1'), aRow('2'), aRow('3')] }));
+        const requestsBefore = hablla.requests.length;
+        const tight = await dispatch.continue(planned.job.id, windowNow(DEFAULT_DISPATCH_TUNING.chunkTimeReserveMs + 20_000));
+
+        expect(hablla.requests.length).toBe(requestsBefore);
+        expect(tight.job).toMatchObject({ phase: 'resolving', callsSpent: planned.job.callsSpent });
+
+        const roomy = await dispatch.continue(planned.job.id, windowNow());
+
+        expect(roomy.job.phase).toBe('awaitingConfirmation');
+        expect(new Set(pauses)).toEqual(new Set([10_000]));
     });
 });

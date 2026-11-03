@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyReconciliation, reconciliationCalls } from './reconciliation';
-import { CALL_RETRY_DELAY_MS } from './constants';
+import { DEFAULT_DISPATCH_TUNING } from './tuning';
 import { aContact, completed, page, personItem } from './__fixtures__/builders';
 import type { DispatchContact, DispatchJob } from './types';
 
@@ -31,7 +31,7 @@ describe('reconciliationCalls', () => {
 
 describe('applyReconciliation of a create', () => {
     it('confirms the create when one person holds the phone', () => {
-        const resolution = applyReconciliation(pendingCreate, [completed(200, page([personItem({ id: 'p-new', phone: '5551999000001' })])), completed(200, page([]))], NOW);
+        const resolution = applyReconciliation(pendingCreate, [completed(200, page([personItem({ id: 'p-new', phone: '5551999000001' })])), completed(200, page([]))], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ person: { id: 'p-new', existed: false }, writesDone: 1, pendingWrite: undefined, outcome: 'ready' });
     });
@@ -40,19 +40,19 @@ describe('applyReconciliation of a create', () => {
         const resolution = applyReconciliation(pendingCreate, [
             completed(200, page([personItem({ id: 'p1', phone: '5551999000001' })])),
             completed(200, page([personItem({ id: 'p2', phone: '555199000001' })])),
-        ], NOW);
+        ], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact.outcome).toBe('duplicatePersons');
     });
 
     it('clears the marker to send again when nothing was created and a send is left', () => {
-        const resolution = applyReconciliation(pendingCreate, [completed(200, page([])), completed(200, page([]))], NOW);
+        const resolution = applyReconciliation(pendingCreate, [completed(200, page([])), completed(200, page([]))], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'ready', pendingWrite: undefined, writesDone: 0, createSends: 1 });
     });
 
     it('fails when nothing was created after the last send', () => {
-        const resolution = applyReconciliation({ ...pendingCreate, createSends: 2 }, [completed(200, page([])), completed(200, page([]))], NOW);
+        const resolution = applyReconciliation({ ...pendingCreate, createSends: 2 }, [completed(200, page([])), completed(200, page([]))], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'writeFailed', failure: { detail: 'person not found after 2 create sends with lost responses' } });
     });
@@ -61,19 +61,19 @@ describe('applyReconciliation of a create', () => {
 describe('applyReconciliation of a join', () => {
     it('confirms the join when the item exists', () => {
         const item = { id: 'item-1', person: 'p1' };
-        const resolution = applyReconciliation(pendingJoin, [completed(200, page([item]))], NOW);
+        const resolution = applyReconciliation(pendingJoin, [completed(200, page([item]))], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'inAudience', audienceItemId: 'item-1', writesDone: 2, attempts: 0, pendingWrite: undefined });
     });
 
     it('clears the marker to join again when the item is missing', () => {
-        const resolution = applyReconciliation(pendingJoin, [completed(200, page([]))], NOW);
+        const resolution = applyReconciliation(pendingJoin, [completed(200, page([]))], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'ready', pendingWrite: undefined, writesDone: 1 });
     });
 
     it('fails when the item is still missing after the last attempt', () => {
-        const resolution = applyReconciliation({ ...pendingJoin, attempts: 3 }, [completed(200, page([]))], NOW);
+        const resolution = applyReconciliation({ ...pendingJoin, attempts: 3 }, [completed(200, page([]))], NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact.outcome).toBe('writeFailed');
     });
@@ -81,17 +81,17 @@ describe('applyReconciliation of a join', () => {
 
 describe('applyReconciliation failures', () => {
     it('stops the block without touching the contact', () => {
-        expect(applyReconciliation(pendingCreate, [{ kind: 'throttled' }, { kind: 'unsent' }], NOW)).toEqual({ kind: 'stopBlock', cause: 'throttled' });
+        expect(applyReconciliation(pendingCreate, [{ kind: 'throttled' }, { kind: 'unsent' }], NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'stopBlock', cause: 'throttled' });
     });
 
     it('reports a refused token', () => {
-        expect(applyReconciliation(pendingJoin, [completed(403)], NOW)).toEqual({ kind: 'tokenRejected' });
+        expect(applyReconciliation(pendingJoin, [completed(403)], NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'tokenRejected' });
     });
 
     it('retries the read later on a 5xx, keeping the marker', () => {
-        expect(applyReconciliation(pendingCreate, [completed(500), completed(200, page([]))], NOW)).toMatchObject({
+        expect(applyReconciliation(pendingCreate, [completed(500), completed(200, page([]))], NOW, DEFAULT_DISPATCH_TUNING)).toMatchObject({
             kind: 'retryLater',
-            contact: { pendingWrite: 'createPerson', attempts: 1, retryNotBefore: NOW + CALL_RETRY_DELAY_MS },
+            contact: { pendingWrite: 'createPerson', attempts: 1, retryNotBefore: NOW + DEFAULT_DISPATCH_TUNING.callRetryDelayMs },
         });
     });
 });

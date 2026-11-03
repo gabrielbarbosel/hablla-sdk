@@ -10,6 +10,7 @@ import type { PersonSnapshot } from './owner-policy';
 import type { StoredPhone } from './payloads';
 import type { DispatchContact, DispatchSettings, LookupPurpose } from './types';
 import type { ContactResolution } from './call-failures';
+import type { DispatchTuning } from './tuning';
 import { matchesPhone } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt } from './call-failures';
 import { OPEN_ATTENDANCE_STATUSES } from './constants';
@@ -25,15 +26,15 @@ export type PersonLookupResolution = ContactResolution | { kind: 'checkAttendanc
 export type AttendanceLookupResolution = ContactResolution;
 
 /** One person search per distinct shape of the contact's phone. */
-export function personLookupCalls(contact: DispatchContact): HttpCall[] {
-    return phoneShapes(contact).map((shape) => findPersonsByPhone(shape));
+export function personLookupCalls(contact: DispatchContact, tuning: DispatchTuning): HttpCall[] {
+    return phoneShapes(contact).map((shape) => findPersonsByPhone(shape, tuning.personLookupPageLimit));
 }
 
 /** One attendance search per stored phone of the person that matches the contact's phone. */
-export function attendanceLookupCalls(person: PersonSnapshot, contact: DispatchContact, connectionId: string): HttpCall[] {
+export function attendanceLookupCalls(person: PersonSnapshot, contact: DispatchContact, connectionId: string, tuning: DispatchTuning): HttpCall[] {
     const matching = matchingStoredPhones(person, requirePhone(contact));
 
-    return [...new Set(matching.map((storedPhone) => storedPhone.digits))].map((digits) => findOpenAttendances(connectionId, digits));
+    return [...new Set(matching.map((storedPhone) => storedPhone.digits))].map((digits) => findOpenAttendances(connectionId, digits, tuning.attendanceLookupPageLimit));
 }
 
 /**
@@ -46,8 +47,8 @@ export function attendanceLookupCalls(person: PersonSnapshot, contact: DispatchC
  * that leaves `is_whatsapp` undeclared is not a declared no, so it goes on and the
  * campaign's own filter decides.
  */
-export function resolvePersonLookup(contact: DispatchContact, results: readonly CallResult[], purpose: LookupPurpose, now: number): PersonLookupResolution {
-    const failure = resolveLookupFailure(contact, results, now);
+export function resolvePersonLookup(contact: DispatchContact, results: readonly CallResult[], purpose: LookupPurpose, now: number, tuning: DispatchTuning): PersonLookupResolution {
+    const failure = resolveLookupFailure(contact, results, now, tuning);
 
     if (failure) {
         return failure;
@@ -94,8 +95,8 @@ export function resolvePersonLookup(contact: DispatchContact, results: readonly 
  * filter is not trusted). An open attendance makes the contact `inAttendance`; otherwise
  * it is `ready` with the existing person and the owner change decided now.
  */
-export function resolveAttendanceLookup(contact: DispatchContact, person: PersonSnapshot, results: readonly CallResult[], settings: DispatchSettings, purpose: LookupPurpose, now: number): AttendanceLookupResolution {
-    const failure = resolveLookupFailure(contact, results, now);
+export function resolveAttendanceLookup(contact: DispatchContact, person: PersonSnapshot, results: readonly CallResult[], settings: DispatchSettings, purpose: LookupPurpose, now: number, tuning: DispatchTuning): AttendanceLookupResolution {
+    const failure = resolveLookupFailure(contact, results, now, tuning);
 
     if (failure) {
         return failure;
@@ -121,8 +122,8 @@ export function resolveAttendanceLookup(contact: DispatchContact, person: Person
 }
 
 /** Failure handling of a lookup stage; `undefined` when every call succeeded. */
-function resolveLookupFailure(contact: DispatchContact, results: readonly CallResult[], now: number): ContactResolution | undefined {
-    const failure = classifyCallFailures(results);
+function resolveLookupFailure(contact: DispatchContact, results: readonly CallResult[], now: number, tuning: DispatchTuning): ContactResolution | undefined {
+    const failure = classifyCallFailures(results, tuning);
 
     switch (failure?.kind) {
         case undefined:
@@ -131,7 +132,7 @@ function resolveLookupFailure(contact: DispatchContact, results: readonly CallRe
         case 'tokenRejected':
             return failure;
         case 'outcomeUnknown':
-            return spendAttempt(contact, failure.failure, 'lookupFailed', now);
+            return spendAttempt(contact, failure.failure, 'lookupFailed', now, tuning);
         case 'rejected':
             return { kind: 'decided', contact: failContact(contact, 'lookupFailed', failure.failure) };
     }

@@ -11,6 +11,9 @@ export const LEASE_MARGIN_MS = 30_000;
  * starting at `startedAt + budgetMs`, and the lease outlives the hard limit of the
  * execution, so no execution still alive can outlive its own lease.
  *
+ * @param budgetMs The dispatch's `executionBudgetMs` (`WorkspaceDispatch.tuning`), whose
+ *   bounds already keep it below the hard limit.
+ *
  * @throws RangeError when the budget is not a positive integer below the hard limit.
  */
 export function executionWindow(executionStartedAt: number, budgetMs: number): ContinueOptions {
