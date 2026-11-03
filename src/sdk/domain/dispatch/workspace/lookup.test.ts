@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attendanceLookupCalls, personLookupCalls, resolveAttendanceLookup, resolvePersonLookup } from './lookup';
+import { attendanceLookupCalls, chosenPerson, personLookupCalls, resolveAttendanceLookup, resolvePersonLookup } from './lookup';
 import { toPersonSnapshot } from './payloads';
 import { DEFAULT_DISPATCH_TUNING } from './tuning';
 import { ADVISOR, CONNECTION_ID, SYSTEM_USER, aContact, aRequest, attendanceItem, completed, page, personItem, settingsOf } from './__fixtures__/builders';
@@ -11,7 +11,7 @@ const CONTACT = aContact();
 
 /** Resolves the person stage with two successful pages. */
 function personStage(first: unknown[], second: unknown[] = [], contact = CONTACT) {
-    return resolvePersonLookup(contact, [completed(200, page(first)), completed(200, page(second))], 'preview', NOW, DEFAULT_DISPATCH_TUNING);
+    return resolvePersonLookup(contact, [completed(200, page(first)), completed(200, page(second))], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING);
 }
 
 describe('personLookupCalls', () => {
@@ -64,7 +64,7 @@ describe('resolvePersonLookup', () => {
     });
 
     it('reports a 401 as a rejected workspace token', () => {
-        expect(resolvePersonLookup(CONTACT, [completed(401), completed(200, page([]))], 'preview', NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'tokenRejected' });
+        expect(resolvePersonLookup(CONTACT, [completed(401), completed(200, page([]))], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'tokenRejected' });
     });
 
     it.each([
@@ -72,18 +72,18 @@ describe('resolvePersonLookup', () => {
         ['unsent', { kind: 'unsent' }, 'throttled'],
         ['interrupted', { kind: 'interrupted', message: 'down' }, 'interrupted'],
     ] as Array<[string, CallResult, string]>)('stops the block on %s without spending an attempt', (_label, result, cause) => {
-        expect(resolvePersonLookup(CONTACT, [completed(200, page([])), result], 'preview', NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'stopBlock', cause });
+        expect(resolvePersonLookup(CONTACT, [completed(200, page([])), result], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'stopBlock', cause });
     });
 
     it('retries a 5xx later and fails on the third attempt', () => {
-        const first = resolvePersonLookup(CONTACT, [completed(502, { message: 'bad gateway' }), completed(200, page([]))], 'preview', NOW, DEFAULT_DISPATCH_TUNING);
+        const first = resolvePersonLookup(CONTACT, [completed(502, { message: 'bad gateway' }), completed(200, page([]))], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(first).toEqual({
             kind: 'retryLater',
             contact: { ...CONTACT, attempts: 1, retryNotBefore: NOW + DEFAULT_DISPATCH_TUNING.callRetryDelayMs, failure: { status: 502, detail: '{"message":"bad gateway"}' } },
         });
 
-        const third = resolvePersonLookup({ ...CONTACT, attempts: 2 }, [{ kind: 'transportFailed', message: 'reset' }], 'preview', NOW, DEFAULT_DISPATCH_TUNING);
+        const third = resolvePersonLookup({ ...CONTACT, attempts: 2 }, [{ kind: 'transportFailed', message: 'reset' }], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(third).toEqual({
             kind: 'decided',
@@ -92,7 +92,7 @@ describe('resolvePersonLookup', () => {
     });
 
     it('fails at once on another 4xx', () => {
-        const resolution = resolvePersonLookup(CONTACT, [completed(400, { message: 'bad' })], 'preview', NOW, DEFAULT_DISPATCH_TUNING);
+        const resolution = resolvePersonLookup(CONTACT, [completed(400, { message: 'bad' })], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'lookupFailed', attempts: 0, failure: { status: 400 } });
     });
@@ -101,7 +101,7 @@ describe('resolvePersonLookup', () => {
 describe('resolvePersonLookup without WhatsApp', () => {
     it('reports noWhatsapp when no matching stored phone is on WhatsApp', () => {
         const person = { ...personItem({ id: 'p1', phone: '5551999000001' }), phones: [{ phone: '5551999000001', is_whatsapp: false, type: 'personal' }] };
-        const resolution = resolvePersonLookup(CONTACT, [completed(200, page([person]))], 'preview', NOW, DEFAULT_DISPATCH_TUNING);
+        const resolution = resolvePersonLookup(CONTACT, [completed(200, page([person]))], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING);
 
         expect(resolution.kind === 'decided' && resolution.contact).toMatchObject({ outcome: 'noWhatsapp', resolvedAt: NOW, lookupPurpose: 'preview' });
     });
@@ -109,7 +109,7 @@ describe('resolvePersonLookup without WhatsApp', () => {
     it('goes on when the matching phone does not declare WhatsApp, which is not a declared no', () => {
         const person = { ...personItem({ id: 'p1', phone: '5551999000001' }), phones: [{ phone: '5551999000001', type: 'personal' }] };
 
-        expect(resolvePersonLookup(CONTACT, [completed(200, page([person]))], 'preview', NOW, DEFAULT_DISPATCH_TUNING).kind).toBe('checkAttendance');
+        expect(resolvePersonLookup(CONTACT, [completed(200, page([person]))], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING).kind).toBe('checkAttendance');
     });
 
     it('uses a matching WhatsApp phone even when another stored phone is not on WhatsApp', () => {
@@ -118,7 +118,7 @@ describe('resolvePersonLookup without WhatsApp', () => {
             phones: [{ phone: '5551999000001', is_whatsapp: false, type: 'personal' }, { phone: '555199000001', is_whatsapp: true, type: 'personal' }],
         };
 
-        expect(resolvePersonLookup(CONTACT, [completed(200, page([person]))], 'preview', NOW, DEFAULT_DISPATCH_TUNING).kind).toBe('checkAttendance');
+        expect(resolvePersonLookup(CONTACT, [completed(200, page([person]))], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING).kind).toBe('checkAttendance');
     });
 });
 
@@ -175,5 +175,46 @@ describe('resolveAttendanceLookup', () => {
 
     it('shares the failure handling of the person stage', () => {
         expect(resolveAttendanceLookup(CONTACT, person, [completed(403)], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING)).toEqual({ kind: 'tokenRejected' });
+    });
+});
+
+describe('a phone two persons hold', () => {
+    const SECTOR = SETTINGS.sectorId;
+    const inSector = personItem({ id: 'in', phone: '5551999000001', sectors: [SECTOR], updatedAt: '2026-01-01T00:00:00Z' });
+    const newer = personItem({ id: 'newer', phone: '5551999000001', sectors: ['other'], updatedAt: '2026-06-01T00:00:00Z' });
+    const preferring = { ...SETTINGS, duplicatePersonPolicy: 'preferSector' as const };
+
+    it('is left out as duplicatePersons under the skip policy', () => {
+        const resolution = resolvePersonLookup(CONTACT, [completed(200, page([inSector, newer]))], SETTINGS, 'preview', NOW, DEFAULT_DISPATCH_TUNING);
+        expect(resolution).toMatchObject({ kind: 'decided', contact: { outcome: 'duplicatePersons' } });
+    });
+
+    it('goes on with the person in the dispatch sector under preferSector, even when another is newer', () => {
+        const resolution = resolvePersonLookup(CONTACT, [completed(200, page([newer, inSector]))], preferring, 'preview', NOW, DEFAULT_DISPATCH_TUNING);
+        expect(resolution).toMatchObject({ kind: 'checkAttendance', person: { id: 'in' } });
+    });
+
+    it('takes the most recently updated when none — or several — are in the sector, and skips the blocked', () => {
+        const older = personItem({ id: 'older', phone: '5551999000001', sectors: ['other'], updatedAt: '2025-01-01T00:00:00Z' });
+        const blocked = personItem({ id: 'blocked', phone: '5551999000001', sectors: [SECTOR], updatedAt: '2027-01-01T00:00:00Z', isBlocked: true });
+        const phone = { digits: '5551999000001', alternate: '555199000001' };
+
+        expect(chosenPerson([older, newer].map(toPersonSnapshot), phone, SECTOR).id).toBe('newer');
+        expect(chosenPerson([blocked, inSector].map(toPersonSnapshot), phone, SECTOR).id).toBe('in');
+    });
+});
+
+describe('a phone no person holds', () => {
+    it('is left out as noPerson under the skip policy, and created under create', () => {
+        const skipping = { ...SETTINGS, missingPersonPolicy: 'skip' as const };
+        expect(resolvePersonLookup(CONTACT, [completed(200, page([]))], skipping, 'preview', NOW, DEFAULT_DISPATCH_TUNING))
+            .toMatchObject({ kind: 'decided', contact: { outcome: 'noPerson' } });
+        expect(personStage([])).toMatchObject({ kind: 'decided', contact: { outcome: 'ready' } });
+    });
+
+    it('a job planned before the policies existed keeps creating the missing and skipping the duplicated', () => {
+        const legacy = { sectorId: SETTINGS.sectorId } as typeof SETTINGS;
+        expect(resolvePersonLookup(CONTACT, [completed(200, page([]))], legacy, 'preview', NOW, DEFAULT_DISPATCH_TUNING))
+            .toMatchObject({ contact: { outcome: 'ready' } });
     });
 });

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.0 (2026-11-03)
+
+**Classification:** `breaking` — o pedido do disparo por workspace ganha dois campos obrigatórios (`missingPersonPolicy`, `duplicatePersonPolicy`); jobs planejados antes seguem com o comportamento com que foram planejados.
+
+### Adicionado
+
+- `missingPersonPolicy`: `create` (cria a pessoa, como antes) ou `skip` — o telefone sem cadastro fica de fora com o desfecho novo `noPerson`, também no caminho direto.
+- `duplicatePersonPolicy`: `skip` (fica de fora como `duplicatePersons`, como antes) ou `preferSector` — o disparo segue com UMA das pessoas que têm o telefone: a do setor do disparo e, entre várias (ou nenhuma) no setor, a atualizada mais recentemente; bloqueada ou sem WhatsApp declarado só quando não houver outra.
+- `UnresolvedAdvisorPolicy` `{ kind: 'noOwner' }`: o contato segue sem dono alvo — a pessoa criada nasce sem dono e a existente fica com os donos que tem.
+- `PersonSnapshot.sectorIds` e `updatedAt`, lidos de `sectors` e `updated_at` da busca v2.
+
 ## Não publicado
 
 **Classification:** `additive` — dois campos opcionais no disparo por fluxo; quem não os declara continua enviando a mesma requisição de antes.

@@ -93,6 +93,12 @@ describe('prepareAudience', () => {
 
             expect(contacts[0]).toMatchObject({ advisorResolution: 'systemUser', target: undefined, outcome: 'unresolvedAdvisor' });
         });
+
+        it('lets a row with no owner go on under the noOwner policy, with no target owner', () => {
+            const { contacts } = prepareAudience(aRequest({ unresolvedAdvisorPolicy: { kind: 'noOwner' }, rows: [aRow('1', { advisorKey: '' })] }), ROSTER);
+
+            expect(contacts[0]).toMatchObject({ advisorResolution: 'missing', target: undefined, outcome: 'pendingLookup' });
+        });
     });
 
     it('excludes the explicit phones in either 9th-digit shape', () => {

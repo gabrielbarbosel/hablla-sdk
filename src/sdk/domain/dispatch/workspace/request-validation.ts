@@ -26,6 +26,8 @@ const POLICY_VALUES = {
     systemOwnerPolicy: ['replace', 'add'],
     humanOwnerPolicy: ['keep', 'replace'],
     existingPersonFieldPolicy: ['updateSentFields', 'none'],
+    missingPersonPolicy: ['create', 'skip'],
+    duplicatePersonPolicy: ['preferSector', 'skip'],
 } as const;
 
 /** Workspace users indexed for advisor resolution. */

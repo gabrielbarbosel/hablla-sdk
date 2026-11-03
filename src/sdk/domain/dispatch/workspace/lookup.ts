@@ -8,13 +8,13 @@ import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { PhoneVariants } from '../../../utils';
 import type { PersonSnapshot } from './owner-policy';
 import type { StoredPhone } from './payloads';
-import type { DispatchContact, DispatchSettings, LookupPurpose } from './types';
+import type { DispatchContact, DispatchSettings, DuplicatePersonPolicy, LookupPurpose, MissingPersonPolicy } from './types';
 import type { ContactResolution } from './call-failures';
 import type { DispatchTuning } from './tuning';
 import { matchesPhone } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt } from './call-failures';
 import { OPEN_ATTENDANCE_STATUSES } from './constants';
-import { requirePhone, requireTarget } from './requirements';
+import { requirePhone } from './requirements';
 import { decideOwnerChange } from './owner-policy';
 import { toAttendanceStatus, toPayloadPage, toPersonSnapshot } from './payloads';
 import { findOpenAttendances, findPersonsByPhone } from './routes';
@@ -37,17 +37,48 @@ export function attendanceLookupCalls(person: PersonSnapshot, contact: DispatchC
     return [...new Set(matching.map((storedPhone) => storedPhone.digits))].map((digits) => findOpenAttendances(connectionId, digits, tuning.attendanceLookupPageLimit));
 }
 
+/** The settings the person stage reads: the sector, and what to do with a missing or a duplicated person. */
+export type LookupSettings = Pick<DispatchSettings, 'sectorId' | 'missingPersonPolicy' | 'duplicatePersonPolicy'>;
+
 /**
- * Resolves the person stage. Two or more persons holding the phone are
- * `duplicatePersons`, a blocked one is `blocked`, one whose matching phones are all
- * declared as not being on WhatsApp is `noWhatsapp` (the campaign resolves its audience
- * with the WhatsApp filter, so such a person would never match the count), a single usable
- * one needs the attendance stage, and none makes the contact `ready` for creation — or
- * `missingName` when the row brought no name to create the person with. A phone
- * that leaves `is_whatsapp` undeclared is not a declared no, so it goes on and the
- * campaign's own filter decides.
+ * The two person policies of a job. A job planned before they existed carries neither, and keeps
+ * the behaviour it was planned with: the missing person is created, the duplicated phone is left out.
  */
-export function resolvePersonLookup(contact: DispatchContact, results: readonly CallResult[], purpose: LookupPurpose, now: number, tuning: DispatchTuning): PersonLookupResolution {
+function personPoliciesOf(settings: LookupSettings): { missing: MissingPersonPolicy; duplicate: DuplicatePersonPolicy } {
+    return { missing: settings.missingPersonPolicy ?? 'create', duplicate: settings.duplicatePersonPolicy ?? 'skip' };
+}
+
+/**
+ * The ONE person a duplicated phone is dispatched to: among the usable ones (not blocked, with a
+ * matching phone not declared off WhatsApp) — or all of them when none is —, the ones in the
+ * dispatch's sector, and of those the most recently updated. With none in the sector, the most
+ * recently updated of all: the phone is the same, so the message reaches the same WhatsApp either way;
+ * what the choice decides is whose owner, fields and attendance count.
+ */
+export function chosenPerson(persons: readonly PersonSnapshot[], phone: PhoneVariants, sectorId: string): PersonSnapshot {
+    const usable = persons.filter((person) => !person.isBlocked
+        && !matchingStoredPhones(person, phone).every((storedPhone) => storedPhone.isWhatsapp === false));
+    const pool = usable.length > 0 ? usable : persons;
+    const inSector = pool.filter((person) => person.sectorIds.includes(sectorId));
+    const candidates = inSector.length > 0 ? inSector : pool;
+
+    return candidates.reduce((best, person) => (person.updatedAt > best.updatedAt ? person : best));
+}
+
+/**
+ * Resolves the person stage. Two or more persons holding the phone follow
+ * `duplicatePersonPolicy`: `skip` makes the contact `duplicatePersons`, `preferSector` goes on
+ * with {@link chosenPerson}. A blocked person is `blocked`, one whose matching phones are all
+ * declared as not being on WhatsApp is `noWhatsapp` (the campaign resolves its audience
+ * with the WhatsApp filter, so such a person would never match the count), a usable one needs
+ * the attendance stage. No person follows `missingPersonPolicy`: `skip` makes the contact
+ * `noPerson`, `create` makes it `ready` for creation — or `missingName` when the row brought
+ * no name to create the person with. A phone that leaves `is_whatsapp` undeclared is not a
+ * declared no, so it goes on and the campaign's own filter decides.
+ */
+export function resolvePersonLookup(
+    contact: DispatchContact, results: readonly CallResult[], settings: LookupSettings, purpose: LookupPurpose, now: number, tuning: DispatchTuning,
+): PersonLookupResolution {
     const failure = resolveLookupFailure(contact, results, now, tuning);
 
     if (failure) {
@@ -67,14 +98,16 @@ export function resolvePersonLookup(contact: DispatchContact, results: readonly 
         }
     }
 
-    if (persons.size > 1) {
+    const policies = personPoliciesOf(settings);
+
+    if (persons.size > 1 && policies.duplicate === 'skip') {
         return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome: 'duplicatePersons' } };
     }
 
-    const [person] = persons.values();
+    const person = persons.size > 1 ? chosenPerson([...persons.values()], phone, settings.sectorId) : [...persons.values()][0];
 
     if (!person) {
-        const outcome = contact.name === '' ? 'missingName' : 'ready';
+        const outcome = policies.missing === 'skip' ? 'noPerson' : contact.name === '' ? 'missingName' : 'ready';
 
         return { kind: 'decided', contact: { ...settledLookup(contact, purpose, now), outcome, person: undefined, ownerChange: undefined } };
     }
@@ -116,7 +149,7 @@ export function resolveAttendanceLookup(contact: DispatchContact, person: Person
             ...settledLookup(contact, purpose, now),
             outcome: 'ready',
             person: { id: person.id, existed: true },
-            ownerChange: decideOwnerChange(person, requireTarget(contact), settings),
+            ownerChange: decideOwnerChange(person, contact.target, settings),
         },
     };
 }

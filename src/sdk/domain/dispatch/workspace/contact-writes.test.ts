@@ -85,6 +85,11 @@ describe('writeCallFor', () => {
         });
     });
 
+    it('creates the person with no owner when the contact has no target owner', () => {
+        const contact = aContact({ target: undefined });
+        expect(writeCallFor({ kind: 'createPerson' }, contact, aJob()).body).toMatchObject({ users: [], sectors: [SECTOR_ID] });
+    });
+
     it('sets on an existing person exactly the fields the row sent', () => {
         const contact = { ...existing({ kind: 'keep' }), customFields: { [FIRST_NAME_FIELD_ID]: 'Ana', [ZENVIA_IDS_FIELD_ID]: '42' } };
 

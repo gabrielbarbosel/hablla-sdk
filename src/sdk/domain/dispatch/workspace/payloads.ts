@@ -134,7 +134,38 @@ export function toPersonSnapshot(raw: unknown): PersonSnapshot {
         isBlocked: requireBoolean(person, 'is_blocked', 'person', identity.id),
         ownerIds: requireStringArray(person, 'users', 'person', identity.id),
         followerIds: requireStringArray(person, 'followers', 'person', identity.id),
+        sectorIds: optionalIdArray(person, 'sectors', 'person', identity.id),
+        updatedAt: optionalTime(person, 'updated_at'),
     };
+}
+
+/**
+ * The ids of an optional list whose entries are ids or records carrying one (`id`/`_id`) — the
+ * person's sectors come either way. Absent is an empty list; an entry with no id is a payload surprise.
+ */
+function optionalIdArray(record: PayloadRecord, field: string, payload: string, item: string): readonly string[] {
+    const values = record[field];
+    if (values === undefined || values === null) {
+        return [];
+    }
+    if (!Array.isArray(values)) {
+        throw new UnexpectedPayloadError(payload, `${item}: field ${field} is not a list`);
+    }
+
+    return values.map((value) => {
+        const id = typeof value === 'string' ? value : (value as PayloadRecord | null)?.id ?? (value as PayloadRecord | null)?._id;
+        if (typeof id !== 'string' || id === '') {
+            throw new UnexpectedPayloadError(payload, `${item}: field ${field} holds an entry with no id`);
+        }
+        return id;
+    });
+}
+
+/** An optional ISO date as epoch ms; 0 when absent or unreadable — it only orders, it never decides alone. */
+function optionalTime(record: PayloadRecord, field: string): number {
+    const value = record[field];
+    const time = typeof value === 'string' ? Date.parse(value) : NaN;
+    return Number.isFinite(time) ? time : 0;
 }
 
 /** Reads an attendance's id and status. */

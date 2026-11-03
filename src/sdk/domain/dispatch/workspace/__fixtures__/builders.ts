@@ -62,6 +62,8 @@ export function aRequest(overrides: Partial<WorkspaceDispatchRequest> = {}): Wor
         humanOwnerPolicy: 'keep',
         existingPersonFieldPolicy: 'updateSentFields',
         unresolvedAdvisorPolicy: { kind: 'assignReserve', reserveOwnerId: RESERVE_OWNER.id },
+        missingPersonPolicy: 'create',
+        duplicatePersonPolicy: 'skip',
         exclusion: { phones: [], segmentationFilters: [] },
         pacing: { batchSize: 5, intervalSeconds: 10 },
         rows: [aRow('000001')],
@@ -106,7 +108,9 @@ export function page(results: readonly unknown[], totalPages = 1): Record<string
 }
 
 /** A v2 person item (captured shape) with the given id, phone, owners and followers. */
-export function personItem(fields: { id: string; phone: string; users?: string[]; followers?: string[]; isBlocked?: boolean }): Record<string, unknown> {
+export function personItem(fields: {
+    id: string; phone: string; users?: string[]; followers?: string[]; isBlocked?: boolean; sectors?: string[]; updatedAt?: string;
+}): Record<string, unknown> {
     const [captured] = personsV2Page.results;
 
     return {
@@ -116,6 +120,8 @@ export function personItem(fields: { id: string; phone: string; users?: string[]
         users: fields.users ?? [],
         followers: fields.followers ?? [],
         is_blocked: fields.isBlocked ?? false,
+        sectors: fields.sectors ?? captured.sectors,
+        updated_at: fields.updatedAt ?? captured.updated_at,
     };
 }
 

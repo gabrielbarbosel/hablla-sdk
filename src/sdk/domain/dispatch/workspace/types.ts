@@ -68,10 +68,25 @@ export type HumanOwnerPolicy = 'keep' | 'replace';
 /** What to do with the mapped person fields of a person that already exists. */
 export type ExistingPersonFieldPolicy = 'updateSentFields' | 'none';
 
-/** What to do with a contact whose advisor cannot be resolved to a human Hablla user. */
+/**
+ * What to do with a contact whose advisor cannot be resolved to a human Hablla user:
+ * give it the reserve owner, leave it out, or let it go on with NO target owner — a
+ * created person is born without owners and an existing one keeps the owners it has.
+ */
 export type UnresolvedAdvisorPolicy =
     | { kind: 'assignReserve'; reserveOwnerId: string }
-    | { kind: 'skip' };
+    | { kind: 'skip' }
+    | { kind: 'noOwner' };
+
+/** What to do with a phone no Hablla person holds: create the person, or leave the contact out (`noPerson`). */
+export type MissingPersonPolicy = 'create' | 'skip';
+
+/**
+ * What to do with a phone two or more persons hold: dispatch to ONE of them — the one in the
+ * dispatch's sector, the most recently updated when several are (or none is) — or leave the
+ * contact out as `duplicatePersons`.
+ */
+export type DuplicatePersonPolicy = 'preferSector' | 'skip';
 
 /** Everything one dispatch needs; built by the app from typed config plus operator choices. */
 export interface WorkspaceDispatchRequest {
@@ -85,7 +100,7 @@ export interface WorkspaceDispatchRequest {
      * and the reformatting asked for it. Empty for a template without variables.
      */
     templateVariables: readonly TemplateVariable[];
-    /** Sector assigned to persons created by this dispatch. */
+    /** Sector assigned to persons created by this dispatch, and preferred among persons sharing a phone. */
     sectorId: string;
     advisorKeyKind: AdvisorKeyKind;
     /** Hablla user ids treated as system owners (e.g. Martech, Kras). */
@@ -94,6 +109,8 @@ export interface WorkspaceDispatchRequest {
     humanOwnerPolicy: HumanOwnerPolicy;
     existingPersonFieldPolicy: ExistingPersonFieldPolicy;
     unresolvedAdvisorPolicy: UnresolvedAdvisorPolicy;
+    missingPersonPolicy: MissingPersonPolicy;
+    duplicatePersonPolicy: DuplicatePersonPolicy;
     exclusion: ExclusionCriteria;
     pacing: DispatchPacing;
     /** Set only when the operator explicitly confirmed re-sending a completed job with the same fingerprint. */
@@ -122,6 +139,7 @@ export const CONTACT_OUTCOMES = [
     'blocked',
     'noWhatsapp',
     'repeatedPerson',
+    'noPerson',
     'ready',
     'writeFailed',
     'inAudience',
