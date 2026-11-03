@@ -1,6 +1,6 @@
-import type { CallAuthorization, CallExecutor, CallExecutorOptions, CallResult, HttpCall } from '../../sdk/core/call-executor';
+import type { CallAuthorization, CallExecutor, CallExecutorOptions, CallResult, HttpCall, WavePacing } from '../../sdk/core/call-executor';
 import type { AuthStrategy } from '../../sdk/core/strategy';
-import { assertValidExecutorOptions, authorizationsFor, executeInWaves, resultOfResponse, wireRequestOf } from '../../sdk/core/call-executor';
+import { authorizationsFor, executeInWaves, resultOfResponse, wireRequestOf } from '../../sdk/core/call-executor';
 
 /** Apps Script bindings the executor uses. */
 declare const UrlFetchApp: {
@@ -9,24 +9,24 @@ declare const UrlFetchApp: {
 
 /**
  * {@link CallExecutor} over `UrlFetchApp.fetchAll`, run inside `runSync`. Each wave is one
- * `fetchAll`; a thrown `fetchAll` interrupts the wave and stops the batch. It never
- * sleeps, never retries and never switches tokens.
+ * `fetchAll`; a thrown `fetchAll` interrupts the wave and stops the batch. It waits only
+ * through the injected pause between waves (`Utilities.sleep` in the runtime), never
+ * retries and never switches tokens.
  */
 export class UrlFetchCallExecutor implements CallExecutor {
-    constructor(private readonly auth: CallAuthorization, private readonly options: CallExecutorOptions) {
-        assertValidExecutorOptions(options);
-    }
+    constructor(private readonly auth: CallAuthorization, private readonly options: CallExecutorOptions) {}
 
-    async executeAll(calls: readonly HttpCall[]): Promise<CallResult[]> {
+    async executeAll(calls: readonly HttpCall[], pacing: WavePacing): Promise<CallResult[]> {
         if (calls.length === 0) {
             return [];
         }
 
         const headers = await authorizationsFor(calls, this.auth);
-
-        return executeInWaves(calls, this.options.concurrency, async (wave) => UrlFetchApp
+        const sendWave = async (wave: readonly HttpCall[]): Promise<CallResult[]> => UrlFetchApp
             .fetchAll(wave.map((call) => this.fetchRequestOf(call, headers)))
-            .map((response) => resultOfResponse(response.getResponseCode(), parseBody(response.getContentText()))));
+            .map((response) => resultOfResponse(response.getResponseCode(), parseBody(response.getContentText())));
+
+        return executeInWaves(calls, pacing, sendWave, this.options.pause);
     }
 
     /** The `fetchAll` request of a call, with the content type and the body as `fetchAll` takes them. */

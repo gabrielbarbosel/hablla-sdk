@@ -22,9 +22,10 @@ import {
     trackInterruptedRounds,
 } from './job-machine';
 import { prepareAudience } from './audience';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS, PREVIEW_REUSE_MS } from './constants';
+import { FIRST_EXCLUSION_PAGE } from './constants';
 import { InvalidJobTransitionError } from './errors';
 import { isJobId, jobIdOf } from './job-id';
+import { DEFAULT_DISPATCH_TUNING, resolveDispatchTuning } from './tuning';
 import { NO_CALLS_SPENT, ROSTER, aContact, aRequest, aRow, completed } from './__fixtures__/builders';
 import type { DispatchJob, DispatchJobPhase, JobFailure } from './types';
 
@@ -35,7 +36,7 @@ const FILTERS = [{ type: 'in_segmentation', segmentation: '6a589ac29c70672890006
 /** A job created from a request with three rows (one invalid phone). */
 function aJob(overrides: Partial<DispatchJob> = {}): DispatchJob {
     const request = aRequest({ rows: [aRow('1', { phone: 'bad' }), aRow('2'), aRow('3')], exclusion: { phones: ['5551999000009'], segmentationFilters: [] } });
-    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT), ...overrides };
+    return { ...createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT, DEFAULT_DISPATCH_TUNING), ...overrides };
 }
 
 describe('createJob', () => {
@@ -44,6 +45,7 @@ describe('createJob', () => {
 
         expect(job).toMatchObject({ revision: 0, phase: 'resolving', cursor: 1, pass: 0, contactCount: 3, createdAt: NOW, updatedAt: NOW, revalidationShifts: {}, warnings: [] });
         expect(job.counts).toMatchObject({ invalidPhone: 1, pendingLookup: 2, ready: 0 });
+        expect(job.tuning).toBe(DEFAULT_DISPATCH_TUNING);
         expect(job.exclusion).toEqual({ phoneCount: 1, segmentationFilters: [] });
         expect(job.settings).not.toHaveProperty('rows');
         expect(job.id).toBe(jobIdOf(job.fingerprint, NOW));
@@ -53,12 +55,12 @@ describe('createJob', () => {
     it('awaits confirmation right away when no contact needs a lookup', () => {
         const request = aRequest({ rows: [aRow('1', { phone: 'bad' })] });
 
-        expect(createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT).phase).toBe('awaitingConfirmation');
+        expect(createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT, DEFAULT_DISPATCH_TUNING).phase).toBe('awaitingConfirmation');
     });
 
     it('resolves the exclusion first when the request excludes by filter', () => {
         const request = aRequest({ exclusion: { phones: [], segmentationFilters: FILTERS } });
-        const job = createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT);
+        const job = createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT, DEFAULT_DISPATCH_TUNING);
 
         expect(job).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'preview', exclusionCursor: FIRST_EXCLUSION_PAGE, exclusionAttempts: 0 });
         expect(job.exclusion.segmentationFilters).toEqual(FILTERS);
@@ -67,7 +69,7 @@ describe('createJob', () => {
     it('skips the exclusion phase when no contact needs a lookup', () => {
         const request = aRequest({ rows: [aRow('1', { phone: 'bad' })], exclusion: { phones: [], segmentationFilters: FILTERS } });
 
-        expect(createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT).phase).toBe('awaitingConfirmation');
+        expect(createJob(prepareAudience(request, ROSTER), request, NOW, NO_CALLS_SPENT, DEFAULT_DISPATCH_TUNING).phase).toBe('awaitingConfirmation');
     });
 });
 
@@ -143,10 +145,16 @@ describe('trackInterruptedRounds', () => {
         expect(trackInterruptedRounds(first.job, [completed(200)]).job.consecutiveInterruptedRounds).toBe(0);
     });
 
-    it('reads the interruptions as transport failures past the limit, so attempts are spent', () => {
-        const tracked = trackInterruptedRounds(aJob({ consecutiveInterruptedRounds: INTERRUPTED_ROUNDS_BEFORE_ATTEMPT }), [interrupted, { kind: 'unsent' }]);
+    it('spends attempts from the first interrupted round when the tuning tolerates none', () => {
+        const tracked = trackInterruptedRounds(aJob({ tuning: resolveDispatchTuning({ interruptedRoundsBeforeAttempt: 0 }) }), [interrupted]);
 
-        expect(tracked.job.consecutiveInterruptedRounds).toBe(INTERRUPTED_ROUNDS_BEFORE_ATTEMPT + 1);
+        expect(tracked.results).toEqual([{ kind: 'transportFailed', message: 'fetchAll failed' }]);
+    });
+
+    it('reads the interruptions as transport failures past the limit, so attempts are spent', () => {
+        const tracked = trackInterruptedRounds(aJob({ consecutiveInterruptedRounds: DEFAULT_DISPATCH_TUNING.interruptedRoundsBeforeAttempt }), [interrupted, { kind: 'unsent' }]);
+
+        expect(tracked.job.consecutiveInterruptedRounds).toBe(DEFAULT_DISPATCH_TUNING.interruptedRoundsBeforeAttempt + 1);
         expect(tracked.results).toEqual([{ kind: 'transportFailed', message: 'fetchAll failed' }, { kind: 'unsent' }]);
     });
 });
@@ -195,7 +203,7 @@ describe('transitions', () => {
         const completed = toCampaignCompleted(sending, { id: 'c1', quantity: 2 }, NOW + 5);
 
         expect(materializing).toMatchObject({ phase: 'materializing', segmentationId: 'seg-1', startedBy: 'operator@example.com', startedAt: NOW + 2, cursor: 0, pass: 0, dispatchConfig: { batch_size: 5, batch_interval: 10 / 60 } });
-        expect(awaiting).toMatchObject({ phase: 'awaitingAudience', audienceSize: 2, audienceDeadlineAt: NOW + 3 + AUDIENCE_READY_TIMEOUT_MS });
+        expect(awaiting).toMatchObject({ phase: 'awaitingAudience', audienceSize: 2, audienceDeadlineAt: NOW + 3 + DEFAULT_DISPATCH_TUNING.audienceReadyTimeoutMs });
         expect(sending).toMatchObject({ phase: 'sending', lastAudienceCount: 2 });
         expect(completed).toMatchObject({ phase: 'completed', campaignId: 'c1', campaignQuantity: 2, warnings: [] });
     });
@@ -250,13 +258,13 @@ describe('transitions', () => {
         });
 
         it('reuses a recent preview exclusion and goes straight to materializing', () => {
-            const recent = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS }, exclusionResolvedAt: NOW - PREVIEW_REUSE_MS + 1 });
+            const recent = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS }, exclusionResolvedAt: NOW - DEFAULT_DISPATCH_TUNING.previewReuseMs + 1 });
 
             expect(toConfirmed(recent, 'seg-1', 'operator@example.com', NOW).phase).toBe('materializing');
         });
 
         it('confirms into a second exclusion run before materializing, and straight into it without filters', () => {
-            const withFilters = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS }, exclusionResolvedAt: NOW - PREVIEW_REUSE_MS });
+            const withFilters = aJob({ phase: 'awaitingConfirmation', exclusion: { phoneCount: 0, segmentationFilters: FILTERS }, exclusionResolvedAt: NOW - DEFAULT_DISPATCH_TUNING.previewReuseMs });
             const confirmed = toConfirmed(withFilters, 'seg-1', 'operator@example.com', NOW);
 
             expect(confirmed).toMatchObject({ phase: 'resolvingExclusions', exclusionPurpose: 'send', exclusionCursor: FIRST_EXCLUSION_PAGE, exclusionAttempts: 0, segmentationId: 'seg-1', startedAt: NOW });
@@ -295,7 +303,7 @@ describe('transitions', () => {
         const failed = toFailed(aJob({ phase: 'awaitingAudience', audienceDeadlineAt: NOW }), { ...FAILURE, resumePhase: 'awaitingAudience' }, NOW);
         const resumed = toResumed(failed, NOW + 10);
 
-        expect(resumed).toMatchObject({ phase: 'awaitingAudience', failure: undefined, audienceDeadlineAt: NOW + 10 + AUDIENCE_READY_TIMEOUT_MS });
+        expect(resumed).toMatchObject({ phase: 'awaitingAudience', failure: undefined, audienceDeadlineAt: NOW + 10 + DEFAULT_DISPATCH_TUNING.audienceReadyTimeoutMs });
     });
 
     it('supersedes only jobs not yet started', () => {
@@ -333,8 +341,20 @@ describe('transitions', () => {
 
 describe('nextStepOf', () => {
     it('cools down after a throttle or an interrupted wave', () => {
-        expect(nextStepOf(aJob(), { cause: 'throttled' }, NOW)).toEqual({ kind: 'continueAfter', delayMs: THROTTLE_COOLDOWN_MS });
-        expect(nextStepOf(aJob(), { cause: 'interrupted' }, NOW)).toEqual({ kind: 'continueAfter', delayMs: TRANSPORT_COOLDOWN_MS });
+        expect(nextStepOf(aJob(), { cause: 'throttled' }, NOW)).toEqual({ kind: 'continueAfter', delayMs: DEFAULT_DISPATCH_TUNING.throttleCooldownMs });
+        expect(nextStepOf(aJob(), { cause: 'interrupted' }, NOW)).toEqual({ kind: 'continueAfter', delayMs: DEFAULT_DISPATCH_TUNING.transportCooldownMs });
+    });
+
+    it('cools down and polls with the tuning the job was planned with', () => {
+        const tuned = aJob({ tuning: resolveDispatchTuning({ throttleCooldownMs: 90_000, transportCooldownMs: 15_000, audiencePollIntervalMs: 2_000 }) });
+
+        expect(nextStepOf(tuned, { cause: 'throttled' }, NOW)).toEqual({ kind: 'continueAfter', delayMs: 90_000 });
+        expect(nextStepOf(tuned, { cause: 'interrupted' }, NOW)).toEqual({ kind: 'continueAfter', delayMs: 15_000 });
+        expect(nextStepOf({ ...tuned, phase: 'awaitingAudience' }, undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 2_000 });
+    });
+
+    it('runs a job planned before v0.7.0, which stored no tuning, with the defaults', () => {
+        expect(nextStepOf(aJob({ tuning: undefined }), { cause: 'throttled' }, NOW)).toEqual({ kind: 'continueAfter', delayMs: DEFAULT_DISPATCH_TUNING.throttleCooldownMs });
     });
 
     it('waits for deferred contacts', () => {
@@ -343,7 +363,7 @@ describe('nextStepOf', () => {
 
     it('maps each phase to its next step', () => {
         expect(nextStepOf(aJob({ phase: 'awaitingConfirmation' }), undefined, NOW)).toEqual({ kind: 'awaitConfirmation' });
-        expect(nextStepOf(aJob({ phase: 'awaitingAudience' }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: AUDIENCE_POLL_INTERVAL_MS });
+        expect(nextStepOf(aJob({ phase: 'awaitingAudience' }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: DEFAULT_DISPATCH_TUNING.audiencePollIntervalMs });
         expect(nextStepOf(aJob({ phase: 'sending', campaignReconcileNotBefore: NOW + 7 }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 7 });
         expect(nextStepOf(aJob({ phase: 'sending' }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 0 });
         expect(nextStepOf(aJob({ phase: 'materializing' }), undefined, NOW)).toEqual({ kind: 'continueAfter', delayMs: 0 });

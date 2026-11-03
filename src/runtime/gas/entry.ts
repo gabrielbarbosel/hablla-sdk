@@ -8,7 +8,8 @@ import { UrlFetchTransport } from './transport';
 import { PropertiesStrategyCache } from './properties-strategy-cache';
 import { SpreadsheetTableStore } from './spreadsheet-table-store';
 import { SyncPromise, unwrap, drainUnhandledRejections } from './sync-promise';
-import { WorkspaceDispatch, formatVariableValue } from '../../sdk/domain/dispatch/workspace';
+import { DEFAULT_DISPATCH_TUNING, DISPATCH_TUNING_SPEC, WorkspaceDispatch, formatVariableValue, resolveDispatchTuning } from '../../sdk/domain/dispatch/workspace';
+import type { DispatchTuning } from '../../sdk/domain/dispatch/workspace';
 import { UrlFetchCallExecutor } from './url-fetch-call-executor';
 import { SheetDispatchJobStore } from './sheet-dispatch-job-store';
 import { gasClock } from './gas-clock';
@@ -231,27 +232,23 @@ function makeStore(): HabllaStore {
 
 /** Typed options of the workspace dispatch, all from the app's config. */
 export interface WorkspaceDispatchOptions {
-    /** Calls per `fetchAll` wave. */
-    concurrency: number;
     /** Spreadsheet holding the dispatch jobs. */
     spreadsheetId: string;
     /**
-     * The account's daily UrlFetch quota, the ceiling of one dispatch; left out, it is the
-     * quota of a Google Workspace account (`GOOGLE_WORKSPACE_DAILY_CALL_QUOTA`).
+     * Overrides of the dispatch tunables (see `Hablla.DISPATCH_TUNING_SPEC`); a key left out
+     * keeps its default, and `{}` runs every default.
      */
-    dailyCallQuota?: number;
-    /** Pages of excluded persons one exclusion run may read; left out, `DEFAULT_MAX_EXCLUSION_PAGES`. */
-    maxExclusionPages?: number;
+    tuning: Partial<DispatchTuning>;
 }
 
 /**
  * Composes the workspace dispatch of the GAS runtime: `fetchAll` executor over the client's
- * auth, jobs in the spreadsheet, wall clock.
+ * auth that pauses between waves with `Utilities.sleep`, jobs in the spreadsheet, wall clock.
  *
- * @throws Error when an option without a default is missing.
+ * @throws Error when an option is missing; RangeError when the tuning is out of bounds.
  */
 function createWorkspaceDispatch(client: HabllaClient, baseUrl: string, workspaceId: string, options: WorkspaceDispatchOptions): WorkspaceDispatch {
-    const missing = (['concurrency', 'spreadsheetId'] as const).filter((option) => options?.[option] === undefined);
+    const missing = (['spreadsheetId', 'tuning'] as const).filter((option) => options?.[option] === undefined);
 
     if (missing.length > 0) {
         throw new Error(`Hablla.createWorkspaceDispatch: missing ${missing.join(', ')}`);
@@ -259,11 +256,11 @@ function createWorkspaceDispatch(client: HabllaClient, baseUrl: string, workspac
 
     return new WorkspaceDispatch(
         {
-            executor: new UrlFetchCallExecutor(client.auth, { baseUrl, workspaceId, concurrency: options.concurrency }),
+            executor: new UrlFetchCallExecutor(client.auth, { baseUrl, workspaceId, pause: gasClock.sleep }),
             store: new SheetDispatchJobStore({ spreadsheetId: options.spreadsheetId }),
             clock: gasClock,
         },
-        { dailyCallQuota: options.dailyCallQuota, maxExclusionPages: options.maxExclusionPages },
+        options.tuning,
     );
 }
 
@@ -302,6 +299,9 @@ export function installHabllaClient(): HabllaClient {
         archiveWorkspaceDispatchJob,
         formatVariableValue,
         executionWindow,
+        DISPATCH_TUNING_SPEC,
+        DEFAULT_DISPATCH_TUNING,
+        resolveDispatchTuning,
     };
     return client;
 }

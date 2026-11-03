@@ -11,14 +11,16 @@
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { StopCause } from './call-failures';
 import type { FilteredPersonPage } from './payloads';
+import type { DispatchTuning } from './tuning';
 import type { ContactOutcome, DispatchContact, DispatchJob } from './types';
 import { excludeContacts } from './audience';
 import { classifyCallFailures, payloadOf, truncateDetail } from './call-failures';
 import { readAudienceCount } from './campaign';
-import { EXCLUSION_PAGE_LIMIT, FIRST_EXCLUSION_PAGE, MAX_CALL_ATTEMPTS } from './constants';
+import { FIRST_EXCLUSION_PAGE } from './constants';
 import { tallyOutcomes, toFailed, tokenRejectedFailure } from './job-machine';
 import { toFilteredPersonPage } from './payloads';
 import { requireExclusionAttempts, requireExclusionCursor, requireExclusionListed, requireExclusionPurpose, requireExclusionUniverseSize } from './requirements';
+import { tuningOf } from './tuning';
 
 /** The payload name the exclusion listing is reported under. */
 const EXCLUSION_LISTING = 'exclusion listing';
@@ -56,8 +58,8 @@ export interface AppliedExclusion {
  * (pending live check, spec 11.3), so a universe the plan accepted may still reach the
  * ceiling at the run — loud and bounded, which is why the run also checks its coverage.
  */
-export function exclusionPageCount(universeSize: number): number {
-    return Math.floor(universeSize / EXCLUSION_PAGE_LIMIT) + 1;
+export function exclusionPageCount(universeSize: number, tuning: DispatchTuning): number {
+    return Math.floor(universeSize / tuning.exclusionPageLimit) + 1;
 }
 
 /**
@@ -81,7 +83,7 @@ export function resolveExclusionUniverse(job: DispatchJob, call: HttpCall, resul
 
 /**
  * Applies one page of the exclusion listing. A full page means there may be another one:
- * past `maxExclusionPages` the job fails with `exclusion_too_large`, because a truncated
+ * past the tuning's `maxExclusionPages` the job fails with `exclusion_too_large`, because a truncated
  * exclusion would dispatch to people the operator left out. The page that ends the run
  * closes it only when the run listed the whole universe it counted; a shortfall fails with
  * `exclusion_incomplete` instead of handing over an exclusion that missed a page.
@@ -89,7 +91,8 @@ export function resolveExclusionUniverse(job: DispatchJob, call: HttpCall, resul
  * @throws UnexpectedPayloadError when a page does not hold the persons and phones the
  *   dispatch was built against, so nothing is excluded on a payload surprise.
  */
-export function resolveExclusionPage(job: DispatchJob, call: HttpCall, result: CallResult, maxExclusionPages: number, now: number): ExclusionPageResolution {
+export function resolveExclusionPage(job: DispatchJob, call: HttpCall, result: CallResult, now: number): ExclusionPageResolution {
+    const tuning = tuningOf(job);
     const failure = resolveExclusionReadFailure(job, call, result, EXCLUSION_LISTING, now);
 
     if (failure) {
@@ -98,8 +101,8 @@ export function resolveExclusionPage(job: DispatchJob, call: HttpCall, result: C
 
     const page = toFilteredPersonPage(payloadOf(result), EXCLUSION_LISTING);
 
-    if (page.size >= EXCLUSION_PAGE_LIMIT) {
-        return requireExclusionCursor(job) >= maxExclusionPages ? tooLargeExclusion(job, maxExclusionPages, now) : { kind: 'page', page, lastPage: false };
+    if (page.size >= tuning.exclusionPageLimit) {
+        return requireExclusionCursor(job) >= tuning.maxExclusionPages ? tooLargeExclusion(job, tuning, now) : { kind: 'page', page, lastPage: false };
     }
 
     const listed = requireExclusionListed(job) + page.size;
@@ -135,10 +138,10 @@ export function applyExcludedPhones(job: DispatchJob, contacts: readonly Dispatc
  * The failure a read of the phase earns, or `undefined` for a 2xx. A refused token, or a
  * 4xx that the same query would earn again, fails the job at once instead of leaving it in
  * the phase; an outcome the read does not reveal (a 5xx or a lost request) is retried until
- * `MAX_CALL_ATTEMPTS` are spent, and then fails, so the job always reaches a verdict.
+ * `maxCallAttempts` are spent, and then fails, so the job always reaches a verdict.
  */
 function resolveExclusionReadFailure(job: DispatchJob, call: HttpCall, result: CallResult, payload: string, now: number): ExclusionReadFailure | undefined {
-    const failure = classifyCallFailures([result]);
+    const failure = classifyCallFailures([result], tuningOf(job));
 
     switch (failure?.kind) {
         case undefined:
@@ -167,10 +170,10 @@ function exclusionShifts(job: DispatchJob, excludedCount: number): Readonly<Part
 }
 
 /** A run whose universe needs more pages than the dispatch may read: it fails loud, never truncates in silence. */
-function tooLargeExclusion(job: DispatchJob, maxExclusionPages: number, now: number): ExclusionReadFailure {
+function tooLargeExclusion(job: DispatchJob, tuning: DispatchTuning, now: number): ExclusionReadFailure {
     return {
         kind: 'failed',
-        job: toFailed(job, { reason: 'exclusion_too_large', detail: `the exclusion filters list more than ${maxExclusionPages} pages of ${EXCLUSION_PAGE_LIMIT} persons`, resumePhase: 'resolvingExclusions' }, now),
+        job: toFailed(job, { reason: 'exclusion_too_large', detail: `the exclusion filters list more than ${tuning.maxExclusionPages} pages of ${tuning.exclusionPageLimit} persons`, resumePhase: 'resolvingExclusions' }, now),
     };
 }
 
@@ -192,18 +195,19 @@ function incompleteExclusion(job: DispatchJob, listed: number, universeSize: num
 
 /**
  * Retries the read in a later execution, after the transport cooldown the `stop` earns.
- * Once `MAX_CALL_ATTEMPTS` are spent the job fails with `exclusion_unresolved`, instead of
+ * Once `maxCallAttempts` are spent the job fails with `exclusion_unresolved`, instead of
  * cooling down forever over a read that never resolves.
  */
 function retryExclusionRead(job: DispatchJob, detail: string, now: number): ExclusionReadFailure {
+    const tuning = tuningOf(job);
     const attempts = requireExclusionAttempts(job) + 1;
 
-    if (attempts < MAX_CALL_ATTEMPTS) {
+    if (attempts < tuning.maxCallAttempts) {
         return { kind: 'stop', cause: 'interrupted', job: { ...job, exclusionAttempts: attempts, updatedAt: now } };
     }
 
     return {
         kind: 'failed',
-        job: toFailed({ ...job, exclusionAttempts: 0 }, { reason: 'exclusion_unresolved', detail: truncateDetail(detail), resumePhase: 'resolvingExclusions' }, now),
+        job: toFailed({ ...job, exclusionAttempts: 0 }, { reason: 'exclusion_unresolved', detail: truncateDetail(detail, tuning.failureDetailMaxLength), resumePhase: 'resolvingExclusions' }, now),
     };
 }

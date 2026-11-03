@@ -4,9 +4,9 @@ import type { StopCause } from './call-failures';
 import type { CatalogPages } from './call-budget';
 import type { BlockContact, ContactStep } from './contact-step';
 import type { EarlyStop } from './job-machine';
-import type { DispatchLimits } from './limits';
 import type { FilteredPersonPage } from './payloads';
 import type { Clock, DispatchJobStore } from './ports';
+import type { DispatchTuning } from './tuning';
 import type {
     ChunkedPhase,
     ContactOutcome,
@@ -19,17 +19,17 @@ import type {
     DispatchProgress,
     OperatorOptions,
     StartOptions,
-    WorkspaceDispatchLimits,
     WorkspaceDispatchRequest,
 } from './types';
+import { wavePausesMs } from '../../../core/call-executor';
 import { DISPATCH_JOB_PHASES, RESUMABLE_PHASES } from './types';
 import { excludesByFilter, prepareAudience } from './audience';
 import { callBudgetOf, estimateCallBudget } from './call-budget';
 import { isSuccess, payloadOf, truncateDetail } from './call-failures';
 import { buildAudienceQuery, buildCampaignBody, buildSegmentationBody, dispatchName, readAudienceCount } from './campaign';
-import { CHUNK_TIME_RESERVE_MS, AUDIENCE_POLL_INTERVAL_MS, CREATE_SEGMENTATION_CALLS, EXCLUSION_PAGE_LIMIT, LOOKUP_CHUNK_SIZE, WRITE_CHUNK_SIZE } from './constants';
+import { CREATE_SEGMENTATION_CALLS } from './constants';
 import { EXCLUSION_UNIVERSE_COUNT, applyExcludedPhones, exclusionPageCount, resolveExclusionPage, resolveExclusionUniverse } from './exclusion';
-import { resolveDispatchLimits } from './limits';
+import { resolveDispatchTuning, tuningOf, wavePacingOf } from './tuning';
 import { applyContactStep, nextContactStep, writeAheadOf } from './contact-step';
 import { CallBudgetExceededError, DispatchThrottledError, DispatchTransportError, DispatchValidationError, DuplicateDispatchError, InvalidJobTransitionError, JobBusyError, StaleJobError } from './errors';
 import {
@@ -98,12 +98,16 @@ interface CatalogRead<T> {
  * window and a lease, `start` confirms it (or resumes a failure), `abandon` ends it and
  * `status` reads it. All decisions live in pure modules; this class only sequences calls
  * through the {@link CallExecutor} and persists through the {@link DispatchJobStore}.
+ * `plan` stores the resolved tuning on the job, and every later step of that job runs with
+ * the job's own tuning, never with the one this instance was built with.
  */
 export class WorkspaceDispatch {
-    private readonly limits: DispatchLimits;
+    /** The tuning `plan` gives new jobs, with every default applied. */
+    readonly tuning: DispatchTuning;
 
-    constructor(private readonly ports: WorkspaceDispatchPorts, limits: WorkspaceDispatchLimits = {}) {
-        this.limits = resolveDispatchLimits(limits);
+    /** @throws RangeError when the tuning has an unknown key or a value out of bounds. */
+    constructor(private readonly ports: WorkspaceDispatchPorts, tuning: Partial<DispatchTuning>) {
+        this.tuning = resolveDispatchTuning(tuning);
     }
 
     /**
@@ -127,14 +131,14 @@ export class WorkspaceDispatch {
         const prepared = prepareAudience(request, rosterIndex);
         const catalogPages: CatalogPages = { roster: roster.pages, customFields: customFields.pages };
         const exclusionRun = await this.measureExclusionRun(request);
-        const estimate = estimateCallBudget(prepared.contacts, catalogPages, exclusionRun.pages);
+        const estimate = estimateCallBudget(prepared.contacts, catalogPages, exclusionRun.pages, this.tuning);
 
-        if (estimate.total > this.limits.dailyCallQuota) {
-            throw new CallBudgetExceededError(estimate, this.limits.dailyCallQuota);
+        if (estimate.total > this.tuning.dailyCallQuota) {
+            throw new CallBudgetExceededError(estimate, this.tuning.dailyCallQuota);
         }
 
         const spent = roster.pages + customFields.pages + exclusionRun.calls;
-        const job = createJob(prepared, request, this.ports.clock.now(), { estimate, spent });
+        const job = createJob(prepared, request, this.ports.clock.now(), { estimate, spent }, this.tuning);
         const inserted = await this.ports.store.withExclusiveAccess(() => this.insertUnlessDuplicate(job, prepared.contacts, request.repeatOfJobId));
 
         return this.progressOf(inserted);
@@ -270,20 +274,23 @@ export class WorkspaceDispatch {
 
     /** The job with the next step computed now and the call budget it has spent so far. */
     private progressOf(job: DispatchJob): DispatchProgress {
-        return { job, next: nextStepOf(job, undefined, this.ports.clock.now()), callBudget: callBudgetOf(job, this.limits.dailyCallQuota) };
+        return { job, next: nextStepOf(job, undefined, this.ports.clock.now()), callBudget: callBudgetOf(job) };
     }
 
     /**
-     * Reads every page of a catalog; any non-2xx fails the plan before a write.
+     * Reads every page of a catalog, the pages after the first in waves; any non-2xx fails
+     * the plan before a write.
      *
      * @throws DispatchThrottledError or DispatchValidationError.
      */
-    private async readCatalog<T>(pageCall: (page: number) => HttpCall, parse: (raw: unknown) => T, catalog: string): Promise<CatalogRead<T>> {
-        const [first] = await this.ports.executor.executeAll([pageCall(1)]);
-        const firstPage = toPayloadPage(requireSuccess(first!, catalog), catalog);
-        const laterCalls = Array.from({ length: Math.max(0, firstPage.totalPages - 1) }, (_unused, offset) => pageCall(offset + 2));
-        const laterResults = laterCalls.length > 0 ? await this.ports.executor.executeAll(laterCalls) : [];
-        const laterItems = laterResults.flatMap((result) => toPayloadPage(requireSuccess(result, catalog), catalog).results);
+    private async readCatalog<T>(pageCall: (page: number, limit: number) => HttpCall, parse: (raw: unknown) => T, catalog: string): Promise<CatalogRead<T>> {
+        const callOfPage = (page: number): HttpCall => pageCall(page, this.tuning.catalogPageLimit);
+        const pacing = wavePacingOf(this.tuning);
+        const [first] = await this.ports.executor.executeAll([callOfPage(1)], pacing);
+        const firstPage = toPayloadPage(requireSuccess(first!, catalog, this.tuning), catalog);
+        const laterCalls = Array.from({ length: Math.max(0, firstPage.totalPages - 1) }, (_unused, offset) => callOfPage(offset + 2));
+        const laterResults = laterCalls.length > 0 ? await this.ports.executor.executeAll(laterCalls, pacing) : [];
+        const laterItems = laterResults.flatMap((result) => toPayloadPage(requireSuccess(result, catalog, this.tuning), catalog).results);
 
         return { items: [...firstPage.results, ...laterItems].map(parse), pages: 1 + laterCalls.length };
     }
@@ -301,16 +308,16 @@ export class WorkspaceDispatch {
             return { pages: 0, calls: 0 };
         }
 
-        const [result] = await this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)]);
+        const [result] = await this.ports.executor.executeAll([countAudience(request.exclusion.segmentationFilters)], wavePacingOf(this.tuning));
 
-        requireSuccess(result!, EXCLUSION_UNIVERSE_COUNT);
+        requireSuccess(result!, EXCLUSION_UNIVERSE_COUNT, this.tuning);
 
         const universeSize = readAudienceCount(result!, EXCLUSION_UNIVERSE_COUNT);
-        const pages = exclusionPageCount(universeSize);
+        const pages = exclusionPageCount(universeSize, this.tuning);
 
-        if (pages > this.limits.maxExclusionPages) {
+        if (pages > this.tuning.maxExclusionPages) {
             throw new DispatchValidationError([
-                `exclusion.segmentationFilters match ${universeSize} persons, more than the ${this.limits.maxExclusionPages} pages of ${EXCLUSION_PAGE_LIMIT} this dispatch may read`,
+                `exclusion.segmentationFilters match ${universeSize} persons, more than the ${this.tuning.maxExclusionPages} pages of ${this.tuning.exclusionPageLimit} this dispatch may read`,
             ]);
         }
 
@@ -399,9 +406,10 @@ export class WorkspaceDispatch {
 
     /** Creates the job's segmentation on Bearer; a non-2xx leaves the job awaiting confirmation. */
     private async createSegmentation(job: DispatchJob): Promise<string> {
-        const [result] = await this.ports.executor.executeAll([createSegmentation(buildSegmentationBody(job))]);
+        const tuning = tuningOf(job);
+        const [result] = await this.ports.executor.executeAll([createSegmentation(buildSegmentationBody(job))], wavePacingOf(tuning));
 
-        return toCreatedId(requireSuccess(result!, 'segmentation creation'), 'segmentation');
+        return toCreatedId(requireSuccess(result!, 'segmentation creation', tuning), 'segmentation');
     }
 
     /** Takes the lease of a resumable job; other phases are returned untouched. */
@@ -430,7 +438,7 @@ export class WorkspaceDispatch {
 
     /** Runs the job's phases while a chunk still fits before the deadline. */
     private async runUntilDeadline(session: ContinueSession, deadlineAt: number): Promise<EarlyStop | undefined> {
-        while (isResumablePhase(session.job.phase) && this.hasTimeLeft(deadlineAt)) {
+        while (isResumablePhase(session.job.phase) && this.hasTimeLeft(session.job, deadlineAt, 0)) {
             const signal = await this.runPhaseStep(session, deadlineAt);
 
             if (signal.kind === 'stop') {
@@ -492,9 +500,9 @@ export class WorkspaceDispatch {
 
     /** Reads the page at the cursor and marks every contact it names `excluded`. */
     private async readExclusionPage(session: ContinueSession): Promise<LoopSignal> {
-        const call = listFilteredPersonsPage(session.job.exclusion.segmentationFilters, requireExclusionCursor(session.job));
+        const call = listFilteredPersonsPage(session.job.exclusion.segmentationFilters, requireExclusionCursor(session.job), tuningOf(session.job).exclusionPageLimit);
         const [result] = await this.executeRound(session, [call]);
-        const resolution = resolveExclusionPage(session.job, call, result!, this.limits.maxExclusionPages, this.ports.clock.now());
+        const resolution = resolveExclusionPage(session.job, call, result!, this.ports.clock.now());
 
         if (resolution.kind === 'page') {
             return this.applyExclusionPage(session, resolution.page, resolution.lastPage);
@@ -525,13 +533,14 @@ export class WorkspaceDispatch {
     /**
      * Processes one chunk of contacts from the cursor in rounds until every contact is
      * settled or deferred, then advances the cursor and closes the phase when no work is
-     * left. A round only starts while the execution window has room for it; the cursor
-     * stays put, so the next execution picks the same block up (every round persists what
-     * it learned).
+     * left. A round only starts while the execution window has room for the reserve plus
+     * the round's own wave pauses; the cursor stays put, so the next execution picks the
+     * same block up (every round persists what it learned).
      */
     private async runChunk(session: ContinueSession, phase: ChunkedPhase, deadlineAt: number): Promise<LoopSignal> {
         const store = this.ports.store;
-        const chunkSize = phase === 'resolving' ? LOOKUP_CHUNK_SIZE : WRITE_CHUNK_SIZE;
+        const tuning = tuningOf(session.job);
+        const chunkSize = phase === 'resolving' ? tuning.lookupChunkSize : tuning.writeChunkSize;
         const contacts = await store.loadContacts(session.job.id, { offset: session.job.cursor, limit: chunkSize });
         let blocks: BlockContact[] = contacts.map((contact) => ({ contact }));
 
@@ -545,7 +554,7 @@ export class WorkspaceDispatch {
                 break;
             }
 
-            if (!this.hasTimeLeft(deadlineAt)) {
+            if (!this.hasTimeLeft(session.job, deadlineAt, wavePausesMs(callCountOf(steps), wavePacingOf(tuning)))) {
                 return { kind: 'yield' };
             }
 
@@ -581,6 +590,7 @@ export class WorkspaceDispatch {
     /** Sends every call of a round at once and applies each contact's results. */
     private async runRound(session: ContinueSession, phase: ChunkedPhase, blocks: readonly BlockContact[], steps: readonly ContactStep[]): Promise<{ blocks: BlockContact[]; signal?: LoopSignal }> {
         const calls = steps.flatMap((step) => (step.kind === 'calls' ? step.calls : []));
+        const tuning = tuningOf(session.job);
         const results = await this.executeRound(session, calls);
         const now = this.ports.clock.now();
         const shifts: Partial<Record<ContactOutcome, number>> = { ...session.job.revalidationShifts };
@@ -599,7 +609,7 @@ export class WorkspaceDispatch {
             const slice = results.slice(offset, offset + step.calls.length);
             offset += step.calls.length;
 
-            const application = applyContactStep(block, step, slice, { settings: session.job.settings, claims, now, phase });
+            const application = applyContactStep(block, step, slice, { settings: session.job.settings, tuning, claims, now, phase });
 
             if (application.kind === 'applied') {
                 claims = application.claims;
@@ -641,14 +651,19 @@ export class WorkspaceDispatch {
         return { blocks: updated, signal: stopCause ? { kind: 'stop', stop: { cause: stopCause } } : undefined };
     }
 
-    /** True while the execution window still has room for a block or a round. */
-    private hasTimeLeft(deadlineAt: number): boolean {
-        return this.ports.clock.now() + CHUNK_TIME_RESERVE_MS < deadlineAt;
+    /**
+     * True while the execution window still has room for the job's chunk time reserve plus
+     * `waitMs`, what the next step waits on top of its calls (a round's wave pauses, the
+     * interval before the next audience count).
+     */
+    private hasTimeLeft(job: DispatchJob, deadlineAt: number, waitMs: number): boolean {
+        return this.ports.clock.now() + tuningOf(job).chunkTimeReserveMs + waitMs < deadlineAt;
     }
 
-    /** Runs one round of calls, charging them to the job and keeping its interrupted-round bookkeeping. */
+    /** Runs one round of calls at the job's wave pacing, charging them to the job and keeping its interrupted-round bookkeeping. */
     private async executeRound(session: ContinueSession, calls: readonly HttpCall[]): Promise<readonly CallResult[]> {
-        const tracked = trackInterruptedRounds(spendCalls(session.job, calls.length), await this.ports.executor.executeAll(calls));
+        const results = await this.ports.executor.executeAll(calls, wavePacingOf(tuningOf(session.job)));
+        const tracked = trackInterruptedRounds(spendCalls(session.job, calls.length), results);
 
         session.job = tracked.job;
 
@@ -678,17 +693,19 @@ export class WorkspaceDispatch {
 
     /** Polls the audience count until it matches, fails, or the window closes. */
     private async waitForAudience(session: ContinueSession, deadlineAt: number): Promise<LoopSignal> {
+        const pollIntervalMs = tuningOf(session.job).audiencePollIntervalMs;
+
         for (;;) {
             const call = countAudience(buildAudienceQuery(session.job).query);
             const [result] = await this.executeRound(session, [call]);
             const resolution = resolveAudienceCount(session.job, call, result!, this.ports.clock.now());
 
-            if (resolution.kind !== 'wait' || this.ports.clock.now() + AUDIENCE_POLL_INTERVAL_MS + CHUNK_TIME_RESERVE_MS >= deadlineAt) {
+            if (resolution.kind !== 'wait' || !this.hasTimeLeft(resolution.job, deadlineAt, pollIntervalMs)) {
                 return this.persistSendPhase(session, resolution);
             }
 
             session.job = resolution.job;
-            await this.ports.clock.sleep(AUDIENCE_POLL_INTERVAL_MS);
+            await this.ports.clock.sleep(pollIntervalMs);
         }
     }
 
@@ -705,7 +722,7 @@ export class WorkspaceDispatch {
                 return { kind: 'yield' };
             }
 
-            const call = findCampaignsByName(dispatchName(session.job));
+            const call = findCampaignsByName(dispatchName(session.job), tuningOf(session.job).campaignLookupPageLimit);
             const [result] = await this.executeRound(session, [call]);
 
             return this.persistSendPhase(session, resolveCampaignReconciliation(session.job, call, result!, this.ports.clock.now()));
@@ -771,14 +788,20 @@ function assertKnownPhases(phases: readonly DispatchJobPhase[]): void {
     }
 }
 
+/** Calls a round of steps sends. */
+function callCountOf(steps: readonly ContactStep[]): number {
+    return steps.reduce((count, step) => count + (step.kind === 'calls' ? step.calls.length : 0), 0);
+}
+
 /**
  * The payload of a successful catalog or creation call.
  *
  * @throws DispatchThrottledError when the call was throttled or never sent;
  *   DispatchTransportError when it was lost to the network, so its outcome is unknown;
- *   DispatchValidationError naming the route and status otherwise.
+ *   DispatchValidationError naming the route and status otherwise, with the response cut
+ *   to the tuning's `failureDetailMaxLength`.
  */
-function requireSuccess(result: CallResult, route: string): unknown {
+function requireSuccess(result: CallResult, route: string, tuning: DispatchTuning): unknown {
     if (result.kind === 'throttled' || result.kind === 'unsent') {
         throw new DispatchThrottledError(route);
     }
@@ -788,7 +811,7 @@ function requireSuccess(result: CallResult, route: string): unknown {
     }
 
     if (!isSuccess(result)) {
-        throw new DispatchValidationError([`${route} answered ${result.status}: ${truncateDetail(JSON.stringify(result.data) ?? '')}`]);
+        throw new DispatchValidationError([`${route} answered ${result.status}: ${truncateDetail(JSON.stringify(result.data) ?? '', tuning.failureDetailMaxLength)}`]);
     }
 
     return payloadOf(result);

@@ -8,10 +8,10 @@
 
 import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { ContactResolution, StopCause } from './call-failures';
+import type { DispatchTuning } from './tuning';
 import type { CustomFieldValue, DispatchContact, DispatchJob, DispatchSettings, PendingWrite } from './types';
 import { phoneIdentity } from '../../../utils';
 import { classifyCallFailures, failContact, payloadOf, spendAttempt, truncateDetail } from './call-failures';
-import { RECONCILIATION_DELAY_MS } from './constants';
 import { requireOwnerChange, requirePerson, requirePhone, requireSegmentationId, requireTarget } from './requirements';
 import { UnexpectedPayloadError } from './errors';
 import { toCreatedId } from './payloads';
@@ -121,28 +121,28 @@ export function writeCallFor(write: ContactWrite, contact: DispatchContact, job:
  * interrupted wave) retries an idempotent write later, and keeps the write-ahead marker of
  * a non-idempotent one so its next step is a reconciliation, never a blind re-send.
  */
-export function applyWriteResult(contact: DispatchContact, write: ContactWrite, results: readonly CallResult[], now: number): ContactResolution {
-    const failure = classifyCallFailures(results);
+export function applyWriteResult(contact: DispatchContact, write: ContactWrite, results: readonly CallResult[], now: number, tuning: DispatchTuning): ContactResolution {
+    const failure = classifyCallFailures(results, tuning);
 
     switch (failure?.kind) {
         case undefined:
-            return applyConfirmedWrite(contact, write, results[0]!);
+            return applyConfirmedWrite(contact, write, results[0]!, tuning);
         case 'stopBlock':
-            return stopWrite(contact, write, failure.cause, now);
+            return stopWrite(contact, write, failure.cause, now, tuning);
         case 'tokenRejected':
             return { kind: 'tokenRejected', contact: isWriteAhead(write) ? undoWriteAhead(contact, write) : undefined };
         case 'rejected':
             return { kind: 'decided', contact: failContact(clearWriteAhead(contact), 'writeFailed', failure.failure) };
         case 'outcomeUnknown':
             if (isWriteAhead(write)) {
-                return { kind: 'retryLater', contact: awaitReconciliation({ ...contact, attempts: contact.attempts + 1, failure: failure.failure }, now) };
+                return { kind: 'retryLater', contact: awaitReconciliation({ ...contact, attempts: contact.attempts + 1, failure: failure.failure }, now, tuning) };
             }
-            return spendAttempt(contact, failure.failure, 'writeFailed', now);
+            return spendAttempt(contact, failure.failure, 'writeFailed', now, tuning);
     }
 }
 
 /** A confirmed write advances the plan. */
-function applyConfirmedWrite(contact: DispatchContact, write: ContactWrite, result: CallResult): ContactResolution {
+function applyConfirmedWrite(contact: DispatchContact, write: ContactWrite, result: CallResult, tuning: DispatchTuning): ContactResolution {
     const advanced: DispatchContact = { ...clearWriteAhead(contact), writesDone: contact.writesDone + 1, attempts: 0, failure: undefined, retryNotBefore: undefined };
 
     if (write.kind !== 'createPerson' && write.kind !== 'joinAudience') {
@@ -152,7 +152,7 @@ function applyConfirmedWrite(contact: DispatchContact, write: ContactWrite, resu
     const createdId = createdIdOf(result, write.kind);
 
     if (createdId === undefined) {
-        return { kind: 'decided', contact: failContact(clearWriteAhead(contact), 'writeFailed', { status: statusOf(result), detail: truncateDetail(`${write.kind} response has no id`) }) };
+        return { kind: 'decided', contact: failContact(clearWriteAhead(contact), 'writeFailed', { status: statusOf(result), detail: truncateDetail(`${write.kind} response has no id`, tuning.failureDetailMaxLength) }) };
     }
 
     if (write.kind === 'createPerson') {
@@ -163,7 +163,7 @@ function applyConfirmedWrite(contact: DispatchContact, write: ContactWrite, resu
 }
 
 /** A stopped write: throttled calls were not processed; interrupted ones have an unknown outcome. */
-function stopWrite(contact: DispatchContact, write: ContactWrite, cause: StopCause, now: number): ContactResolution {
+function stopWrite(contact: DispatchContact, write: ContactWrite, cause: StopCause, now: number, tuning: DispatchTuning): ContactResolution {
     if (!isWriteAhead(write)) {
         return { kind: 'stopBlock', cause };
     }
@@ -172,12 +172,12 @@ function stopWrite(contact: DispatchContact, write: ContactWrite, cause: StopCau
         return { kind: 'stopBlock', cause, contact: undoWriteAhead(contact, write) };
     }
 
-    return { kind: 'stopBlock', cause, contact: awaitReconciliation(contact, now) };
+    return { kind: 'stopBlock', cause, contact: awaitReconciliation(contact, now, tuning) };
 }
 
 /** The contact waiting to reconcile its pending write. */
-export function awaitReconciliation(contact: DispatchContact, now: number): DispatchContact {
-    return { ...contact, retryNotBefore: now + RECONCILIATION_DELAY_MS };
+export function awaitReconciliation(contact: DispatchContact, now: number, tuning: DispatchTuning): DispatchContact {
+    return { ...contact, retryNotBefore: now + tuning.reconciliationDelayMs };
 }
 
 /** Removes the write-ahead marker and gives back the create send that never happened. */

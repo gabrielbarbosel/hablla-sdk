@@ -7,6 +7,7 @@ import type { CallResult, HttpCall } from '../../../core/call-executor';
 import type { AuthStrategy } from '../../../core/strategy';
 import type { PreparedAudience } from './audience';
 import type { StopCause } from './call-failures';
+import type { DispatchTuning } from './tuning';
 import type { CallBudget } from './types';
 import type {
     ChunkedPhase,
@@ -24,11 +25,12 @@ import type {
 import { excludeContacts, excludesByFilter, unreadablePhones } from './audience';
 import { rejectedTokenStrategy } from './call-failures';
 import { toDispatchConfig } from './campaign';
-import { AUDIENCE_POLL_INTERVAL_MS, AUDIENCE_READY_TIMEOUT_MS, FIRST_EXCLUSION_PAGE, PREVIEW_REUSE_MS, VARIABLE_SETTLE_MS, INTERRUPTED_ROUNDS_BEFORE_ATTEMPT, THROTTLE_COOLDOWN_MS, TRANSPORT_COOLDOWN_MS } from './constants';
+import { FIRST_EXCLUSION_PAGE } from './constants';
 import { workOutcomeOf } from './contact-step';
 import { DispatchValidationError, InvalidJobTransitionError } from './errors';
 import { jobIdOf } from './job-id';
 import { requireAudienceSize, requireExclusionCursor, requireExclusionPurpose } from './requirements';
+import { tuningOf } from './tuning';
 import { CONTACT_OUTCOMES, RESUMABLE_PHASES } from './types';
 
 /** Phases in which the job is over. */
@@ -81,8 +83,9 @@ export function tallyOutcomes(counts: Readonly<Record<ContactOutcome, number>>, 
 /**
  * A new job at revision 0: `resolvingExclusions` when the request excludes by filter,
  * `resolving` when it does not, or `awaitingConfirmation` when no contact needs a lookup.
+ * The job keeps the tuning it was planned with and runs with it to the end.
  */
-export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number, calls: JobCallLedger): DispatchJob {
+export function createJob(prepared: PreparedAudience, request: WorkspaceDispatchRequest, now: number, calls: JobCallLedger, tuning: DispatchTuning): DispatchJob {
     const { rows: _rows, exclusion, ...settings } = request;
     const firstPending = prepared.contacts.find((contact) => contact.outcome === 'pendingLookup');
     const job: DispatchJob = {
@@ -102,6 +105,7 @@ export function createJob(prepared: PreparedAudience, request: WorkspaceDispatch
         consecutiveInterruptedRounds: 0,
         callEstimate: calls.estimate,
         callsSpent: calls.spent,
+        tuning,
         warnings: [],
     };
 
@@ -209,7 +213,7 @@ function confirmsLatestSend(existing: readonly DispatchJob[], repeatOfJobId: str
 
 /**
  * Bookkeeping of interrupted rounds: counts the consecutive rounds whose results hold an
- * interruption and, past {@link INTERRUPTED_ROUNDS_BEFORE_ATTEMPT}, reports them as
+ * interruption and, past the tuning's `interruptedRoundsBeforeAttempt`, reports them as
  * transport failures, so the contacts behind them spend attempts instead of being retried
  * after every cooldown forever. A round without interruptions resets the count.
  */
@@ -221,7 +225,7 @@ export function trackInterruptedRounds(job: DispatchJob, results: readonly CallR
     const rounds = job.consecutiveInterruptedRounds + 1;
     const tracked: DispatchJob = { ...job, consecutiveInterruptedRounds: rounds };
 
-    if (rounds <= INTERRUPTED_ROUNDS_BEFORE_ATTEMPT) {
+    if (rounds <= tuningOf(job).interruptedRoundsBeforeAttempt) {
         return { job: tracked, results };
     }
 
@@ -294,7 +298,7 @@ export function toAwaitingConfirmation(job: DispatchJob, now: number): DispatchJ
  * `awaitingConfirmation` → the confirmed run, with the segmentation, the pacing in Hablla
  * units and who started it. A request that excludes by filter resolves the exclusion once
  * more before anything is written — unless the preview resolved it less than
- * {@link PREVIEW_REUSE_MS} ago —, so the confirmed job goes through `resolvingExclusions`
+ * the tuning's `previewReuseMs` ago —, so the confirmed job goes through `resolvingExclusions`
  * first; otherwise it goes straight to `materializing`.
  */
 export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEmail: string, now: number): DispatchJob {
@@ -318,7 +322,7 @@ export function toConfirmed(job: DispatchJob, segmentationId: string, operatorEm
 
 /** True when the preview exclusion is too old (or missing) to stand in for the send-time one. */
 function exclusionIsStale(job: DispatchJob, now: number): boolean {
-    return job.exclusionResolvedAt === undefined || now - job.exclusionResolvedAt >= PREVIEW_REUSE_MS;
+    return job.exclusionResolvedAt === undefined || now - job.exclusionResolvedAt >= tuningOf(job).previewReuseMs;
 }
 
 /**
@@ -405,12 +409,14 @@ function withoutExclusionRun(job: DispatchJob, now: number): DispatchJob {
 export function toAwaitingAudience(job: DispatchJob, now: number): DispatchJob {
     assertPhase(job, ['materializing'], 'await the audience');
 
+    const tuning = tuningOf(job);
+
     return {
         ...job,
         phase: 'awaitingAudience',
         audienceSize: job.counts.inAudience,
-        audienceDeadlineAt: now + AUDIENCE_READY_TIMEOUT_MS,
-        campaignNotBefore: readsPersonFields(job) ? now + VARIABLE_SETTLE_MS : undefined,
+        audienceDeadlineAt: now + tuning.audienceReadyTimeoutMs,
+        campaignNotBefore: readsPersonFields(job) ? now + tuning.variableSettleMs : undefined,
         updatedAt: now,
     };
 }
@@ -516,7 +522,7 @@ export function toResumed(job: DispatchJob, now: number): DispatchJob {
         ...job,
         phase: resumePhase,
         failure: undefined,
-        audienceDeadlineAt: resumePhase === 'awaitingAudience' ? now + AUDIENCE_READY_TIMEOUT_MS : job.audienceDeadlineAt,
+        audienceDeadlineAt: resumePhase === 'awaitingAudience' ? now + tuningOf(job).audienceReadyTimeoutMs : job.audienceDeadlineAt,
         updatedAt: now,
     };
 }
@@ -557,8 +563,10 @@ export function toAbandoned(job: DispatchJob, operatorEmail: string, now: number
  * reconciliation, or continue right away.
  */
 export function nextStepOf(job: DispatchJob, stop: EarlyStop | undefined, now: number): DispatchNextStep {
+    const tuning = tuningOf(job);
+
     if (stop && 'cause' in stop) {
-        return { kind: 'continueAfter', delayMs: stop.cause === 'throttled' ? THROTTLE_COOLDOWN_MS : TRANSPORT_COOLDOWN_MS };
+        return { kind: 'continueAfter', delayMs: stop.cause === 'throttled' ? tuning.throttleCooldownMs : tuning.transportCooldownMs };
     }
 
     if (stop) {
@@ -574,7 +582,7 @@ export function nextStepOf(job: DispatchJob, stop: EarlyStop | undefined, now: n
         case 'abandoned':
             return { kind: 'finished' };
         case 'awaitingAudience':
-            return { kind: 'continueAfter', delayMs: AUDIENCE_POLL_INTERVAL_MS };
+            return { kind: 'continueAfter', delayMs: tuning.audiencePollIntervalMs };
         case 'sending':
             return { kind: 'continueAfter', delayMs: campaignDueAt(job, now) - now };
         case 'resolvingExclusions':
