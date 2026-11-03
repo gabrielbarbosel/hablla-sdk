@@ -4,7 +4,10 @@
  */
 
 import type { RosterIndex } from './request-validation';
-import type { AdvisorResolution, ContactOutcome, DispatchContact, ExclusionCriteria, TargetOwner, WorkspaceDispatchRequest, WorkspaceDispatchRow } from './types';
+import type {
+    AdvisorResolution, ContactOutcome, DispatchContact, ExclusionCriteria, TargetOwner, UnresolvedAdvisorPolicy, WorkspaceDispatchRequest,
+    WorkspaceDispatchRow,
+} from './types';
 import type { TemplateVariable } from './template-variables';
 import { brazilianPhoneVariants, collapseWhitespace, hash64Hex, normalizeEmail, phoneIdentity } from '../../../utils';
 import { formatBoundFields } from './template-variables';
@@ -36,7 +39,8 @@ export function excludesByFilter(exclusion: Pick<ExclusionCriteria, 'segmentatio
 /**
  * Builds one contact per row, in index order; the first matching outcome wins:
  * `invalidPhone`, `repeatedPhone` (the first row with a phone keeps it),
- * `unresolvedAdvisor` (only under the `skip` policy), otherwise `pendingLookup`. A row
+ * `unresolvedAdvisor` (only under the `skip` policy; `noOwner` lets the row go on with no
+ * target owner), otherwise `pendingLookup`. A row
  * without a name still goes to the lookup: the name is only needed to create a person, so
  * `missingName` is decided there, when the phone matches nobody. The
  * explicit excluded phones are then applied with {@link excludeContacts}, and the
@@ -126,15 +130,15 @@ function contactOfRow(row: WorkspaceDispatchRow, index: number, request: Workspa
         advisorResolution: advisor.resolution,
         target: advisor.target,
         customFields: formatBoundFields(row.customFields, request.templateVariables),
-        outcome: firstOutcome(phone === undefined ? undefined : phoneIdentity(phone), advisor, seenPhones),
+        outcome: firstOutcome(phone === undefined ? undefined : phoneIdentity(phone), advisor, seenPhones, request.unresolvedAdvisorPolicy),
         writesDone: 0,
         attempts: 0,
         createSends: 0,
     };
 }
 
-/** The first outcome that applies to a freshly read row. */
-function firstOutcome(identity: string | undefined, advisor: AdvisorAssignment, seenPhones: ReadonlySet<string>): ContactOutcome {
+/** The first outcome that applies to a freshly read row; a row with no owner goes on under the `noOwner` policy. */
+function firstOutcome(identity: string | undefined, advisor: AdvisorAssignment, seenPhones: ReadonlySet<string>, policy: UnresolvedAdvisorPolicy): ContactOutcome {
     if (identity === undefined) {
         return 'invalidPhone';
     }
@@ -143,7 +147,7 @@ function firstOutcome(identity: string | undefined, advisor: AdvisorAssignment, 
         return 'repeatedPhone';
     }
 
-    if (!advisor.target) {
+    if (!advisor.target && policy.kind !== 'noOwner') {
         return 'unresolvedAdvisor';
     }
 
@@ -153,7 +157,7 @@ function firstOutcome(identity: string | undefined, advisor: AdvisorAssignment, 
 /**
  * Resolves the advisor column: `missing` when empty, `notFound` when no user matches,
  * `systemUser` when the match is a system user, `matched` otherwise. Anything but
- * `matched` takes the reserve owner under `assignReserve` and no target under `skip`.
+ * `matched` takes the reserve owner under `assignReserve` and no target under `skip` or `noOwner`.
  */
 function assignAdvisor(advisorKey: string, request: WorkspaceDispatchRequest, roster: RosterIndex): AdvisorAssignment {
     const key = advisorKey.trim();

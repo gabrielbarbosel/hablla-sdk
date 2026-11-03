@@ -96,7 +96,7 @@ export function writeCallFor(write: ContactWrite, contact: DispatchContact, job:
             return createPerson({
                 name: contact.name.toLocaleUpperCase('pt-BR'),
                 phones: [{ phone: phoneIdentity(requirePhone(contact)), is_whatsapp: true, type: CREATED_PHONE_TYPE }],
-                users: [requireTarget(contact).userId],
+                users: contact.target ? [contact.target.userId] : [],
                 sectors: [settings.sectorId],
                 custom_fields: toCustomFieldValues(contact.customFields),
             });

@@ -87,6 +87,8 @@ describe('toPersonSnapshot (v2 search)', () => {
             ownerIds: ['69cc0e5cf6aaa7942e1fd8fe', '6a1cfbb1b0975d16c88fac56', '6a4bb5ded86135c308cfc876'],
             followerIds: ['6a1cfbbe18795d48f05c07d0'],
             phones: [{ digits: '5551999990001', isWhatsapp: true }],
+            sectorIds: ['6a14a8edbeab7c7e661d5bc0', '6a56a0957bcb4b7f31b9c50b'],
+            updatedAt: Date.parse('2026-09-16T21:41:25.091Z'),
         });
     });
 

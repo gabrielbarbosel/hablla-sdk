@@ -6,7 +6,7 @@ const SYSTEM_USERS = ['martech', 'kras'];
 
 /** A person with the given owners and followers. */
 function person(ownerIds: string[], followerIds: string[] = []): PersonSnapshot {
-    return { id: 'p1', isBlocked: false, ownerIds, followerIds, phones: [{ digits: '5551999000001', isWhatsapp: true }] };
+    return { id: 'p1', isBlocked: false, ownerIds, followerIds, phones: [{ digits: '5551999000001', isWhatsapp: true }], sectorIds: [], updatedAt: 0 };
 }
 
 /** The owner settings, with the conservative human policy unless the case says otherwise. */
@@ -15,6 +15,11 @@ function policies(systemOwnerPolicy: OwnerSettings['systemOwnerPolicy'], humanOw
 }
 
 describe('decideOwnerChange', () => {
+    it('changes nothing without a target owner: the person keeps the owners it has', () => {
+        expect(decideOwnerChange(person(['other-human']), undefined, policies('replace', 'replace'))).toEqual({ kind: 'keep' });
+        expect(decideOwnerChange(person([]), undefined, policies('replace'))).toEqual({ kind: 'keep' });
+    });
+
     it('keeps a person the target already owns', () => {
         expect(decideOwnerChange(person(['advisor', 'martech']), TARGET, policies('replace'))).toEqual({ kind: 'keep' });
     });

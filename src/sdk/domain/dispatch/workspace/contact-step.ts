@@ -126,7 +126,7 @@ function applyStepResults(block: BlockContact, step: Extract<ContactStep, { kind
     const purpose = lookupPurposeOf(context.phase);
 
     if (step.purpose === 'personLookup') {
-        const resolution = resolvePersonLookup(contact, results, purpose, context.now, context.tuning);
+        const resolution = resolvePersonLookup(contact, results, context.settings, purpose, context.now, context.tuning);
 
         if (resolution.kind === 'checkAttendance') {
             return { kind: 'applied', block: { contact, attendanceCheck: resolution.person }, claims: context.claims };
