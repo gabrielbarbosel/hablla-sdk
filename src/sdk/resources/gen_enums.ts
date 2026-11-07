@@ -571,6 +571,7 @@ export const TaskType = [
     { code: 'meet' },
     { code: 'chat' },
     { code: 'other' },
+    { code: 'service_order' },
 ] as const;
 export type TaskTypeCode = (typeof TaskType)[number]['code'];
 

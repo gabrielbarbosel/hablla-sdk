@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.9.0 (2026-11-07)
+
+**Classification:** `breaking` — endpoints +18 / -8 / ~0 incompatible / 0 extended.
+
+### Removed endpoints
+
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/prices (reports)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-followers (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-sectors (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-users (persons)`
+
+### Added endpoints
+
+- `GET /v1/forms/{form_id} (forms)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/calls/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/prices (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/lists-total-value (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization/{services_per_organization_id} (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person/{services_per_person_id} (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/meta-resume (reports)`
+- `GET /v1/workspaces/{workspace_id}/verify-account-exists (verifyAccountExists)`
+- `PATCH /v1/workspaces/{workspace_id}/quotation-settings (quotationSettings)`
+- `PATCH /v1/workspaces/{workspace_id}/quotation/{quotation_id} (quotation)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{id}/add-followers (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{id}/add-sectors (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{id}/add-users (persons)`
+
+### Files
+
+- added `gen_forms.ts`
+- added `gen_quotationSettings.ts`
+- added `gen_verifyAccountExists.ts`
+- changed `gen_enums.ts`
+- changed `gen_persons.ts`
+- changed `gen_quotation.ts`
+- changed `gen_reports.ts`
+
 ## v0.8.0 (2026-11-03)
 
 **Classification:** `breaking` — o pedido do disparo por workspace ganha dois campos obrigatórios (`missingPersonPolicy`, `duplicatePersonPolicy`); jobs planejados antes seguem com o comportamento com que foram planejados.
