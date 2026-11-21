@@ -10,6 +10,7 @@ export const AnnotationType = [
     { code: 'video' },
     { code: 'document' },
     { code: 'json' },
+    { code: 'markdown' },
 ] as const;
 export type AnnotationTypeCode = (typeof AnnotationType)[number]['code'];
 
@@ -68,6 +69,7 @@ export const ConnectionType = [
     { code: 'account_review_update' },
     { code: 'account_update' },
     { code: 'business_capability_update' },
+    { code: 'flows' },
     { code: 'history' },
     { code: 'message_template_components_update' },
     { code: 'message_template_quality_update' },
@@ -505,6 +507,9 @@ export const ServiceMessageType = [
     { code: 'system' },
     { code: 'email' },
     { code: 'comment' },
+    { code: 'social_comment' },
+    { code: 'whatsapp_flow_answer' },
+    { code: 'whatsapp_call_permission_reply' },
 ] as const;
 export type ServiceMessageTypeCode = (typeof ServiceMessageType)[number]['code'];
 
@@ -571,6 +576,7 @@ export const TaskType = [
     { code: 'meet' },
     { code: 'chat' },
     { code: 'other' },
+    { code: 'service_order' },
 ] as const;
 export type TaskTypeCode = (typeof TaskType)[number]['code'];
 

@@ -12,6 +12,15 @@ export class Messages extends Resource {
     }
 
     /**
+     * Answer an instagram comment in DM (private reply) by a bot.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/instagram-private-reply-bot
+     * @remarks Any query params may be sent (none documented).
+     */
+    instagramPrivateReplyBot(connectionId: string, body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/instagram-private-reply-bot', { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+
+    /**
      * Send email messages by bot.
      * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/messages-bot
      * @remarks Any query params may be sent (none documented).
