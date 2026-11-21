@@ -170,6 +170,24 @@ export class Connections extends Resource {
     }
 
     /**
+     * Disable calling over SIP on a whatsapp connection.
+     * @method DELETE /v1/workspaces/{workspace_id}/connections/{connection_id}/whatsapp-sip
+     * @remarks Any query params may be sent (none documented).
+     */
+    deleteWhatsappSip(connectionId: string, opts: { query?: Record<string, unknown> } = {}): Promise<void> {
+        return this.http.delete('/v1/workspaces/{workspace_id}/connections/{connection_id}/whatsapp-sip', { path: { connection_id: connectionId }, query: opts.query });
+    }
+
+    /**
+     * Enable calling over SIP on a whatsapp connection.
+     * @method POST /v1/workspaces/{workspace_id}/connections/{connection_id}/whatsapp-sip
+     * @remarks Any query params may be sent (none documented).
+     */
+    whatsappSip(connectionId: string, body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/{connection_id}/whatsapp-sip', { path: { connection_id: connectionId }, body, query: opts.query });
+    }
+
+    /**
      * Delete connection by id.
      * @method DELETE /v1/workspaces/{workspace_id}/connections/{connection_id}
      * @remarks Any query params may be sent (none documented).
@@ -226,10 +244,19 @@ export class Connections extends Resource {
     /**
      * Create facebook and instagram connections from the selected pages.
      * @method POST /v1/workspaces/{workspace_id}/connections/meta-fanpage-and-instagram
+     * @remarks Documented query: token, sector, pages (extra keys allowed).
+     */
+    metaFanpageAndInstagram(body: Partial<Connection>, opts: { query?: { token?: string; sector?: string; pages?: string } & Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/meta-fanpage-and-instagram', { body, query: opts.query });
+    }
+
+    /**
+     * Create an instagram connection through Instagram Login.
+     * @method POST /v1/workspaces/{workspace_id}/connections/meta-instagram-login
      * @remarks Any query params may be sent (none documented).
      */
-    metaFanpageAndInstagram(body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
-        return this.http.post('/v1/workspaces/{workspace_id}/connections/meta-fanpage-and-instagram', { body, query: opts.query });
+    metaInstagramLogin(body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection> {
+        return this.http.post('/v1/workspaces/{workspace_id}/connections/meta-instagram-login', { body, query: opts.query });
     }
 
     /**
@@ -253,9 +280,9 @@ export class Connections extends Resource {
     /**
      * Get all connections.
      * @method GET /v1/workspaces/{workspace_id}/connections
-     * @remarks Documented query: start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
+     * @remarks Documented query: start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, key, type, generic_type, types, status, calling_mode, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnectionsV1(opts: { query?: { start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnectionsV1(opts: { query?: { start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; calling_mode?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
         return this.http.get('/v1/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 
@@ -280,9 +307,9 @@ export class Connections extends Resource {
     /**
      * Get all connections (V2).
      * @method GET /v2/workspaces/{workspace_id}/connections
-     * @remarks Documented query: filters, start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, key, type, generic_type, types, status, populate, ids, is_deleted (extra keys allowed).
+     * @remarks Documented query: filters, start_date, end_date, field_date, created_at, updated_at, page, limit, order, direction_order, name, key, type, generic_type, types, status, calling_mode, populate, ids, is_deleted (extra keys allowed).
      */
-    listConnections(opts: { query?: { filters?: string; start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
+    listConnections(opts: { query?: { filters?: string; start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; calling_mode?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>> {
         return this.http.get('/v2/workspaces/{workspace_id}/connections', { query: opts.query });
     }
 }

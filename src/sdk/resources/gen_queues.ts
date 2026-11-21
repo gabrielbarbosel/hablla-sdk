@@ -63,6 +63,15 @@ export class Queues extends Resource {
     }
 
     /**
+     * Peek the next item from a queue.
+     * @method GET /v1/workspaces/{workspace_id}/queues/{id}/peek
+     * @remarks Any query params may be sent (none documented).
+     */
+    getPeek(id: string, opts: { query?: Record<string, unknown> } = {}): Promise<Paged<Queue>> {
+        return this.http.get('/v1/workspaces/{workspace_id}/queues/{id}/peek', { path: { id }, query: opts.query });
+    }
+
+    /**
      * Get all queue items.
      * @method GET /v1/workspaces/{workspace_id}/queues/{queue_id}/queue-items
      * @remarks Documented query: filters, page, limit, order, direction_order, key, populate (extra keys allowed).

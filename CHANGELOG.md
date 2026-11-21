@@ -1,5 +1,103 @@
 # Changelog
 
+## v0.9.0 (2026-11-21)
+
+**Classification:** `breaking` — endpoints +29 / -9 / ~0 incompatible / 10 extended.
+
+### Removed endpoints
+
+- `GET /v1/workspaces/{workspace_id}/copilot/reset/{reset_id} (copilot)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v2 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/charges-v3 (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/plans/prices (reports)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-followers (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-sectors (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-users (persons)`
+
+### Added endpoints
+
+- `DELETE /v1/workspaces/{workspace_id}/connections/{connection_id}/whatsapp-sip (connections)`
+- `GET /v1/forms/{form_id} (forms)`
+- `GET /v1/workspaces/{workspace_id}/queues/{id}/peek (queues)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/calls/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges-partners/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/charges/details (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/meta/resume (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/billing/prices (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/cards/lists-total-value (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/contracts/usage (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-organization/{services_per_organization_id} (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/services/services-per-person/{services_per_person_id} (reports)`
+- `GET /v1/workspaces/{workspace_id}/reports/alloy-reports/sessions/meta-resume (reports)`
+- `GET /v1/workspaces/{workspace_id}/verify-account-exists (verifyAccountExists)`
+- `PATCH /v1/workspaces/{workspace_id}/quotation-settings (quotationSettings)`
+- `PATCH /v1/workspaces/{workspace_id}/quotation/{quotation_id} (quotation)`
+- `POST /v1/workspaces/{workspace_id}/connections/meta-instagram-login (connections)`
+- `POST /v1/workspaces/{workspace_id}/connections/{connection_id}/instagram-private-reply-bot (messages)`
+- `POST /v1/workspaces/{workspace_id}/connections/{connection_id}/whatsapp-sip (connections)`
+- `POST /v1/workspaces/{workspace_id}/meta/comments (meta)`
+- `POST /v1/workspaces/{workspace_id}/meta/comments-bot (meta)`
+- `POST /v1/workspaces/{workspace_id}/meta/comments/replies (meta)`
+- `POST /v1/workspaces/{workspace_id}/meta/comments/replies-bot (meta)`
+- `POST /v1/workspaces/{workspace_id}/meta/instagram-login-auth (meta)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{id}/add-followers (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{id}/add-sectors (persons)`
+- `PUT /v1/workspaces/{workspace_id}/persons/{id}/add-users (persons)`
+
+### Extended signatures (new optional query keys)
+
+- `GET /v1/workspaces/{workspace_id}/boards/{id}/cards (boards)`
+  - before: `getCardsV1(id: string, opts: { query?: { limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; person?: string; organization?: string; user?: string; sector?: string; status?: CardStatusCode; product?: string; reason?: string; rating?: number; tags?: string[]; populate?: string[]; board_populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; has_next_task?: boolean; next_task_start_date?: unknown; prediction_date?: unknown; entry_date?: unknown; finished_at?: unknown; next_task_type?: TaskTypeCode; custom_fields?: string; list?: string; highlight_old_cards?: boolean; custom_id?: string } & Record<string, unknown> } = {}): Promise<Paged<Board>>`
+  - after: `getCardsV1(id: string, opts: { query?: { limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; person?: string; organization?: string; user?: string; sector?: string; status?: CardStatusCode; product?: string; reason?: string; rating?: number; tags?: string[]; populate?: string[]; board_populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; has_next_task?: boolean; no_owner?: boolean; next_task_start_date?: unknown; prediction_date?: unknown; entry_date?: unknown; finished_at?: unknown; next_task_type?: TaskTypeCode; custom_fields?: string; list?: string; highlight_old_cards?: boolean; custom_id?: string } & Record<string, unknown> } = {}): Promise<Paged<Board>>`
+- `GET /v1/workspaces/{workspace_id}/cards (cards)`
+  - before: `listCardsV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; list?: string; custom_id?: string; board?: string; person?: string; organization?: string; user?: string; product?: string; service?: string; sector?: string; status?: CardStatusCode; rating?: string; tags?: string[]; followers?: string[]; users?: string[]; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; finished_at?: unknown; prediction_date?: unknown; entry_date?: unknown; next_task_start_date?: unknown; next_task_type?: TaskTypeCode; has_next_task?: string; custom_fields?: string[]; highlight_old_cards?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Card>>`
+  - after: `listCardsV1(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; list?: string; custom_id?: string; board?: string; person?: string; organization?: string; user?: string; product?: string; service?: string; sector?: string; status?: CardStatusCode; rating?: string; tags?: string[]; followers?: string[]; users?: string[]; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; finished_at?: unknown; prediction_date?: unknown; entry_date?: unknown; next_task_start_date?: unknown; next_task_type?: TaskTypeCode; has_next_task?: string; no_owner?: boolean; custom_fields?: string[]; highlight_old_cards?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Card>>`
+- `GET /v1/workspaces/{workspace_id}/connections (connections)`
+  - before: `listConnectionsV1(opts: { query?: { start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>>`
+  - after: `listConnectionsV1(opts: { query?: { start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; calling_mode?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>>`
+- `GET /v1/workspaces/{workspace_id}/persons/{person_id}/duplicates (persons)`
+  - before: `getDuplicates(personId: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string } & Record<string, unknown> } = {}): Promise<Paged<Person>>`
+  - after: `getDuplicates(personId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string } & Record<string, unknown> } = {}): Promise<Paged<Person>>`
+- `GET /v2/workspaces/{workspace_id}/boards/{board_id}/cards (boards)`
+  - before: `getCards(boardId: string, opts: { query?: { filters?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; person?: string; organization?: string; user?: string; sector?: string; status?: CardStatusCode; product?: string; reason?: string; rating?: number; tags?: string[]; populate?: string[]; board_populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; has_next_task?: boolean; next_task_start_date?: unknown; prediction_date?: unknown; entry_date?: unknown; finished_at?: unknown; next_task_type?: TaskTypeCode; custom_fields?: string; list?: string; highlight_old_cards?: boolean; custom_id?: string } & Record<string, unknown> } = {}): Promise<Paged<Board>>`
+  - after: `getCards(boardId: string, opts: { query?: { filters?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; person?: string; organization?: string; user?: string; sector?: string; status?: CardStatusCode; product?: string; reason?: string; rating?: number; tags?: string[]; populate?: string[]; board_populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; has_next_task?: boolean; no_owner?: boolean; next_task_start_date?: unknown; prediction_date?: unknown; entry_date?: unknown; finished_at?: unknown; next_task_type?: TaskTypeCode; custom_fields?: string; list?: string; highlight_old_cards?: boolean; custom_id?: string } & Record<string, unknown> } = {}): Promise<Paged<Board>>`
+- `GET /v2/workspaces/{workspace_id}/cards (cards)`
+  - before: `listCardsV2(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; list?: string; custom_id?: string; board?: string; person?: string; organization?: string; user?: string; product?: string; service?: string; sector?: string; status?: CardStatusCode; rating?: string; tags?: string[]; followers?: string[]; users?: string[]; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; finished_at?: unknown; prediction_date?: unknown; entry_date?: unknown; next_task_start_date?: unknown; next_task_type?: TaskTypeCode; has_next_task?: string; custom_fields?: string[]; highlight_old_cards?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Card>>`
+  - after: `listCardsV2(opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; list?: string; custom_id?: string; board?: string; person?: string; organization?: string; user?: string; product?: string; service?: string; sector?: string; status?: CardStatusCode; rating?: string; tags?: string[]; followers?: string[]; users?: string[]; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; finished_at?: unknown; prediction_date?: unknown; entry_date?: unknown; next_task_start_date?: unknown; next_task_type?: TaskTypeCode; has_next_task?: string; no_owner?: boolean; custom_fields?: string[]; highlight_old_cards?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Card>>`
+- `GET /v2/workspaces/{workspace_id}/connections (connections)`
+  - before: `listConnections(opts: { query?: { filters?: string; start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>>`
+  - after: `listConnections(opts: { query?: { filters?: string; start_date?: string; end_date?: string; field_date?: string; created_at?: unknown; updated_at?: unknown; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; key?: string; type?: ConnectionChannelCode; generic_type?: ConnectionStatusCode; types?: string[]; status?: ConnectionStatusCode; calling_mode?: string; populate?: string[]; ids?: string[]; is_deleted?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Connection>>`
+- `GET /v3/workspaces/{workspace_id}/cards (cards)`
+  - before: `listCards(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; list?: string; custom_id?: string; board?: string; person?: string; organization?: string; user?: string; product?: string; service?: string; sector?: string; status?: CardStatusCode; rating?: string; tags?: string[]; followers?: string[]; users?: string[]; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; finished_at?: unknown; prediction_date?: unknown; entry_date?: unknown; next_task_start_date?: unknown; next_task_type?: TaskTypeCode; has_next_task?: string; custom_fields?: string[]; highlight_old_cards?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Card>>`
+  - after: `listCards(opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string; name?: string; search?: string; campaign?: string; source?: string; list?: string; custom_id?: string; board?: string; person?: string; organization?: string; user?: string; product?: string; service?: string; sector?: string; status?: CardStatusCode; rating?: string; tags?: string[]; followers?: string[]; users?: string[]; populate?: string[]; start_date?: string; end_date?: string; field_date?: string; created_at?: string; updated_at?: unknown; finished_at?: unknown; prediction_date?: unknown; entry_date?: unknown; next_task_start_date?: unknown; next_task_type?: TaskTypeCode; has_next_task?: string; no_owner?: boolean; custom_fields?: string[]; highlight_old_cards?: boolean } & Record<string, unknown> } = {}): Promise<Paged<Card>>`
+- `POST /v1/workspaces/{workspace_id}/connections/meta-fanpage-and-instagram (connections)`
+  - before: `metaFanpageAndInstagram(body: Partial<Connection>, opts: { query?: Record<string, unknown> } = {}): Promise<Connection>`
+  - after: `metaFanpageAndInstagram(body: Partial<Connection>, opts: { query?: { token?: string; sector?: string; pages?: string } & Record<string, unknown> } = {}): Promise<Connection>`
+- `POST /v1/workspaces/{workspace_id}/meta/instagram-auth (meta)`
+  - before: `instagramAuth(body: Record<string, unknown>, opts: { query?: Record<string, unknown> } = {}): Promise<unknown>`
+  - after: `instagramAuth(body: Record<string, unknown>, opts: { query?: { code?: string; access_token?: string } & Record<string, unknown> } = {}): Promise<unknown>`
+
+### Files
+
+- added `gen_forms.ts`
+- added `gen_quotationSettings.ts`
+- added `gen_verifyAccountExists.ts`
+- changed `gen_boards.ts`
+- changed `gen_cards.ts`
+- changed `gen_connections.ts`
+- changed `gen_copilot.ts`
+- changed `gen_enums.ts`
+- changed `gen_messages.ts`
+- changed `gen_meta.ts`
+- changed `gen_persons.ts`
+- changed `gen_queues.ts`
+- changed `gen_quotation.ts`
+- changed `gen_reports.ts`
+
 ## v0.8.0 (2026-11-03)
 
 **Classification:** `breaking` — o pedido do disparo por workspace ganha dois campos obrigatórios (`missingPersonPolicy`, `duplicatePersonPolicy`); jobs planejados antes seguem com o comportamento com que foram planejados.
