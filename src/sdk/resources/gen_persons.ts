@@ -38,11 +38,11 @@ export class Persons extends Resource {
 
     /**
      * Add followers to person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-followers
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/add-followers
      * @remarks Any query params may be sent (none documented).
      */
-    addFollowers(personId: string, body: Partial<Person>, opts: { query?: Record<string, unknown> } = {}): Promise<Person> {
-        return this.http.put('/v1/workspaces/{workspace_id}/persons/{person_id}/add-followers', { path: { person_id: personId }, body, query: opts.query });
+    addFollowers(id: string, body: Partial<Person>, opts: { query?: Record<string, unknown> } = {}): Promise<Person> {
+        return this.http.put('/v1/workspaces/{workspace_id}/persons/{id}/add-followers', { path: { id }, body, query: opts.query });
     }
 
     /**
@@ -65,11 +65,11 @@ export class Persons extends Resource {
 
     /**
      * Add sector to person by id.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-sectors
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/add-sectors
      * @remarks Any query params may be sent (none documented).
      */
-    addSectors(personId: string, body: Partial<Person>, opts: { query?: Record<string, unknown> } = {}): Promise<Person> {
-        return this.http.put('/v1/workspaces/{workspace_id}/persons/{person_id}/add-sectors', { path: { person_id: personId }, body, query: opts.query });
+    addSectors(id: string, body: Partial<Person>, opts: { query?: Record<string, unknown> } = {}): Promise<Person> {
+        return this.http.put('/v1/workspaces/{workspace_id}/persons/{id}/add-sectors', { path: { id }, body, query: opts.query });
     }
 
     /**
@@ -83,11 +83,11 @@ export class Persons extends Resource {
 
     /**
      * Add user on person.
-     * @method PUT /v1/workspaces/{workspace_id}/persons/{person_id}/add-users
+     * @method PUT /v1/workspaces/{workspace_id}/persons/{id}/add-users
      * @remarks Any query params may be sent (none documented).
      */
-    addUsers(personId: string, body: Partial<Person>, opts: { query?: Record<string, unknown> } = {}): Promise<Person> {
-        return this.http.put('/v1/workspaces/{workspace_id}/persons/{person_id}/add-users', { path: { person_id: personId }, body, query: opts.query });
+    addUsers(id: string, body: Partial<Person>, opts: { query?: Record<string, unknown> } = {}): Promise<Person> {
+        return this.http.put('/v1/workspaces/{workspace_id}/persons/{id}/add-users', { path: { id }, body, query: opts.query });
     }
 
     /**
@@ -120,9 +120,9 @@ export class Persons extends Resource {
     /**
      * Get duplicated persons by id.
      * @method GET /v1/workspaces/{workspace_id}/persons/{person_id}/duplicates
-     * @remarks Documented query: page, limit, order, direction_order (extra keys allowed).
+     * @remarks Documented query: filters, page, limit, order, direction_order (extra keys allowed).
      */
-    getDuplicates(personId: string, opts: { query?: { page?: string; limit?: number; order?: string; direction_order?: string } & Record<string, unknown> } = {}): Promise<Paged<Person>> {
+    getDuplicates(personId: string, opts: { query?: { filters?: string; page?: string; limit?: number; order?: string; direction_order?: string } & Record<string, unknown> } = {}): Promise<Paged<Person>> {
         return this.http.get('/v1/workspaces/{workspace_id}/persons/{person_id}/duplicates', { path: { person_id: personId }, query: opts.query });
     }
 
